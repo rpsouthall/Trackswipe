@@ -1,6 +1,7 @@
-using TrackSwipe.Core;
+﻿using TrackSwipe.Core;
 using TrackSwipe.Desktops;
 using TrackSwipe.Interop;
+using System.Diagnostics;
 using static TrackSwipe.Interop.NativeMethods;
 
 namespace TrackSwipe.Overlay;
@@ -28,9 +29,8 @@ internal sealed class WindowHandoff
 
     private enum Step { Switching, Freezing, Activating, Settling, Correcting, Done }
 
-    private readonly DesktopSwitcher? _switcher;
     private readonly Guid? _desktop;
-    private readonly IntPtr _switchSample;
+    private readonly SwitchLanding? _landing;
     private readonly Sprite? _sprite;
     private readonly Sprite? _backing;
     private readonly IntPtr _window;
@@ -44,30 +44,28 @@ internal sealed class WindowHandoff
     private bool _transitionsDisabled;
     private Rectangle? _lastFrame;
     private int _stableFrames;
-    private Spring? _correction;
+    private SettleMotion? _correction;
     private Rectangle _correctFrom, _correctTo;
-    private double _lastTick;
     private readonly double _started;
     private readonly Rectangle _predicted;
     private bool _restored;
 
     /// <param name="desktop">The desktop an instant switch was requested to, or null if not switching.</param>
-    /// <param name="switchSample">A window on that desktop that uncloaks once the switch lands (or zero).</param>
+    /// <param name="landing">Tells when that switch is on screen; null if not switching.</param>
     /// <param name="sprite">The chosen window's thumbnail, already resting at <paramref name="landed"/>; null when nothing was chosen.</param>
     /// <param name="freeze">Covers a rectangle of the overlay with a still of itself; <paramref name="unfreeze"/> removes it.</param>
-    public WindowHandoff(DesktopSwitcher? switcher, Guid? desktop, IntPtr switchSample, Sprite? sprite, Sprite? backing, Rectangle landed, double now,
+    public WindowHandoff(Guid? desktop, SwitchLanding? landing, Sprite? sprite, Sprite? backing, Rectangle landed, double now,
         Action<Rectangle>? freeze = null, Action? unfreeze = null)
     {
         _freeze = freeze;
         _unfreeze = unfreeze;
-        _switcher = switcher;
         _desktop = desktop;
-        _switchSample = switchSample;
+        _landing = landing;
         _sprite = sprite;
         _backing = backing;
         _window = sprite?.Item.Window ?? IntPtr.Zero;
         _landed = _predicted = landed;
-        _lastTick = _started = now;
+        _started = now;
         Enter(desktop is not null ? Step.Switching : Step.Activating, now);
     }
 
@@ -86,7 +84,7 @@ internal sealed class WindowHandoff
                     if (!_switchSeen) Log.Write("Desktop switch wasn't confirmed in time; carrying on.");
                     Enter(Step.Activating, now);
                 }
-                else if (DesktopScene.IsShown(_switchSample) ?? _switcher?.CurrentDesktopId() == _desktop)
+                else if (_landing?.HasLanded(now) ?? true)
                 {
                     _switchSeen = true;
                 }
@@ -100,14 +98,14 @@ internal sealed class WindowHandoff
                 Settle(now, elapsed);
                 break;
 
-            case Step.Correcting when _correction is { } spring:
-                spring.Step(Math.Clamp(now - _lastTick, 0, 0.05));
-                var done = spring.Position >= 0.998;
-                Place(done ? _correctTo : Round(LayoutRect.Lerp(ToLayout(_correctFrom), ToLayout(_correctTo), spring.Position)));
-                if (done) Enter(Step.Done, now);
+            case Step.Correcting when _correction is { } motion:
+                if (elapsed >= motion.Duration)
+                {
+                    Place(_correctTo);
+                    Enter(Step.Done, now);
+                }
                 break;
         }
-        _lastTick = now;
     }
 
     /// <summary>Call once the overlay is gone, to undo anything done to the window along the way.</summary>
@@ -190,8 +188,18 @@ internal sealed class WindowHandoff
         _unfreeze?.Invoke(); // the live thumbnail is good again by now, and it's what will move
         _correctFrom = _landed;
         _correctTo = target;
-        _correction = new Spring(new SpringPreset(0.22, 1.0)) { Position = 0, Target = 1 };
+        _correction = SettleMotion.Create(new SpringPreset(0.22, 1.0), 0, 0, 1, 0.002);
         Enter(Step.Correcting, now);
+        _sprite?.RefreshSourceSize();
+        var frames = _correction.Samples.Select(sample =>
+        {
+            var rect = LayoutRect.Lerp(ToLayout(_correctFrom), ToLayout(_correctTo), sample.Value);
+            return new SpriteFrame(sample.Time, new RectangleF((float)rect.X, (float)rect.Y, (float)rect.Width, (float)rect.Height), 1, null);
+        }).ToArray();
+        var begin = (long)(now * Stopwatch.Frequency);
+        _sprite?.Animate(frames, begin);
+        _backing?.Animate(frames, begin);
+        Composition.Flush();
     }
 
     /// <summary>The real window's visible frame in the thumbnail surface's coordinates, once it's restored.</summary>
@@ -236,6 +244,4 @@ internal sealed class WindowHandoff
 
     private static LayoutRect ToLayout(Rectangle r) => new(r.X, r.Y, r.Width, r.Height);
 
-    private static Rectangle Round(LayoutRect r) =>
-        Rectangle.FromLTRB((int)Math.Round(r.X), (int)Math.Round(r.Y), (int)Math.Round(r.Right), (int)Math.Round(r.Bottom));
 }

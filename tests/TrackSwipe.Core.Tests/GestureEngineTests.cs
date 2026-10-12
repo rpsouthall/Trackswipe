@@ -181,6 +181,24 @@ public class GestureEngineTests
     }
 
     [Fact]
+    public void Candidate_fires_once_when_fingers_land_before_tracking()
+    {
+        var events = new List<string>();
+        var h = new GestureHarness();
+        h.Engine.CandidateStarted += () => events.Add("candidate");
+        h.Engine.TrackingStarted += _ => events.Add("tracking");
+
+        h.Move(-45, 0, 0.5).Lift();
+        var wrongCount = new GestureHarness { Fingers = 3 };
+        var wrongCountCandidates = 0;
+        wrongCount.Engine.CandidateStarted += () => wrongCountCandidates++;
+        wrongCount.Move(-45, 0, 0.5).Lift();
+
+        Assert.Equal(new[] { "candidate", "tracking" }, events);
+        Assert.Equal(0, wrongCountCandidates);
+    }
+
+    [Fact]
     public void Ended_fires_once_after_committed()
     {
         var events = new List<string>();
@@ -191,6 +209,114 @@ public class GestureEngineTests
         h.Move(-45, 0, 0.5).Lift();
 
         Assert.Equal(new[] { "committed", "ended" }, events);
+    }
+}
+
+public class TrackingPresentationTests
+{
+    private static TouchFrame Report(double time, double progress, bool tip = true) => new(time,
+        Enumerable.Range(0, 4).Select(i => new Contact(i, 30 + 12 * i, 40 - 40 * progress, tip, true)).ToArray(), 110, 70);
+
+    private static GestureEngine Tracking()
+    {
+        var engine = new GestureEngine(new GestureOptions { DeadZoneMm = 0 });
+        engine.Process(Report(10, 0));
+        engine.Process(Report(10 + 1.0 / 60, 0.2));
+        engine.Tick(10 + 1.0 / 60);
+        return engine;
+    }
+
+    [Fact]
+    public void Sixty_hertz_reports_produce_even_motion_on_a_120_hertz_display()
+    {
+        var engine = Tracking();
+        var displayed = new List<double>();
+        for (var tick = 1; tick <= 48; tick++)
+        {
+            var elapsed = tick / 120.0;
+            var time = 10 + 1.0 / 60 + elapsed;
+            if (tick % 2 == 0) engine.Process(Report(time, 0.2 + elapsed));
+            engine.Tick(time);
+            if (tick >= 8) displayed.Add(engine.DisplayProgress);
+        }
+        Assert.All(displayed.Zip(displayed.Skip(1), (a, b) => b - a), delta => Assert.InRange(delta, 0.006, 0.011));
+        Assert.Equal(0.6, engine.Progress, 6); // presentation cannot change gesture decisions
+    }
+
+    [Theory]
+    [InlineData(60, 0.5)]
+    [InlineData(60, 3)]
+    [InlineData(60, 5)]
+    [InlineData(90, 3)]
+    [InlineData(125, 3)]
+    public void Fast_and_slow_tracking_remain_even_across_different_report_rates(double rate, double velocity)
+    {
+        var engine = new GestureEngine(new GestureOptions { DeadZoneMm = 0 });
+        engine.Process(Report(10, 0));
+        var started = 10 + 1 / rate;
+        engine.Process(Report(started, 0.1));
+        engine.Tick(started);
+        var nextReport = 1 / rate;
+        var displayed = new List<double>();
+        for (var tick = 1; tick <= 16; tick++)
+        {
+            var elapsed = tick / 120.0;
+            while (nextReport <= elapsed + 1e-9)
+            {
+                engine.Process(Report(started + nextReport, 0.1 + velocity * nextReport));
+                nextReport += 1 / rate;
+            }
+            engine.Tick(started + elapsed);
+            if (tick >= 6) displayed.Add(engine.DisplayProgress);
+        }
+        var expected = velocity / 120;
+        Assert.All(displayed.Zip(displayed.Skip(1), (a, b) => b - a), delta => Assert.InRange(delta, expected * 0.75, expected * 1.25));
+    }
+
+    [Fact]
+    public void Stalled_input_has_a_bounded_forecast()
+    {
+        var engine = Tracking();
+        engine.Process(Report(10 + 2.0 / 60, 0.22));
+        for (var tick = 0; tick < 40; tick++) engine.Tick(10 + 2.0 / 60 + tick / 120.0);
+        Assert.InRange(engine.DisplayProgress, 0.22, 0.255);
+        Assert.Equal(0.22, engine.Progress, 6);
+    }
+
+    [Fact]
+    public void A_reversal_changes_display_direction_on_the_next_frame()
+    {
+        var engine = Tracking();
+        engine.Process(Report(10 + 2.0 / 60, 0.22));
+        engine.Tick(10 + 2.0 / 60);
+        engine.Tick(10 + 2.5 / 60);
+        var before = engine.DisplayProgress;
+        engine.Process(Report(10 + 3.0 / 60, 0.20));
+        engine.Tick(10 + 3.0 / 60);
+        Assert.True(engine.DisplayProgress < before);
+    }
+
+    [Fact]
+    public void Release_starts_at_the_last_displayed_position()
+    {
+        var engine = Tracking();
+        engine.Process(Report(10 + 2.0 / 60, 0.22));
+        engine.Tick(10 + 2.5 / 60);
+        var before = engine.DisplayProgress;
+        engine.Process(Report(10 + 2.6 / 60, 0.22, tip: false));
+        Assert.Equal(GesturePhase.Settling, engine.Phase);
+        Assert.Equal(before, engine.DisplayProgress, 9);
+    }
+
+    [Fact]
+    public void A_stationary_report_stops_prediction()
+    {
+        var engine = Tracking();
+        engine.Process(Report(10 + 2.0 / 60, 0.22));
+        engine.Tick(10 + 2.5 / 60);
+        engine.Process(Report(10 + 3.0 / 60, 0.22));
+        engine.Tick(10 + 4.0 / 60);
+        Assert.Equal(0.22, engine.DisplayProgress, 3);
     }
 }
 

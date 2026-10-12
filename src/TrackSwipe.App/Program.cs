@@ -7,6 +7,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Shared with the original TrackSwipe on purpose: both react to the same swipes, so only one may run.
         using var instance = new Mutex(true, @"Local\TrackSwipe", out var isFirstInstance);
         if (!isFirstInstance) return;
 
@@ -15,7 +16,18 @@ internal static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Write($"Fatal: {e.ExceptionObject}");
 
         var (options, preview, diagnose, missionDiagnostics) = ParseArguments(args);
-        using var app = new TrayApp(options, preview, diagnose, missionDiagnostics);
+        TrayApp app;
+        try
+        {
+            app = new TrayApp(options, preview, diagnose, missionDiagnostics);
+        }
+        catch (PlatformNotSupportedException ex)
+        {
+            Log.Write($"Can't start: {ex.Message}");
+            MessageBox.Show($"{ex.Message}\n\nThe original TrackSwipe doesn't need this and still works.", "TrackSwipe GPU", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        using var _ = app;
         Application.ThreadException += (_, e) => app.HandleFault(e.Exception);
         Application.Run(app);
     }
@@ -55,7 +67,20 @@ internal static class Program
                     i++;
                     break;
                 case "--diagnose-open":
-                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_OPEN", "1");
+                    var openCycles = 2;
+                    if (int.TryParse(next, out var count))
+                    {
+                        openCycles = count;
+                        i++;
+                    }
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_OPEN", openCycles.ToString());
+                    break;
+                case "--diagnose-desktops":
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DESKTOPS", "1");
+                    break;
+                case "--diagnose-slide" when int.TryParse(next, out var slide) && slide is 1 or -1:
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE", slide.ToString());
+                    i++;
                     break;
                 case "--diagnose-mission":
                     diagnoseMission = true;

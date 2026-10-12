@@ -1,5 +1,6 @@
 using TrackSwipe.Core;
 using TrackSwipe.Desktops;
+using System.Diagnostics;
 
 namespace TrackSwipe.Overlay;
 
@@ -8,7 +9,7 @@ namespace TrackSwipe.Overlay;
 /// inside Mission Control), upward swipes open Mission Control and downward swipes close it. Owns the per-monitor thumbnail surfaces both use.
 /// Everything runs on the UI thread.
 /// </summary>
-internal sealed class OverlayController : IDisposable
+internal sealed partial class OverlayController : IDisposable
 {
     private enum Mode { None, Slide, MissionOpening, MissionClosing, MissionPan, Ignored }
 
@@ -17,25 +18,30 @@ internal sealed class OverlayController : IDisposable
     private readonly GestureEngine _engine;
     private readonly WindowDesktopLookup _windowDesktops = new();
     private readonly DesktopSwitcher? _switcher;
-    private readonly List<ThumbnailSurface> _surfaces = new();
     private readonly Swatches _swatches = new();
+    private readonly SurfaceSet _slideSurfaces;
+    private readonly SurfaceSet _missionSurfaces;
     private readonly DesktopSlide _slide;
     private readonly MissionControl _mission;
-    private (Rectangle Bounds, Rectangle WorkArea)[] _layout = Array.Empty<(Rectangle, Rectangle)>();
     private Mode _mode;
     private DesktopScene? _scene;
     private Func<bool>? _switchVisible;
     private double _switchStarted;
     private bool _switchSeen;
+    private (DesktopScene Scene, double CapturedAt)? _prewarmed;
+    private bool _settling;
 
     public OverlayController(GestureEngine engine)
     {
         _engine = engine;
         _switcher = DesktopSwitcher.TryCreate(VirtualDesktops.Read(), out var status);
         SwitcherStatus = status;
-        PrepareSurfaces();
+        _slideSurfaces = new SurfaceSet(_swatches);
+        _missionSurfaces = new SurfaceSet(_swatches);
+        _slideSurfaces.Prepare();
+        _missionSurfaces.Prepare();
         _slide = new DesktopSlide(_swatches);
-        _mission = new MissionControl(PrepareSurfaces, CaptureScene, _switcher, _swatches);
+        _mission = new MissionControl(_missionSurfaces.Prepare, CaptureScene, _switcher, _swatches);
         _mission.FramesNeeded += () => FramesNeeded?.Invoke();
     }
 
@@ -46,8 +52,23 @@ internal sealed class OverlayController : IDisposable
 
     public bool NeedsFrames => _switchVisible is not null || _mission.IsAnimating;
 
+    /// <summary>
+    /// The right fingers just landed: capture the scene now, while they travel through the dead zone,
+    /// so the gesture's first frame doesn't have to wait for it.
+    /// </summary>
+    public void Prewarm()
+    {
+        if (_mission.IsVisible || _switchVisible is not null) return; // Mission Control already has its scene
+        var scene = CaptureScene();
+        _prewarmed = (scene, Clock.Now);
+        // Up or sideways isn't known yet, so prepare both, hidden; whichever the swipe becomes only has to show.
+        _slide.Begin(scene, _slideSurfaces.Prepare());
+        _mission.Prepare(scene);
+    }
+
     public void TrackingStarted(GestureAxis axis)
     {
+        _settling = false;
         if (_switchVisible is not null) HideSlide(); // a previous switch is still landing; don't stack on it
 
         if (axis == GestureAxis.Horizontal)
@@ -65,12 +86,12 @@ internal sealed class OverlayController : IDisposable
                 Ignore(); // mid-animation
                 return;
             }
-            _scene = CaptureScene();
+            _scene = TakeScene(out _);
             var desktops = _scene.Desktops;
             _engine.CanGoPositive = desktops is null || _scene.Current < desktops.Count - 1;
             _engine.CanGoNegative = desktops is null || _scene.Current > 0;
-            var surfaces = PrepareSurfaces();
-            _slide.Begin(_scene, surfaces);
+            var surfaces = _slideSurfaces.Prepare();
+            _slide.Begin(_scene, surfaces); // usually already done, hidden, as the fingers landed
             _slide.Render(0); // place every thumbnail before showing, so the first frame matches the desktop
             foreach (var surface in surfaces) surface.Show();
             _mode = Mode.Slide;
@@ -93,11 +114,11 @@ internal sealed class OverlayController : IDisposable
             _engine.CanGoPositive = true;
             _engine.CanGoNegative = true; // swipe down from the desktop: show desktop
             var started = Clock.Now;
-            var scene = CaptureScene();
+            var scene = TakeScene(out var prewarmed);
             var captured = Clock.Now;
             BeginMission(scene);
-            Log.Write($"Mission Control start: scene {(captured - started) * 1000:0} ms, overview {(Clock.Now - captured) * 1000:0} ms, " +
-                $"{PrepareSurfaces().Sum(surface => surface.SpriteCount)} thumbnails");
+            Log.Write($"Mission Control start: scene {(captured - started) * 1000:0} ms{(prewarmed ? " (captured as fingers landed)" : "")}, " +
+                $"overview {(Clock.Now - captured) * 1000:0} ms ({_mission.LastBuildCost}), {_missionSurfaces.Prepare().Sum(surface => surface.SpriteCount)} thumbnails");
             _mode = Mode.MissionOpening;
         }
     }
@@ -132,6 +153,7 @@ internal sealed class OverlayController : IDisposable
 
     public void Ended()
     {
+        _settling = false;
         switch (_mode)
         {
             case Mode.Slide when _switchVisible is null:
@@ -154,10 +176,10 @@ internal sealed class OverlayController : IDisposable
     {
         var progress = _engine.DisplayProgress;
         if (_switchVisible is not null) PollSwitch(now);
-        else if (_mode == Mode.Slide) _slide.Render(progress);
-        else if (_mode == Mode.MissionOpening) _mission.Render(Math.Max(0, progress));
-        else if (_mode == Mode.MissionClosing) _mission.Render(1 + Math.Min(0, progress));
-        else if (_mode == Mode.MissionPan) _mission.Pan(progress);
+        else if (!_settling && _mode == Mode.Slide) _slide.Render(progress);
+        else if (!_settling && _mode == Mode.MissionOpening) _mission.Render(Math.Max(0, progress));
+        else if (!_settling && _mode == Mode.MissionClosing) _mission.Render(1 + Math.Min(0, progress));
+        else if (!_settling && _mode == Mode.MissionPan) _mission.Pan(progress);
         _mission.Tick(now);
     }
 
@@ -167,9 +189,21 @@ internal sealed class OverlayController : IDisposable
         if (_mission.IsOpen) _mission.Dismiss();
     }
 
+    public void SettlingStarted(SettleMotion motion)
+    {
+        var begin = (long)(_engine.SettleStartedAt * Stopwatch.Frequency);
+        if (_mode == Mode.Slide) _slide.Settle(motion, begin);
+        else if (_mode == Mode.MissionOpening) _mission.Settle(motion, begin, value => Math.Clamp(value, 0, 1));
+        else if (_mode == Mode.MissionClosing) _mission.Settle(motion, begin, value => Math.Clamp(1 + value, 0, 1));
+        else if (_mode == Mode.MissionPan) _mission.Settle(motion, begin, _ => 1, pan: true);
+        else return;
+        _settling = true;
+    }
+
     /// <summary>Drops everything on screen. Used when pausing and after errors.</summary>
     public void Cancel()
     {
+        _settling = false;
         _mode = Mode.None;
         _mission.Hide();
         HideSlide();
@@ -179,7 +213,7 @@ internal sealed class OverlayController : IDisposable
     public void RunDiagnostics(Action done)
     {
         var scene = CaptureScene();
-        var surfaces = PrepareSurfaces();
+        var surfaces = _slideSurfaces.Prepare();
         _slide.Begin(scene, surfaces);
         Log.Write($"Diagnose: {scene.DesktopCount} desktops, current index {scene.Current}; " +
             string.Join(", ", Enumerable.Range(0, scene.DesktopCount).Select(d => $"desktop {d + 1}: {scene.WindowsOn(d).Count(w => w.IsAppWindow)} app windows")) +
@@ -358,9 +392,9 @@ internal sealed class OverlayController : IDisposable
     public void Dispose()
     {
         _mission.Dispose();
-        foreach (var surface in _surfaces) surface.Dispose();
-        _swatches.Dispose();
-        _surfaces.Clear();
+        _slideSurfaces.Dispose();
+        _missionSurfaces.Dispose();
+        _swatches.Dispose(); // after the surfaces, whose base thumbnails mirror one of them
     }
 
     private void Ignore()
@@ -379,10 +413,13 @@ internal sealed class OverlayController : IDisposable
         if (_switcher is null || _scene?.Desktops?.Neighbour(step) is not { } target) return false;
 
         _slide.Render(step);
+        Interop.Composition.Flush(); // on screen before the switch call, which blocks for a few frames
         if (!_switcher.TrySwitch(target)) return false;
 
-        var sample = _scene.TopWindowOn(_scene.Current + step);
-        _switchVisible = () => DesktopScene.IsShown(sample) ?? _switcher.CurrentDesktopId() == target;
+        var switcher = _switcher;
+        var landing = new SwitchLanding(_scene.TopWindowOn(_scene.Current + step), _scene.TopWindowOn(_scene.Current), DesktopScene.IsShown,
+            () => switcher.CurrentDesktopId() == target, Clock.Now);
+        _switchVisible = () => landing.HasLanded(Clock.Now);
         _switchStarted = Clock.Now;
         _switchSeen = false;
         return true;
@@ -407,43 +444,29 @@ internal sealed class OverlayController : IDisposable
         }
     }
 
+    /// <summary>Hides the slide. Its thumbnails stay registered, so the next swipe on an unchanged desktop starts instantly.</summary>
     private void HideSlide()
     {
         _switchVisible = null;
-        if (_mission.IsVisible) return; // the surfaces belong to Mission Control right now
-        foreach (var surface in _surfaces)
-        {
-            surface.Hide();
-        }
+        _slideSurfaces.Hide();
     }
 
-    private void BeginMission(DesktopScene scene)
+    private void BeginMission(DesktopScene scene) => _mission.BeginOpening(scene);
+
+    /// <summary>The scene captured as the fingers landed, if it's recent; otherwise a fresh one.</summary>
+    private DesktopScene TakeScene(out bool prewarmed)
     {
-        // Slide registrations may be parked on these shared surfaces. Mission Control uses its
-        // own stacking and layout, so discard the slide cache before showing the overview.
-        if (!_mission.IsVisible)
-            foreach (var surface in _surfaces) surface.Clear();
-        _mission.BeginOpening(scene);
+        const double lifetime = 1.0;
+        var candidate = _prewarmed;
+        _prewarmed = null;
+        prewarmed = candidate is { } p && Clock.Now - p.CapturedAt < lifetime;
+        return prewarmed ? candidate!.Value.Scene : CaptureScene();
     }
 
     private DesktopScene CaptureScene()
     {
-        var exclude = _surfaces.Select(surface => surface.Handle).Concat(_mission.DecorationHandles).Concat(_swatches.Handles).ToHashSet();
+        var exclude = _slideSurfaces.Handles.Concat(_missionSurfaces.Handles).Concat(_mission.DecorationHandles).Concat(_swatches.Handles).ToHashSet();
         return DesktopScene.Capture(VirtualDesktops.Read(), _windowDesktops, exclude);
     }
 
-    /// <summary>Creates one surface per monitor, again whenever the monitor layout changes.</summary>
-    private IReadOnlyList<ThumbnailSurface> PrepareSurfaces()
-    {
-        var screens = Screen.AllScreens;
-        var layout = screens.Select(screen => (screen.Bounds, screen.WorkingArea)).ToArray();
-        if (_surfaces.Count == 0 || !layout.SequenceEqual(_layout))
-        {
-            foreach (var surface in _surfaces) surface.Dispose();
-            _surfaces.Clear();
-            _surfaces.AddRange(screens.Select(screen => new ThumbnailSurface(screen)));
-            _layout = layout;
-        }
-        return _surfaces;
-    }
 }

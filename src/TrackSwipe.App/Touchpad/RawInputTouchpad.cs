@@ -58,6 +58,11 @@ internal sealed class RawInputTouchpad : NativeWindow, IDisposable
         {
             ReadInput(m.LParam);
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // This runs on the touchpad thread; one unreadable report is not worth a crash.
+            Log.Write($"Touchpad report skipped: {ex.Message}");
+        }
         finally
         {
             base.WndProc(ref m); // DefWindowProc frees the raw input buffer

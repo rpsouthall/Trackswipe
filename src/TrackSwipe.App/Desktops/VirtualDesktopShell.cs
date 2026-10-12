@@ -144,16 +144,36 @@ internal sealed class DesktopSwitcher
     }
 
     /// <summary>Adds a desktop at the end of the list.</summary>
-    public bool TryCreateDesktop()
+    public Guid? TryCreateDesktop()
     {
         try
         {
-            Manager.CreateDesktop();
-            return true;
+            return Manager.CreateDesktop().GetId();
         }
         catch (COMException ex)
         {
             Log.Write($"Creating a desktop failed (0x{ex.HResult:X8}).");
+            _manager = null;
+            return null;
+        }
+    }
+
+    /// <summary>Removes a desktop and moves its windows to the surviving fallback desktop.</summary>
+    public bool TryRemoveDesktop(Guid desktopId, Guid fallbackId)
+    {
+        if (desktopId == fallbackId) return false;
+        try
+        {
+            var manager = Manager;
+            if (manager.GetCount() <= 1) return false;
+            var desktop = manager.FindDesktop(ref desktopId);
+            var fallback = manager.FindDesktop(ref fallbackId);
+            manager.RemoveDesktop(desktop, fallback);
+            return true;
+        }
+        catch (COMException ex)
+        {
+            Log.Write($"Removing a desktop failed (0x{ex.HResult:X8}).");
             _manager = null;
             return false;
         }

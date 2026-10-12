@@ -38,6 +38,7 @@ internal static class NativeMethods
     public const uint SWP_NOSIZE = 0x0001;
     public const uint SWP_NOMOVE = 0x0002;
     public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_SHOWWINDOW = 0x0040;
     public const uint SWP_ASYNCWINDOWPOS = 0x4000;
     public const int BLACK_BRUSH = 4;
 
@@ -51,6 +52,8 @@ internal static class NativeMethods
     public const uint DWM_TNP_OPACITY = 0x04;
     public const uint DWM_TNP_VISIBLE = 0x08;
     public const uint DWM_TNP_SOURCECLIENTAREAONLY = 0x10;
+    /// <summary>Undocumented. Shared thumbnail visuals reject every property update that lacks it (E_INVALIDARG).</summary>
+    public const uint DWM_TNP_ENABLE3D = 0x4000000;
 
     public const uint RIDEV_INPUTSINK = 0x00000100;
     public const uint RID_INPUT = 0x10000003;
@@ -64,8 +67,45 @@ internal static class NativeMethods
     public const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     public const uint KEYEVENTF_KEYUP = 0x0002;
 
+    public const int WS_EX_NOREDIRECTIONBITMAP = 0x00200000;
+    public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    public const int WM_APP = 0x8000;
+    public const uint WM_QUIT = 0x0012;
+    public const uint SMTO_NORMAL = 0x0000;
+    public const uint SMTO_ABORTIFHUNG = 0x0002;
+
     private const uint MONITOR_DEFAULTTONEAREST = 2;
     private const int MDT_EFFECTIVE_DPI = 0;
+
+    /// <summary>Windows 11 compositor clock: returns at the compositor's next frame tick (or a handle, or timeout).</summary>
+    [DllImport("dcomp.dll")]
+    public static extern uint DCompositionWaitForCompositorClock(uint count, IntPtr handles, uint timeoutMs);
+
+    /// <summary>Windows 11: asks the compositor to run at the display's highest refresh rate while this app animates.</summary>
+    [DllImport("dcomp.dll")]
+    public static extern int DCompositionBoostCompositorClock([MarshalAs(UnmanagedType.Bool)] bool enable);
+
+    /// <summary>Fills a 292-byte DWM_TIMING_INFO; the fields used are read by offset (the struct is packed).</summary>
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetCompositionTimingInfo(IntPtr hwnd, IntPtr timingInfo);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessageTimeoutW(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessageW(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostThreadMessageW(uint threadId, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern int GetMessageW(out MSG message, IntPtr hwnd, uint filterMin, uint filterMax);
+
+    [DllImport("user32.dll")]
+    public static extern bool TranslateMessage(ref MSG message);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr DispatchMessageW(ref MSG message);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] devices, uint count, uint size);
@@ -90,6 +130,11 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
+
+    public const uint LWA_ALPHA = 0x2;
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLayeredWindowAttributes(IntPtr hwnd, out uint colorKey, out byte alpha, out uint flags);
 
     [DllImport("user32.dll")]
     public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr parameter);
@@ -271,6 +316,16 @@ internal static class NativeMethods
 internal struct POINT
 {
     public int X, Y;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct MSG
+{
+    public IntPtr Hwnd;
+    public uint Message;
+    public IntPtr WParam, LParam;
+    public uint Time;
+    public POINT Point;
 }
 
 [StructLayout(LayoutKind.Sequential)]

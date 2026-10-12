@@ -17,11 +17,11 @@ public sealed class GestureEngine
 
     private readonly Dictionary<int, (double X, double Y)> _previous = new();
     private readonly VelocityTracker _velocity = new(VelocityWindow);
-    private Spring? _spring;
+    private readonly TrackingPresentation _presentation = new();
+    private SettleMotion? _settleMotion;
     private double _travelX, _travelY;
     private double _lastFrameTime = double.NegativeInfinity;
     private double _lastTickTime;
-    private double _settleFrom;
     private double _target;
 
     public GestureEngine(GestureOptions? options = null) => Options = options ?? new GestureOptions();
@@ -40,6 +40,7 @@ public sealed class GestureEngine
 
     /// <summary>Progress per second, measured over the last few frames.</summary>
     public double Velocity { get; private set; }
+    public double SettleStartedAt => _lastTickTime;
 
     public int ActiveContacts { get; private set; }
 
@@ -55,12 +56,19 @@ public sealed class GestureEngine
     /// <summary>True while <see cref="Tick"/> needs calling every display frame.</summary>
     public bool NeedsFrames => Phase is GesturePhase.Tracking or GesturePhase.Settling;
 
+    /// <summary>
+    /// The right number of fingers just landed; a swipe may follow once they move past the dead zone.
+    /// A chance to prepare ahead of <see cref="TrackingStarted"/>, while the fingers cover that distance.
+    /// </summary>
+    public event Action? CandidateStarted;
+
     public event Action<GestureAxis>? TrackingStarted;
 
     public event Action<SwipeAction>? Committed;
 
     /// <summary>Raised when a tracked gesture is fully over, after <see cref="Committed"/> if it committed.</summary>
     public event Action? Ended;
+    public event Action<SettleMotion>? SettlingStarted;
 
     public void Process(TouchFrame frame)
     {
@@ -83,6 +91,7 @@ public sealed class GestureEngine
                 {
                     _travelX = _travelY = 0;
                     Phase = GesturePhase.Candidate;
+                    CandidateStarted?.Invoke();
                 }
                 break;
 
@@ -115,16 +124,19 @@ public sealed class GestureEngine
     public void Tick(double time)
     {
         if (Phase == GesturePhase.Tracking && time - _lastFrameTime > Options.ReleaseTimeout) Release(time);
-        if (Phase != GesturePhase.Settling || _spring is null) return;
-
-        _spring.Step(Math.Clamp(time - _lastTickTime, 0, 0.05));
-        _lastTickTime = time;
-        var position = _spring.Position;
+        if (Phase == GesturePhase.Tracking)
+        {
+            DisplayProgress = Shape(_presentation.Sample(time));
+            return;
+        }
+        if (Phase != GesturePhase.Settling || _settleMotion is null) return;
+        var elapsed = Math.Max(0, time - _lastTickTime);
+        var position = _settleMotion.At(elapsed);
 
         if (_target != 0)
         {
             // Fire as soon as the panel arrives (or overshoots); the OS takes over from there.
-            if ((position - _target) * _target >= -Options.CommitTolerance)
+            if (elapsed >= _settleMotion.Duration)
             {
                 Finish((Axis, _target > 0) switch
                 {
@@ -136,7 +148,7 @@ public sealed class GestureEngine
                 return;
             }
         }
-        else if (Math.Sign(position) != Math.Sign(_settleFrom) || _spring.IsAtRest)
+        else if (elapsed >= _settleMotion.Duration)
         {
             // Cancelling: stop at zero instead of overshooting into the opposite panel.
             Finish(null);
@@ -150,8 +162,9 @@ public sealed class GestureEngine
     {
         Phase = GesturePhase.Idle;
         Axis = GestureAxis.None;
-        _spring = null;
+        _settleMotion = null;
         Progress = DisplayProgress = Velocity = 0;
+        _presentation.Reset();
         _previous.Clear();
     }
 
@@ -201,6 +214,7 @@ public sealed class GestureEngine
         Axis = axis;
         Phase = GesturePhase.Tracking;
         _velocity.Clear();
+        _presentation.Reset();
         TrackingStarted?.Invoke(axis);
         UpdateProgress(time);
     }
@@ -209,6 +223,7 @@ public sealed class GestureEngine
     {
         Progress = Axis == GestureAxis.Horizontal ? -_travelX / Options.FullSwipeMm : -_travelY / Options.FullSwipeVerticalMm;
         _velocity.Add(time, Progress);
+        _presentation.Add(time, Progress);
         Velocity = _velocity.Estimate(time);
         DisplayProgress = Shape(Progress);
     }
@@ -226,22 +241,20 @@ public sealed class GestureEngine
 
         // Hand the release velocity to the spring, as seen through the rubber band.
         const double h = 1e-3;
-        _spring = new Spring(Options.Spring)
-        {
-            Position = DisplayProgress,
-            Velocity = (Shape(p + v * h) - Shape(p)) / h,
-            Target = _target,
-        };
-        _settleFrom = DisplayProgress;
+        // Start from the last displayed position, even if lift reports arrived between display frames.
+        var displayed = _presentation.HasPresented ? Shape(_presentation.Value) : DisplayProgress;
+        _settleMotion = SettleMotion.Create(Options.Spring, displayed, (Shape(p + v * h) - Shape(p)) / h, _target, Options.CommitTolerance);
+        DisplayProgress = displayed;
         _lastTickTime = time;
         Phase = GesturePhase.Settling;
+        SettlingStarted?.Invoke(_settleMotion);
     }
 
     private void Finish(SwipeAction? action)
     {
         Phase = GesturePhase.Idle;
         Axis = GestureAxis.None;
-        _spring = null;
+        _settleMotion = null;
         Progress = DisplayProgress = Velocity = 0;
         if (action is { } committed) Committed?.Invoke(committed);
         Ended?.Invoke();

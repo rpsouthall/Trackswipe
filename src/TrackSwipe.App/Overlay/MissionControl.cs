@@ -1,4 +1,3 @@
-using System.Drawing.Drawing2D;
 using Microsoft.Win32;
 using TrackSwipe.Core;
 using TrackSwipe.Desktops;
@@ -12,11 +11,11 @@ namespace TrackSwipe.Overlay;
 /// miniatures across the top, the wallpaper dimmed. Everything in between is interpolated, so
 /// a gesture can drive it continuously and reverse it.
 /// </summary>
-internal sealed class MissionControl : IDisposable
+internal sealed partial class MissionControl : IDisposable
 {
     private enum State { Hidden, Tracking, Open, Closing }
 
-    private enum HitKind { None, Window, Desktop, AddDesktop }
+    private enum HitKind { None, Window, Desktop, CloseDesktop, AddDesktop, DisabledControl }
 
     private readonly record struct Hit(HitKind Kind, Part? Window = null, int Desktop = -1);
 
@@ -27,7 +26,8 @@ internal sealed class MissionControl : IDisposable
     private readonly Func<DesktopScene> _capture;
     private readonly DesktopSwitcher? _switcher;
     private readonly Swatches _swatches;
-    private readonly Dictionary<ThumbnailSurface, DecorationWindow> _decorations = new();
+    private readonly Dictionary<ThumbnailSurface, GpuDecorationLayer> _decorations = new();
+    private readonly Dictionary<ThumbnailSurface, GpuRestoreCover> _freezeCovers = new();
     private readonly List<Plan> _plans = new();
     private readonly Color _accent = ReadAccent();
 
@@ -35,15 +35,15 @@ internal sealed class MissionControl : IDisposable
     private DesktopScene? _scene;
     private double _openness;
     private double _pan;
-    private Spring? _closeSpring;
+    private SettleMotion? _closeMotion;
     private double _lastTick;
     private Part? _focus;
     private (Rectangle From, byte Opacity)? _chosenJourney;
     private Hit _hover;
     private Plan? _hoverPlan;
     private bool _escapeRegistered;
-    private (int Count, double Deadline)? _pendingRefresh;
     private int _realDesktop;
+    private readonly Queue<Action> _deferred = new();
     private WindowHandoff? _handoff;
     private readonly Dictionary<(ThumbnailSurface Surface, IntPtr Window, string Slot), Sprite> _reusable = new();
 
@@ -60,32 +60,75 @@ internal sealed class MissionControl : IDisposable
 
     public bool IsVisible => _state != State.Hidden;
 
-    public bool IsOpen => _state == State.Open;
+    public bool IsOpen => _state == State.Open && !DesktopBarBusy;
 
-    public bool IsAnimating => _state == State.Closing || _pendingRefresh is not null || _handoff is not null;
+    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _handoff is not null;
 
     /// <summary>Closing, or handing off to the real desktop; a gesture shouldn't reopen it.</summary>
     public bool IsClosing => _state == State.Closing;
 
-    public IEnumerable<IntPtr> DecorationHandles => _decorations.Values.Select(decoration => decoration.Handle);
+    public IEnumerable<IntPtr> DecorationHandles => Array.Empty<IntPtr>();
 
     /// <summary>Shows Mission Control at openness 0, ready for a gesture to drive it.</summary>
     public void BeginOpening(DesktopScene scene)
     {
+        var started = Clock.Now;
         _realDesktop = scene.Current;
-        Build(scene);
-        RemoveStale();
+        var prepared = _prepared == scene && _plans.Count > 0;
+        if (!prepared)
+        {
+            Build(scene, defer: true);
+            RemoveStale();
+            DisposeSpareTileDecorations();
+            // Labels are invisible for the first half of opening; render their GPU surfaces in deferred steps.
+            foreach (var plan in _plans) _deferred.Enqueue(() => plan.Decoration.Paint(LabelsFor(plan)));
+        }
+        _prepared = null;
+        var built = Clock.Now;
+        double place = 0, show = 0;
         foreach (var plan in _plans)
         {
+            var a = Clock.Now;
             Render(plan, 0);
+            var b = Clock.Now;
             plan.Surface.Show();
-            Paint(plan);
             plan.Decoration.SetAlpha(0);
             plan.Decoration.Show();
+            foreach (var tile in plan.Tiles) tile.Decoration!.Show();
+            place += b - a;
+            show += Clock.Now - b;
         }
+        LastBuildCost = prepared
+            ? $"prepared as fingers landed; place {place * 1000:0} ms, show {show * 1000:0} ms"
+            : $"thumbnails {(built - started) * 1000:0} ms, place {place * 1000:0} ms, show {show * 1000:0} ms, {_deferred.Count} steps deferred";
         _openness = 0;
         _state = State.Tracking;
     }
+
+    /// <summary>
+    /// Builds the overview for <paramref name="scene"/> while hidden, as fingers land, so that if the
+    /// swipe goes up, opening only has to show it. Thumbnails of unchanged windows are reused from the
+    /// last preparation, so repeated touches cost little.
+    /// </summary>
+    public void Prepare(DesktopScene scene)
+    {
+        if (_state != State.Hidden) return;
+        Build(scene); // complete, not deferred: nothing is animating yet
+        RemoveStale();
+        DisposeSpareTileDecorations();
+        foreach (var plan in _plans)
+        {
+            Render(plan, 0);
+            plan.Decoration.SetAlpha(0);
+            plan.Decoration.Paint(LabelsFor(plan));
+        }
+        _prepared = scene;
+    }
+
+    private DesktopScene? _prepared;
+
+    /// <summary>Where the last <see cref="BeginOpening"/> spent its time, for the log.</summary>
+    public string LastBuildCost { get; private set; } = "";
 
     /// <summary>Hands control back to a gesture (swiping down to close).</summary>
     /// <remarks>
@@ -94,6 +137,7 @@ internal sealed class MissionControl : IDisposable
     /// </remarks>
     public void BeginGestureClose()
     {
+        RunDeferred(budget: double.PositiveInfinity);
         var target = WindowUnderPointer();
         SetInteractive(false);
         SetHover(null, default);
@@ -115,6 +159,7 @@ internal sealed class MissionControl : IDisposable
     /// <summary>A sideways swipe started while open: stop taking clicks until it ends.</summary>
     public void BeginPan()
     {
+        RunDeferred(budget: double.PositiveInfinity); // the neighbouring desktops are about to slide in
         SetInteractive(false);
         SetHover(null, default);
     }
@@ -157,6 +202,7 @@ internal sealed class MissionControl : IDisposable
     public void SetOpen()
     {
         if (_state == State.Hidden) return;
+        RunDeferred(budget: double.PositiveInfinity); // fully open: everything must be there to click
         Unchoose(); // a swipe down that snapped back open closes onto nothing
         Render(1);
         _state = State.Open;
@@ -168,17 +214,16 @@ internal sealed class MissionControl : IDisposable
 
     public void Tick(double now)
     {
-        if (_state == State.Closing && _closeSpring is { } spring)
+        RunDeferred(budget: 0.003);
+
+        if (_state == State.Closing && _closeMotion is { } motion)
         {
-            spring.Step(Math.Clamp(now - _lastTick, 0, 0.05));
-            _lastTick = now;
-            if (spring.Position <= 0.003)
+            if (now - _lastTick >= motion.Duration)
             {
-                _closeSpring = null;
+                _closeMotion = null;
                 Closed();
                 return;
             }
-            Render(spring.Position);
         }
 
         // Closed: switching, restoring and activating underneath until the real desktop matches the overlay.
@@ -193,24 +238,18 @@ internal sealed class MissionControl : IDisposable
             return;
         }
 
-        // A new desktop shows up in the registry shortly after Explorer creates it.
-        if (_pendingRefresh is { } pending && _state == State.Open)
-        {
-            if ((VirtualDesktops.Read()?.Count ?? 0) >= pending.Count || now > pending.Deadline)
-            {
-                _pendingRefresh = null;
-                Rebuild(_capture().WithCurrent(_scene!.Current)); // the new desktop is added at the end, so indices hold
-            }
-        }
+        TickDesktopBar(now);
     }
 
     public void Hide()
     {
         _state = State.Hidden;
         _pan = 0;
-        _closeSpring = null;
-        _pendingRefresh = null;
+        _closeMotion = null;
+        ResetDesktopBar();
         _handoff = null;
+        _deferred.Clear();
+        _prepared = null;
         _reusable.Clear();
         _focus = null;
         _chosenJourney = null;
@@ -222,9 +261,13 @@ internal sealed class MissionControl : IDisposable
             plan.Decoration.Hide();
             plan.Surface.Hide();
             plan.Surface.Clear();
+            foreach (var tile in plan.Tiles) tile.Decoration!.Dispose();
         }
         _plans.Clear();
         _scene = null;
+        foreach (var cover in _freezeCovers.Values) cover.Dispose();
+        _freezeCovers.Clear();
+        Interop.Composition.Gpu.Capture.Dispose();
     }
 
     /// <summary>For diagnostics: where things were laid out, per monitor.</summary>
@@ -238,6 +281,8 @@ internal sealed class MissionControl : IDisposable
         Hide();
         foreach (var decoration in _decorations.Values) decoration.Dispose();
         _decorations.Clear();
+        foreach (var cover in _freezeCovers.Values) cover.Dispose();
+        _freezeCovers.Clear();
     }
 
     /// <summary>Animates closed onto the viewed desktop, as clicking empty space does.</summary>
@@ -266,15 +311,23 @@ internal sealed class MissionControl : IDisposable
     /// <summary>Animates closed. <paramref name="focus"/>, if given, is brought to the front and activated once closed.</summary>
     private void Close(Part? focus = null)
     {
-        if (_state is State.Hidden or State.Closing) return;
+        if (_state is State.Hidden or State.Closing || DesktopBarBusy) return;
+        RunDeferred(budget: double.PositiveInfinity);
         SetInteractive(false);
         SetHover(null, default);
         UnregisterEscape();
         if (focus is not null) Choose(focus);
-        _closeSpring = new Spring(SpringPreset.Snappy) { Position = _openness, Target = 0 };
+        _closeMotion = SettleMotion.Create(SpringPreset.Snappy, _openness, 0, 0);
         _lastTick = Clock.Now;
         _state = State.Closing;
+        Settle(_closeMotion, (long)(_lastTick * System.Diagnostics.Stopwatch.Frequency), value => value);
         FramesNeeded?.Invoke();
+        if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_BLOCK_UI_MS"), out var block) && block > 0)
+        {
+            Log.Write("Compositor stall verification: UI pause started.");
+            Thread.Sleep(Math.Clamp(block, 1, 500));
+            Log.Write("Compositor stall verification: UI pause finished.");
+        }
     }
 
     /// <summary>
@@ -307,6 +360,7 @@ internal sealed class MissionControl : IDisposable
             focus.FromOpacity = 255;
         }
         _focus = focus;
+        if (focus.Sprite.Item.IsMinimized) Interop.Composition.Gpu.Capture.Prepare(focus.Surface.Monitor);
     }
 
     /// <summary>Undoes <see cref="Choose"/>, e.g. when a swipe down is released before it closes.</summary>
@@ -354,6 +408,7 @@ internal sealed class MissionControl : IDisposable
             return;
         }
         Render(0);
+        Interop.Composition.Flush(); // on screen before the switch call, which blocks for a few frames
         var target = _scene.Current;
         Guid? switchingTo = null;
         if (target != _realDesktop)
@@ -382,31 +437,28 @@ internal sealed class MissionControl : IDisposable
             return;
         }
         var focusPlan = _focus is null ? null : PlanFor(_focus.Surface);
-        _handoff = new WindowHandoff(_switcher, switchingTo, _scene.TopWindowOn(target),
+        var switcher = _switcher;
+        var landing = switchingTo is { } desktop && switcher is not null
+            ? new SwitchLanding(_scene.TopWindowOn(target), _scene.TopWindowOn(_realDesktop), DesktopScene.IsShown,
+                () => switcher.CurrentDesktopId() == desktop, Clock.Now)
+            : null;
+        _handoff = new WindowHandoff(switchingTo, landing,
             _focus?.Sprite, _focus?.Backing, _focus?.From ?? Rectangle.Empty, Clock.Now,
             focusPlan is null ? null : rect => Freeze(focusPlan, rect),
-            focusPlan is null ? null : () => focusPlan.Decoration.SetAlpha(0));
+            focusPlan is null ? null : () => Unfreeze(focusPlan));
         FramesNeeded?.Invoke();
     }
 
     /// <summary>Covers <paramref name="rect"/> of a surface with a still image of what it shows right now.</summary>
-    private static void Freeze(Plan plan, Rectangle rect)
+    private void Freeze(Plan plan, Rectangle rect)
     {
-        rect.Intersect(new Rectangle(Point.Empty, plan.Surface.Monitor.Size));
-        if (rect.IsEmpty) return;
-        using var still = new Bitmap(rect.Width, rect.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(still))
-            g.CopyFromScreen(rect.X + plan.Surface.Monitor.X, rect.Y + plan.Surface.Monitor.Y, 0, 0, rect.Size);
-        plan.Decoration.Paint(g => g.DrawImageUnscaled(still, rect.Location));
-        plan.Decoration.SetAlpha(255);
-        if (!plan.Decoration.IsShown) plan.Decoration.Show();
+        Unfreeze(plan);
+        if (GpuRestoreCover.Capture(plan.Surface, rect) is { } cover) _freezeCovers[plan.Surface] = cover;
     }
 
-    private void AddDesktop()
+    private void Unfreeze(Plan plan)
     {
-        if (_scene is null || _switcher?.TryCreateDesktop() != true) return;
-        _pendingRefresh = (_scene.DesktopCount + 1, Clock.Now + 1.0);
-        FramesNeeded?.Invoke();
+        if (_freezeCovers.Remove(plan.Surface, out var cover)) cover.Dispose();
     }
 
     /// <summary>
@@ -425,7 +477,20 @@ internal sealed class MissionControl : IDisposable
             Paint(plan);
         }
         RemoveStale();
+        DisposeSpareTileDecorations();
         SetInteractive(_state == State.Open);
+    }
+
+    /// <summary>
+    /// Runs queued build steps from a deferred <see cref="Build"/> until <paramref name="budget"/> seconds
+    /// have passed, then places what they added. Spreads the cost of opening across the first frames.
+    /// </summary>
+    private void RunDeferred(double budget)
+    {
+        if (_deferred.Count == 0) return;
+        var until = Clock.Now + budget;
+        while (_deferred.Count > 0 && Clock.Now < until) _deferred.Dequeue()();
+        foreach (var plan in _plans) Render(plan, _openness);
     }
 
     /// <summary>Removes the thumbnails the last rebuild didn't reuse.</summary>
@@ -445,18 +510,22 @@ internal sealed class MissionControl : IDisposable
         var source = mirror ?? item;
         if (_reusable.Remove((surface, item.Window, slot), out var sprite))
         {
-            if (sprite.Item == source) return sprite;
+            if (sprite.TryReuse(source)) return sprite;
             surface.Remove(sprite); // the window moved since; its placement would be stale
         }
         return surface.Add(source);
     }
 
-    /// <summary>A Mica-coloured backing for an app window, registered first so it sits underneath.</summary>
+    /// <summary>A Mica-coloured backing for a window that relies on a system backdrop, registered first so it sits underneath.</summary>
     private Sprite? AcquireBacking(ThumbnailSurface surface, SceneItem item, string slot) =>
-        item.IsAppWindow ? Acquire(surface, item, slot + "-back", _swatches.BackingFor(item)) : null;
+        item.NeedsBacking ? Acquire(surface, item, slot + "-back", _swatches.BackingFor(item)) : null;
 
-    private void Build(DesktopScene scene)
+    /// <param name="defer">Register only what the first frame shows; queue the rest for <see cref="RunDeferred"/>.</param>
+    private void Build(DesktopScene scene, bool defer = false)
     {
+        RecycleTileDecorations();
+        _deferred.Clear();
+        _prepared = null;
         _scene = scene;
         _hover = default;
         _hoverPlan = null;
@@ -474,12 +543,12 @@ internal sealed class MissionControl : IDisposable
             surface.MouseMoved += OnMouseMoved;
             surface.Clicked -= OnClicked;
             surface.Clicked += OnClicked;
-            BuildPlan(plan, scene);
+            BuildPlan(plan, scene, defer ? _deferred : null);
             _plans.Add(plan);
         }
     }
 
-    private void BuildPlan(Plan plan, DesktopScene scene)
+    private void BuildPlan(Plan plan, DesktopScene scene, Queue<Action>? later)
     {
         var surface = plan.Surface;
         var screen = new Rectangle(Point.Empty, surface.Monitor.Size);
@@ -492,21 +561,18 @@ internal sealed class MissionControl : IDisposable
         var top = work.Top + margin;
         if (surface.IsPrimary)
         {
-            var tileHeight = (int)(screen.Height * 0.105);
-            var tileWidth = tileHeight * screen.Width / screen.Height;
-            var gap = (int)(22 * s);
-            var addWidth = _switcher is null ? 0 : tileHeight / 2;
             var count = scene.DesktopCount;
-            var total = count * tileWidth + (count - 1) * gap + (addWidth > 0 ? gap + addWidth : 0);
-            var x = (screen.Width - total) / 2;
-            var y = work.Top + (int)(20 * s);
+            var bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, _switcher is not null && scene.Desktops is not null);
             for (var i = 0; i < count; i++)
             {
                 var label = scene.Desktops?.Label(i) ?? "Desktop";
-                plan.Tiles.Add(new Tile(i, new Rectangle(x + i * (tileWidth + gap), y, tileWidth, tileHeight), label));
+                var tile = new Tile(i, scene.Desktops?.Ids[i] ?? Guid.Empty, bar.Tiles[i], label,
+                    DesktopBarLayout.CloseButton(bar.Tiles[i], s));
+                AttachTileDecoration(plan, tile);
+                plan.Tiles.Add(tile);
             }
-            if (addWidth > 0) plan.AddTile = new Rectangle(x + count * (tileWidth + gap), y, addWidth, tileHeight);
-            top = y + tileHeight + (int)(30 * s) + margin;
+            plan.AddTile = bar.AddButton;
+            top = bar.SpreadTop;
         }
         var area = Rectangle.FromLTRB(work.Left + margin, top, work.Right - margin, work.Bottom - margin);
 
@@ -519,21 +585,24 @@ internal sealed class MissionControl : IDisposable
 
         // The current desktop's windows spread out. Its neighbours' spreads wait one screen to either
         // side, so a sideways swipe can pan to them while the bar stays put.
-        for (var layer = -1; layer <= 1; layer++)
+        // The neighbours are off-screen until a pan, so with a deferred build they come in over the first frames.
+        BuildSpread(plan, scene, scene.Current, 0, area, isCurrent: true);
+        foreach (var layer in new[] { -1, 1 })
         {
             var desktop = scene.Current + layer;
-            if (desktop >= 0 && desktop < scene.DesktopCount) BuildSpread(plan, scene, desktop, layer * screen.Width, area, layer == 0);
+            if (desktop >= 0 && desktop < scene.DesktopCount) Step(() => BuildSpread(plan, scene, desktop, layer * screen.Width, area, isCurrent: false));
         }
 
         // Desktop miniatures: each desktop's wallpaper and on-screen windows, scaled into its tile. They slide down from above.
-        foreach (var tile in plan.Tiles)
+        foreach (var tile in plan.Tiles) Step(() => AddTile(tile));
+        void AddTile(Tile tile)
         {
             var scale = tile.Bounds.Width / (double)screen.Width;
             var lift = tile.Bounds.Bottom + (int)(20 * s);
             var items = scene.Wallpapers.Concat(scene.VisibleWindowsOn(tile.Desktop).Where(item => item.IsAppWindow));
             foreach (var item in items)
             {
-                var slot = $"tile{tile.Desktop}";
+                var slot = $"tile:{tile.Id}";
                 if (!item.Bounds.IntersectsWith(surface.Monitor)) continue;
                 var backing = AcquireBacking(surface, item, slot);
                 if (Acquire(surface, item, slot) is not { } sprite) continue;
@@ -550,12 +619,14 @@ internal sealed class MissionControl : IDisposable
                 plan.Parts.Add(new Part(surface, sprite, from, to, 0, 255)
                 {
                     Slot = slot, Backing = backing, ClipFrom = clipFrom, ClipTo = tile.Bounds,
+                    TileId = tile.Id,
                 });
             }
         }
 
         // Highlight ring around the viewed desktop's tile. While panning it glides towards the tile being swiped to.
-        if (plan.Tiles.Count > 0 && plan.Tiles.FirstOrDefault(tile => tile.Desktop == scene.Current) is { } viewed)
+        if (plan.Tiles.Count > 0 && plan.Tiles.FirstOrDefault(tile => tile.Desktop == scene.Current) is { } viewed) Step(() => AddRing(viewed));
+        void AddRing(Tile viewed)
         {
             var (ring, overhang) = _swatches.Ring(viewed.Bounds.Size, s, _accent);
             if (Acquire(surface, ring, "ring") is { } sprite)
@@ -573,10 +644,18 @@ internal sealed class MissionControl : IDisposable
             }
         }
 
+        // Registered now even when the rest is deferred: it's on screen from the first frame. Deferred parts
+        // registered after it never overlap it (the bar is at the top, spreads stay above the taskbar).
         foreach (var taskbar in scene.Taskbars)
         {
             if (!taskbar.Bounds.IntersectsWith(surface.Monitor) || Acquire(surface, taskbar, "taskbar") is not { } sprite) continue;
             plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, 255) { Slot = "taskbar" });
+        }
+
+        void Step(Action build)
+        {
+            if (later is null) build();
+            else later.Enqueue(build);
         }
     }
 
@@ -626,43 +705,91 @@ internal sealed class MissionControl : IDisposable
 
     private void Render(Plan plan, double openness)
     {
-        var panBy = (int)Math.Round(_pan * plan.Surface.Monitor.Width);
+        var panBy = (float)(_pan * plan.Surface.Monitor.Width);
         foreach (var part in plan.Parts)
         {
-            var rect = Round(LayoutRect.Lerp(ToLayout(part.From), ToLayout(part.To), openness));
+            var rect = ToRectangleF(LayoutRect.Lerp(ToLayout(part.From), ToLayout(part.To), openness));
             if (part.Pans) rect.Offset(-panBy, 0);
             if ((_pan > 0 ? part.PanNext : _pan < 0 ? part.PanPrevious : null) is { } panTarget)
-                rect = Round(LayoutRect.Lerp(ToLayout(rect), ToLayout(panTarget), Math.Min(1, Math.Abs(_pan))));
+                rect = ToRectangleF(LayoutRect.Lerp(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), ToLayout(panTarget), Math.Min(1, Math.Abs(_pan))));
             var opacity = (byte)Math.Round(part.FromOpacity + (part.ToOpacity - part.FromOpacity) * openness);
-            Rectangle? clip = null;
+            RectangleF? clip = null;
             if (part.ClipFrom is { } clipFrom && part.ClipTo is { } clipTo)
             {
-                var viewport = Round(LayoutRect.Lerp(ToLayout(clipFrom), ToLayout(clipTo), openness));
+                var viewport = ToRectangleF(LayoutRect.Lerp(ToLayout(clipFrom), ToLayout(clipTo), openness));
                 if (part.Pans) viewport.Offset(-panBy, 0);
                 clip = viewport;
             }
-            part.Backing?.Place(rect, opacity, clip: clip);
-            part.Sprite.Place(rect, opacity, clip: clip);
+            part.Backing?.Place(rect, opacity, clip);
+            part.Sprite.Place(rect, opacity, clip);
         }
-        // Labels fade in over the second half of the gesture.
-        plan.Decoration.SetAlpha((byte)Math.Round(255 * Math.Clamp(openness * 2 - 1, 0, 1)));
+        plan.Decoration.SetAlpha((float)(Math.Clamp(openness * 2 - 1, 0, 1) * 255));
+        foreach (var tile in plan.Tiles)
+        {
+            var frame = TileLabelFrame(plan, tile, openness, 0);
+            tile.Decoration!.Place(frame.Bounds, frame.Opacity);
+        }
+    }
+
+    private static RectangleF ToRectangleF(LayoutRect rect) => new((float)rect.X, (float)rect.Y, (float)rect.Width, (float)rect.Height);
+
+    public void Settle(SettleMotion motion, long begin, Func<double, double> openness, bool pan = false)
+    {
+        RunDeferred(double.PositiveInfinity);
+        foreach (var plan in _plans)
+        {
+            foreach (var part in plan.Parts)
+            {
+                var frames = motion.Samples.Select(sample => FrameFor(plan, part, openness(sample.Value), pan ? sample.Value : _pan, sample.Time)).ToArray();
+                part.Sprite.Animate(frames, begin);
+                part.Backing?.Animate(frames, begin);
+            }
+            var labels = motion.Samples.Select(sample => new SpriteFrame(sample.Time, RectangleF.Empty,
+                (float)Math.Clamp(openness(sample.Value) * 2 - 1, 0, 1), null)).ToArray();
+            plan.Decoration.AnimateOpacity(labels, begin);
+            foreach (var tile in plan.Tiles)
+                tile.Decoration!.Animate(motion.Samples.Select(sample => TileLabelFrame(plan, tile, openness(sample.Value), sample.Time)).ToArray(), begin);
+        }
+        _openness = openness(motion.Target);
+        if (pan) _pan = motion.Target;
+        Interop.Composition.Flush();
+    }
+
+    private static SpriteFrame FrameFor(Plan plan, Part part, double openness, double pan, double time)
+    {
+        var panBy = (float)(pan * plan.Surface.Monitor.Width);
+        var rect = ToRectangleF(LayoutRect.Lerp(ToLayout(part.From), ToLayout(part.To), openness));
+        if (part.Pans) rect.Offset(-panBy, 0);
+        if ((pan > 0 ? part.PanNext : pan < 0 ? part.PanPrevious : null) is { } panTarget)
+            rect = ToRectangleF(LayoutRect.Lerp(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), ToLayout(panTarget), Math.Min(1, Math.Abs(pan))));
+        RectangleF? clip = null;
+        if (part.ClipFrom is { } from && part.ClipTo is { } to)
+        {
+            var viewport = ToRectangleF(LayoutRect.Lerp(ToLayout(from), ToLayout(to), openness));
+            if (part.Pans) viewport.Offset(-panBy, 0);
+            clip = viewport;
+        }
+        var opacity = (float)((part.FromOpacity + (part.ToOpacity - part.FromOpacity) * openness) / 255.0);
+        return new SpriteFrame(time, rect, opacity, clip);
     }
 
     private void OnMouseMoved(ThumbnailSurface surface, Point point)
     {
-        if (_state != State.Open || PlanFor(surface) is not { } plan) return;
+        if (!IsOpen || PlanFor(surface) is not { } plan) return;
         SetHover(plan, HitTest(plan, point));
     }
 
     private void OnClicked(ThumbnailSurface surface, Point point)
     {
-        if (_state != State.Open || PlanFor(surface) is not { } plan) return;
+        if (!IsOpen || PlanFor(surface) is not { } plan) return;
         var hit = HitTest(plan, point);
         switch (hit.Kind)
         {
             case HitKind.Window: Close(hit.Window); break;
             case HitKind.Desktop: SwitchTo(hit.Desktop); break;
+            case HitKind.CloseDesktop: RemoveDesktop(hit.Desktop); break;
             case HitKind.AddDesktop: AddDesktop(); break;
+            case HitKind.DisabledControl: break;
             default: Close(); break;
         }
     }
@@ -672,8 +799,12 @@ internal sealed class MissionControl : IDisposable
         if (id == EscapeHotKey && _state == State.Open) Close();
     }
 
-    private static Hit HitTest(Plan plan, Point point)
+    private Hit HitTest(Plan plan, Point point)
     {
+        foreach (var tile in plan.Tiles)
+            if (tile.CloseBounds.Contains(point)) return new Hit(
+                _switcher is not null && _scene?.Desktops is not null && _scene.DesktopCount > 1
+                    ? HitKind.CloseDesktop : HitKind.DisabledControl, Desktop: tile.Desktop);
         foreach (var tile in plan.Tiles)
             if (tile.Bounds.Contains(point)) return new Hit(HitKind.Desktop, Desktop: tile.Desktop);
         if (plan.AddTile is { } add && add.Contains(point)) return new Hit(HitKind.AddDesktop);
@@ -694,58 +825,45 @@ internal sealed class MissionControl : IDisposable
 
     private void Paint(Plan plan)
     {
+        plan.Decoration.Paint(LabelsFor(plan));
+        foreach (var tile in plan.Tiles) PaintTile(plan, tile);
+    }
+
+    /// <summary>
+    /// Captures a plan's labels, highlights and buttons for drawing into its GPU surface on the UI thread.
+    /// </summary>
+    private Action<GpuCanvas> LabelsFor(Plan plan)
+    {
         var s = plan.Surface.Scale;
         var hover = plan == _hoverPlan ? _hover : default;
-        plan.Decoration.Paint(g =>
+        return g =>
         {
-            using var labelFont = new Font("Segoe UI", 13 * s, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var titleFont = new Font("Segoe UI Semibold", 13 * s, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var centred = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
-            using var white = new SolidBrush(Color.White);
-            using var accentPen = new Pen(_accent, 3 * s);
             var radius = 8 * s;
-
-            foreach (var tile in plan.Tiles)
-            {
-                var frame = RectangleF.Inflate(tile.Bounds, 3 * s, 3 * s);
-                if (tile.Desktop != _scene?.Current && hover.Kind == HitKind.Desktop && hover.Desktop == tile.Desktop)
-                {
-                    using var hoverPen = new Pen(Color.FromArgb(170, 255, 255, 255), 2 * s);
-                    DrawRounded(g, hoverPen, frame, radius);
-                }
-                var labelBox = new RectangleF(tile.Bounds.X - 10 * s, tile.Bounds.Bottom + 8 * s, tile.Bounds.Width + 20 * s, 20 * s);
-                g.DrawString(tile.Label, labelFont, white, labelBox, centred);
-            }
 
             if (plan.AddTile is { } add)
             {
                 var hovered = hover.Kind == HitKind.AddDesktop;
-                using var fill = new SolidBrush(Color.FromArgb(hovered ? 110 : 60, 255, 255, 255));
-                using var path = RoundedPath(add, radius);
-                g.FillPath(fill, path);
-                using var plus = new Pen(Color.White, 3 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-                float cx = add.X + add.Width / 2f, cy = add.Y + add.Height / 2f, arm = Math.Min(add.Width, add.Height) * 0.18f;
-                g.DrawLine(plus, cx - arm, cy, cx + arm, cy);
-                g.DrawLine(plus, cx, cy - arm, cx, cy + arm);
+                if (hovered) g.FillRounded(Color.FromArgb(60, 255, 255, 255), add, radius);
+                float cx = add.X + add.Width / 2f, cy = add.Y + add.Height / 2f, arm = 8 * s;
+                g.DrawLine(Color.White, 2 * s, cx - arm, cy, cx + arm, cy);
+                g.DrawLine(Color.White, 2 * s, cx, cy - arm, cx, cy + arm);
             }
 
             if (hover.Kind == HitKind.Window && hover.Window is { } window)
             {
-                DrawRounded(g, accentPen, RectangleF.Inflate(window.To, 2 * s, 2 * s), radius);
+                g.DrawRounded(_accent, 3 * s, RectangleF.Inflate(window.To, 2 * s, 2 * s), radius);
                 var title = DesktopScene.TitleOf(window.Sprite.Item.Window);
                 if (title.Length > 0)
                 {
-                    var size = g.MeasureString(title, titleFont);
+                    var size = g.MeasureText(title, 13 * s, true);
                     var width = Math.Min(size.Width + 24 * s, window.To.Width + 80 * s);
                     var pill = new RectangleF(window.To.X + (window.To.Width - width) / 2, window.To.Bottom + 10 * s, width, size.Height + 10 * s);
-                    using var pillPath = RoundedPath(pill, pill.Height / 2);
-                    using var pillFill = new SolidBrush(Color.FromArgb(215, 32, 32, 36));
-                    g.FillPath(pillFill, pillPath);
+                    g.FillRounded(Color.FromArgb(215, 32, 32, 36), pill, pill.Height / 2);
                     var text = RectangleF.Inflate(pill, -12 * s, -5 * s);
-                    g.DrawString(title, titleFont, white, text, centred);
+                    g.DrawText(title, 13 * s, true, Color.White, text);
                 }
             }
-        });
+        };
     }
 
     private void SetInteractive(bool interactive)
@@ -760,7 +878,7 @@ internal sealed class MissionControl : IDisposable
         _escapeRegistered = false;
     }
 
-    private DecorationWindow DecorationFor(ThumbnailSurface surface)
+    private GpuDecorationLayer DecorationFor(ThumbnailSurface surface)
     {
         // Surfaces are recreated when monitors change; drop decorations for ones that are gone.
         foreach (var stale in _decorations.Keys.Where(key => !_surfaces().Contains(key)).ToList())
@@ -770,7 +888,7 @@ internal sealed class MissionControl : IDisposable
         }
         if (!_decorations.TryGetValue(surface, out var decoration))
         {
-            decoration = new DecorationWindow(surface.Monitor);
+            decoration = new GpuDecorationLayer(surface);
             decoration.HotKeyPressed += OnHotKey;
             _decorations[surface] = decoration;
         }
@@ -788,24 +906,6 @@ internal sealed class MissionControl : IDisposable
         return Rectangle.FromLTRB(left, top, (int)Math.Round(r.Right), (int)Math.Round(r.Bottom));
     }
 
-    private static void DrawRounded(Graphics g, Pen pen, RectangleF rect, float radius)
-    {
-        using var path = RoundedPath(rect, radius);
-        g.DrawPath(pen, path);
-    }
-
-    private static GraphicsPath RoundedPath(RectangleF rect, float radius)
-    {
-        var d = Math.Min(radius * 2, Math.Min(rect.Width, rect.Height));
-        var path = new GraphicsPath();
-        path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-        path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-        path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
     /// <summary>The Windows accent colour (stored as ABGR), for highlights.</summary>
     private static Color ReadAccent()
     {
@@ -815,10 +915,10 @@ internal sealed class MissionControl : IDisposable
             : Color.FromArgb(0, 120, 212);
     }
 
-    private sealed class Plan(ThumbnailSurface surface, DecorationWindow decoration)
+    private sealed class Plan(ThumbnailSurface surface, GpuDecorationLayer decoration)
     {
         public ThumbnailSurface Surface { get; } = surface;
-        public DecorationWindow Decoration { get; } = decoration;
+        public GpuDecorationLayer Decoration { get; } = decoration;
         public List<Part> Parts { get; } = new();
         /// <summary>Spread-out app windows, bottom to top, for hit testing.</summary>
         public List<Part> Windows { get; } = new();
@@ -847,8 +947,12 @@ internal sealed class MissionControl : IDisposable
         /// <summary>Where this part heads while panning towards the previous/next desktop (the highlight ring).</summary>
         public Rectangle? PanPrevious { get; init; }
         public Rectangle? PanNext { get; init; }
+        public Guid? TileId { get; init; }
         public IntPtr Key => Sprite.Item.Window;
     }
 
-    private sealed record Tile(int Desktop, Rectangle Bounds, string Label);
+    private sealed record Tile(int Desktop, Guid Id, Rectangle Bounds, string Label, Rectangle CloseBounds)
+    {
+        public GpuDecorationLayer? Decoration { get; set; }
+    }
 }

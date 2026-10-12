@@ -18,7 +18,7 @@ internal static class Log
     private static readonly object Gate = new();
 
     public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrackSwipe", "trackswipe.log");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TrackSwipe-GPU", "trackswipe.log");
 
     public static void Write(string message)
     {
@@ -46,14 +46,28 @@ internal sealed class FramePerf
     private readonly List<double> _work = new();
     private readonly List<double> _gaps = new();
     private double _previous = double.NaN;
-    private long _updatesAtStart;
+    private long _updatesAtStart, _changesAtStart;
 
-    /// <summary>Thumbnail property updates sent to DWM, across all sprites.</summary>
+    /// <summary>Thumbnail resizes sent to DWM, across all sprites: the only per-thumbnail cross-process calls.</summary>
     public static long ThumbnailUpdates;
+
+    private static int _shownAt = -1;
+    private static int _frames;
+
+    /// <summary>The overlay just appeared: frames before this (fingers resting, preparation) aren't seen.</summary>
+    public static void MarkShown()
+    {
+        if (_shownAt < 0) _shownAt = _frames;
+    }
 
     public void Frame(double started, double finished)
     {
-        if (double.IsNaN(_previous)) _updatesAtStart = ThumbnailUpdates;
+        _frames++;
+        if (double.IsNaN(_previous))
+        {
+            _updatesAtStart = ThumbnailUpdates;
+            _changesAtStart = Composition.Changes;
+        }
         else _gaps.Add(started - _previous);
         _previous = started;
         _work.Add(finished - started);
@@ -68,8 +82,12 @@ internal sealed class FramePerf
             Log.Write($"Frames: {_work.Count} in {span * 1000:0} ms ({(_work.Count - 1) / span:0} fps), " +
                 $"gap median {sorted[sorted.Length / 2] * 1000:0.0} ms / worst {sorted[^1] * 1000:0.0} ms, " +
                 $"work avg {_work.Average() * 1000:0.0} ms / worst {_work.Max() * 1000:0.0} ms, " +
-                $"{(ThumbnailUpdates - _updatesAtStart) / (double)_work.Count:0} thumbnail updates per frame");
+                $"per frame {(ThumbnailUpdates - _updatesAtStart) / (double)_work.Count:0} DWM resizes and {(Composition.Changes - _changesAtStart) / (double)_work.Count:0} visual changes in one commit; " +
+                $"gaps over 10 ms at frames {string.Join(",", _gaps.Select((gap, i) => (gap, i)).Where(g => g.gap > 0.010).Select(g => $"{g.i + 1}:{g.gap * 1000:0}"))}" +
+                (_shownAt >= 0 ? $"; overlay shown from frame {_shownAt + 1}" : ""));
         }
+        _shownAt = -1;
+        _frames = 0;
         _work.Clear();
         _gaps.Clear();
         _previous = double.NaN;
@@ -166,25 +184,112 @@ internal static class KeySender
 }
 
 /// <summary>
-/// Calls back on the UI thread once per compositor frame, paced by DwmFlush rather than a timer.
-/// Sleeps on an event when stopped, so idle cost is zero.
+/// A message-only window on the UI thread through which other threads reach it: display frames arrive
+/// as <em>sent</em> messages, which Windows delivers ahead of anything posted, so a frame never waits
+/// behind other work; touch input and other notifications arrive posted.
+/// </summary>
+internal sealed class UiPump : NativeWindow, IDisposable
+{
+    private const int WM_FRAME = NativeMethods.WM_APP + 1, WM_POSTED = NativeMethods.WM_APP + 2;
+
+    private readonly Action<double> _onFrame;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Action> _posted = new();
+    private bool _inFrame;
+
+    public UiPump(Action<double> onFrame)
+    {
+        _onFrame = onFrame;
+        CreateHandle(new CreateParams { Caption = "TrackSwipe pump", Parent = NativeMethods.HWND_MESSAGE });
+        UiThread = Thread.CurrentThread;
+    }
+
+    public Thread UiThread { get; }
+
+    /// <summary>From the frame thread: starts a frame for <paramref name="presentTime"/> on the UI thread, waiting until it begins.</summary>
+    public void RunFrame(double presentTime) =>
+        NativeMethods.SendMessageTimeoutW(Handle, WM_FRAME, IntPtr.Zero, new IntPtr(BitConverter.DoubleToInt64Bits(presentTime)),
+            NativeMethods.SMTO_NORMAL, 250, out _);
+
+    /// <summary>From any thread: runs <paramref name="action"/> on the UI thread soon.</summary>
+    public void Post(Action action)
+    {
+        _posted.Enqueue(action);
+        NativeMethods.PostMessageW(Handle, WM_POSTED, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    public void Dispose() => DestroyHandle();
+
+    [DllImport("user32.dll")]
+    private static extern bool ReplyMessage(IntPtr result);
+
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg)
+        {
+            case WM_FRAME:
+                // Release the frame thread before running the frame. While a message sent from another thread
+                // is unreplied, COM refuses calls out of this thread (RPC_E_CANTCALLOUT_ININPUTSYNCCALL), and
+                // a frame may need to call Explorer: the instant desktop switch would fail and fall back to the
+                // shortcut, with Windows' own animation.
+                ReplyMessage(IntPtr.Zero);
+                // Released, the frame thread may send the next frame while this one runs, and any call this frame
+                // makes to another thread or process lets sent messages through. Never start a frame inside one:
+                // it would see half-updated state. Skip that tick; the next one comes a refresh later.
+                if (_inFrame) return;
+                _inFrame = true;
+                try
+                {
+                    _onFrame(BitConverter.Int64BitsToDouble(m.LParam.ToInt64()));
+                }
+                finally
+                {
+                    _inFrame = false;
+                }
+                return;
+            case WM_POSTED:
+                // Input callbacks can build compositor animation curves. Don't deliver a display
+                // frame inside one while its gesture and visual state are only partly updated.
+                var wasInFrame = _inFrame;
+                _inFrame = true;
+                try { while (_posted.TryDequeue(out var action)) action(); }
+                finally { _inFrame = wasInFrame; }
+                return;
+        }
+        base.WndProc(ref m);
+    }
+}
+
+/// <summary>
+/// Runs animation frames on the UI thread, one per display refresh, from a dedicated thread that waits
+/// on the Windows 11 compositor clock. That clock ticks every refresh whether or not anything changed;
+/// the old DwmFlush only returned after a composition, so each frame waited on the one before and the
+/// rate halved. Each frame is evaluated for its predicted display time, so motion stays even when a
+/// wake-up is late. While running it boosts the compositor to the display's highest refresh rate (120 Hz
+/// on a dynamic-refresh panel); stopped, it releases the boost and sleeps on an event: zero idle cost.
 /// </summary>
 internal sealed class FrameClock : IDisposable
 {
-    private readonly SynchronizationContext _ui;
-    private readonly Action _onFrame;
+    private const int TimingInfoSize = 292, RefreshPeriodOffset = 12, VBlankOffset = 28;
+    private const uint StatusSuccess = 0;
+
+    private readonly UiPump _pump;
     private readonly ManualResetEventSlim _running = new(false);
     private readonly Thread _thread;
+    private readonly IntPtr _timing = Marshal.AllocHGlobal(TimingInfoSize);
     private volatile bool _disposed;
-    private int _pending;
+    private bool _compositorClock = true;
+    private bool _boosted;
+    private bool _boostFailureLogged;
+    private bool _boostAvailable = true;
 
-    public FrameClock(SynchronizationContext ui, Action onFrame)
+    public FrameClock(UiPump pump)
     {
-        _ui = ui;
-        _onFrame = onFrame;
-        _thread = new Thread(Run) { IsBackground = true, Name = "TrackSwipe frame clock", Priority = ThreadPriority.AboveNormal };
+        _pump = pump;
+        _thread = new Thread(Run) { IsBackground = true, Name = "TrackSwipe frame clock", Priority = ThreadPriority.Highest };
         _thread.Start();
     }
+
+    public bool IsRunning => _running.IsSet;
 
     public void Start() => _running.Set();
 
@@ -199,21 +304,79 @@ internal sealed class FrameClock : IDisposable
 
     private void Run()
     {
-        while (true)
+        while (!_disposed)
         {
-            _running.Wait();
-            if (_disposed) return;
-            if (NativeMethods.DwmFlush() != 0) Thread.Sleep(8);
-
-            // Never queue more than one frame: if the UI thread is busy, skip rather than pile up.
-            if (_running.IsSet && Interlocked.Exchange(ref _pending, 1) == 0)
+            if (!_running.IsSet)
             {
-                _ui.Post(_ =>
+                Boost(false);
+                _running.Wait();
+                continue;
+            }
+            Boost(true);
+            WaitForNextFrame();
+            if (_running.IsSet && !_disposed) _pump.RunFrame(PredictPresentTime());
+        }
+        Boost(false);
+    }
+
+    private void WaitForNextFrame()
+    {
+        if (_compositorClock)
+        {
+            try
+            {
+                // This API returns NTSTATUS, not the WAIT_* codes used by WaitForMultipleObjects.
+                var status = NativeMethods.DCompositionWaitForCompositorClock(0, IntPtr.Zero, 100);
+                if (status == StatusSuccess) return;
+                if (status == 0x00000102 /* STATUS_TIMEOUT */ || status == 0xC01E0006 /* STATUS_GRAPHICS_PRESENT_OCCLUDED */)
                 {
-                    Volatile.Write(ref _pending, 0);
-                    if (_running.IsSet && !_disposed) _onFrame();
-                }, null);
+                    Thread.Sleep(8);
+                    return;
+                }
+                Log.Write($"Compositor clock failed: 0x{status:X8}.");
+            }
+            catch (EntryPointNotFoundException)
+            {
+            }
+            _compositorClock = false; // Windows 10: fall back to DWM's composition pacing
+            Log.Write("Compositor clock unavailable; pacing frames with DwmFlush.");
+        }
+        if (NativeMethods.DwmFlush() != 0) Thread.Sleep(8);
+    }
+
+    /// <summary>Asks Windows to run the display at its top refresh rate while we animate, and to stop afterwards.</summary>
+    private void Boost(bool enable)
+    {
+        if (_boosted == enable || !_boostAvailable || (enable && !_compositorClock)) return;
+        try
+        {
+            var hr = NativeMethods.DCompositionBoostCompositorClock(enable);
+            if (hr < 0)
+            {
+                if (!_boostFailureLogged) Log.Write($"Compositor refresh boost failed: 0x{hr:X8}.");
+                _boostFailureLogged = true;
+                return;
             }
         }
+        catch (EntryPointNotFoundException)
+        {
+            _boostAvailable = false;
+            Log.Write("Compositor refresh boost unavailable.");
+            return;
+        }
+        _boosted = enable;
+    }
+
+    /// <summary>The next vblank, in <see cref="Clock"/> seconds: when the frame being built will start to show.</summary>
+    private double PredictPresentTime()
+    {
+        var now = Stopwatch.GetTimestamp();
+        Marshal.WriteInt32(_timing, 0, TimingInfoSize);
+        if (NativeMethods.DwmGetCompositionTimingInfo(IntPtr.Zero, _timing) != 0) return Clock.Now;
+        var period = Marshal.ReadInt64(_timing, RefreshPeriodOffset);
+        var vblank = Marshal.ReadInt64(_timing, VBlankOffset);
+        if (period <= 0 || vblank <= 0) return Clock.Now;
+        var refreshes = Math.Max(1, (long)Math.Ceiling((now - vblank) / (double)period));
+        return (vblank + refreshes * period) / (double)Stopwatch.Frequency;
     }
 }

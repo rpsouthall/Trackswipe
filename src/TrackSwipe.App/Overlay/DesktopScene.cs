@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using TrackSwipe.Desktops;
 using TrackSwipe.Interop;
 using static TrackSwipe.Interop.NativeMethods;
@@ -14,8 +14,10 @@ internal enum SceneKind { Wallpaper, Window, Taskbar }
 /// get a place in Mission Control. Minimized windows (app windows only) carry their restored bounds.
 /// <see cref="IsDark"/> says whether the app draws in dark mode, which picks its backing colour.
 /// <see cref="IsTopmost"/> windows (always on top, or some full-screen apps) stay above any window that's activated.
+/// <see cref="NeedsBacking"/> windows leave parts of themselves to a system backdrop that thumbnails don't include.
 /// </summary>
-internal readonly record struct SceneItem(IntPtr Window, Rectangle Bounds, Rectangle Frame, SceneKind Kind, int Desktop, bool IsAppWindow, bool IsMinimized = false, bool IsDark = true, bool IsTopmost = false);
+internal readonly record struct SceneItem(IntPtr Window, Rectangle Bounds, Rectangle Frame, SceneKind Kind, int Desktop, bool IsAppWindow,
+    bool IsMinimized = false, bool IsDark = true, bool IsTopmost = false, bool NeedsBacking = false);
 
 /// <summary>
 /// Every desktop's windows as one bottom-to-top list. Windows on other desktops are cloaked by
@@ -63,6 +65,15 @@ internal sealed class DesktopScene
     /// <summary>The same windows, seen from another desktop (after switching to it underneath the overlay).</summary>
     public DesktopScene WithCurrent(int desktop) => new(Items, Desktops, desktop, Stats);
 
+    /// <summary>
+    /// A layered window faded to nothing: invisible on screen, but DWM thumbnails ignore a window's layered
+    /// alpha and draw its content anyway. WebView2 apps (WhatsApp) keep one such window over their content,
+    /// with no virtual desktop of its own, so it would otherwise show on every desktop.
+    /// </summary>
+    private static bool IsFullyTransparent(IntPtr window) =>
+        (GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_LAYERED) != 0
+        && GetLayeredWindowAttributes(window, out _, out var alpha, out var flags) && (flags & LWA_ALPHA) != 0 && alpha == 0;
+
     /// <summary>Whether DWM is showing the window (not cloaked), or null if there's no window to ask about.</summary>
     public static bool? IsShown(IntPtr window) =>
         window != IntPtr.Zero && DwmGetWindowAttribute(window, DWMWA_CLOAKED, out int cloak, sizeof(int)) == 0 ? cloak == 0 : null;
@@ -80,7 +91,7 @@ internal sealed class DesktopScene
         var current = known ? desktops!.Index : 0;
         var items = new List<SceneItem>();
         var className = new StringBuilder(64);
-        int shellCloaked = 0, unknownDesktop = 0, otherCloaked = 0;
+        int shellCloaked = 0, unknownDesktop = 0, otherCloaked = 0, transparent = 0;
         var appsDark = AppsUseDarkTheme();
 
         var topToBottom = TopLevelWindows();
@@ -90,6 +101,11 @@ internal sealed class DesktopScene
             if (exclude.Contains(window) || !IsWindowVisible(window)) continue;
             // Windows that block screen capture (recording toolbars, protected video) only ever mirror as black boxes.
             if (GetWindowDisplayAffinity(window, out var affinity) && affinity != 0) continue;
+            if (IsFullyTransparent(window))
+            {
+                transparent++;
+                continue;
+            }
             var minimized = IsIconic(window);
             Rectangle bounds, frame;
             if (minimized)
@@ -115,6 +131,13 @@ internal sealed class DesktopScene
                     continue;
                 case "Shell_TrayWnd" or "Shell_SecondaryTrayWnd":
                     items.Add(new SceneItem(window, bounds, frame, SceneKind.Taskbar, -1, false));
+                    continue;
+                // UWP apps (Settings, Calculator, ...) are a frame (ApplicationFrameWindow) hosting a CoreWindow.
+                // When the app is out of view, Windows detaches the CoreWindow into a top-level window at an
+                // unrelated position, so mirroring it paints the app a second time in the wrong place. The
+                // frame's thumbnail already includes the content; like Alt+Tab, mirror only the frame. This also
+                // keeps out shell CoreWindows such as the full-screen touch keyboard host.
+                case "Windows.UI.Core.CoreWindow":
                     continue;
             }
 
@@ -142,12 +165,29 @@ internal sealed class DesktopScene
                 continue;
             }
 
-            var topmost = (GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-            items.Add(new SceneItem(window, bounds, frame, SceneKind.Window, desktop, IsAppWindow(window), minimized, IsDark(window, appsDark), topmost));
+            var exStyle = GetWindowLongW(window, GWL_EXSTYLE);
+            var appWindow = IsAppWindow(window);
+            items.Add(new SceneItem(window, bounds, frame, SceneKind.Window, desktop, appWindow, minimized, IsDark(window, appsDark),
+                IsTopmost: (exStyle & WS_EX_TOPMOST) != 0, NeedsBacking: appWindow && UsesSystemBackdrop(window, exStyle, className.ToString())));
         }
 
-        var stats = $"shell-cloaked {shellCloaked} (desktop unknown {unknownDesktop}), otherwise cloaked {otherCloaked}";
+        var stats = $"shell-cloaked {shellCloaked} (desktop unknown {unknownDesktop}), otherwise cloaked {otherCloaked}, fully transparent (skipped) {transparent}";
         return new DesktopScene(items, known ? desktops : null, current, stats);
+    }
+
+    /// <summary>
+    /// Whether parts of the window are left to a system backdrop (Mica, Acrylic) that DWM thumbnails don't
+    /// include, so its thumbnail needs a solid backing. Ordinary GDI apps paint every pixel themselves and
+    /// skip the extra thumbnail. Covers windows that ask DWM for a backdrop, windows that draw only through
+    /// DirectComposition (browsers, Electron, WinUI 3), and UWP frames.
+    /// </summary>
+    private static bool UsesSystemBackdrop(IntPtr window, int exStyle, string className)
+    {
+        const int DWMSBT_MAINWINDOW = 2, DWMSBT_TABBEDWINDOW = 4;
+        if (DwmGetWindowAttribute(window, DWMWA_SYSTEMBACKDROP_TYPE, out int backdrop, sizeof(int)) == 0
+            && backdrop is >= DWMSBT_MAINWINDOW and <= DWMSBT_TABBEDWINDOW) return true;
+        return (exStyle & WS_EX_NOREDIRECTIONBITMAP) != 0
+            || className is "WinUIDesktopWin32WindowClass" or "ApplicationFrameWindow";
     }
 
     /// <summary>Dark title bar means a dark app; otherwise fall back to the system's app theme.</summary>

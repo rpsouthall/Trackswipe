@@ -19,8 +19,11 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
-    <Compile Include="..\..\src\TrackSwipe.App\Overlay\ThumbnailClip.cs" Link="Overlay\ThumbnailClip.cs" />
-    <Compile Include="..\..\src\TrackSwipe.App\Overlay\ThumbnailUpdateCache.cs" Link="Overlay\ThumbnailUpdateCache.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\SpriteState.cs" Link="Overlay\SpriteState.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\ThumbnailSizing.cs" Link="Overlay\ThumbnailSizing.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\GpuCaptureLayout.cs" Link="Overlay\GpuCaptureLayout.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\DesktopBarLayout.cs" Link="Overlay\DesktopBarLayout.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\SwitchLanding.cs" Link="Overlay\SwitchLanding.cs" />
     <Compile Include="..\..\src\TrackSwipe.App\Overlay\DesktopMembership.cs" Link="Overlay\DesktopMembership.cs" />
   </ItemGroup>
 
