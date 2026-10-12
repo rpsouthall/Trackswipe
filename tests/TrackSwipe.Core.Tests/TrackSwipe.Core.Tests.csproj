@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\ThumbnailClip.cs" Link="Overlay\ThumbnailClip.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\ThumbnailUpdateCache.cs" Link="Overlay\ThumbnailUpdateCache.cs" />
+    <Compile Include="..\..\src\TrackSwipe.App\Overlay\DesktopMembership.cs" Link="Overlay\DesktopMembership.cs" />
   </ItemGroup>
 
 </Project>

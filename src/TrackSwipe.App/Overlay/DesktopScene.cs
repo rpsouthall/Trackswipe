@@ -119,25 +119,26 @@ internal sealed class DesktopScene
             }
 
             var cloaked = DwmGetWindowAttribute(window, DWMWA_CLOAKED, out int cloak, sizeof(int)) == 0 ? cloak : -1;
-            int desktop;
-            if (cloaked == 0)
+            var shellHidden = cloaked >= 0 && (cloaked & DWM_CLOAKED_SHELL) != 0;
+            if (shellHidden) shellCloaked++;
+            else if (cloaked != 0) otherCloaked++;
+            // Ask about visible windows too: being uncloaked doesn't prove desktop ownership.
+            // Owned popups can lack an ID of their own; their owner supplies the desktop instead.
+            Guid? id = null;
+            if (known && (cloaked == 0 || shellHidden))
             {
-                desktop = current;
-            }
-            else if (cloaked == DWM_CLOAKED_SHELL && known)
-            {
-                shellCloaked++;
-                var id = lookup.GetDesktopId(window);
-                desktop = id is { } found ? IndexOf(desktops!.Ids, found) : -1;
-                if (desktop < 0)
+                id = lookup.GetDesktopId(window);
+                var owner = GetWindow(window, GW_OWNER);
+                for (var depth = 0; (id is null || id == Guid.Empty) && owner != IntPtr.Zero && depth < 16; depth++)
                 {
-                    unknownDesktop++;
-                    continue;
+                    id = lookup.GetDesktopId(owner);
+                    owner = GetWindow(owner, GW_OWNER);
                 }
             }
-            else
+            var desktop = DesktopMembership.Resolve(cloaked, current, known ? desktops!.Ids : null, id);
+            if (desktop < 0)
             {
-                if (cloaked != 0) otherCloaked++;
+                if (shellHidden) unknownDesktop++;
                 continue;
             }
 
@@ -180,13 +181,6 @@ internal sealed class DesktopScene
         var style = GetWindowLongW(window, GWL_EXSTYLE);
         if ((style & WS_EX_APPWINDOW) != 0) return true;
         return (style & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) == 0 && GetWindow(window, GW_OWNER) == IntPtr.Zero;
-    }
-
-    private static int IndexOf(IReadOnlyList<Guid> ids, Guid id)
-    {
-        for (var i = 0; i < ids.Count; i++)
-            if (ids[i] == id) return i;
-        return -1;
     }
 
     private static List<IntPtr> TopLevelWindows()

@@ -29,7 +29,8 @@ internal sealed class ThumbnailSurface : NativeWindow, IDisposable
             Width = Monitor.Width,
             Height = Monitor.Height,
             Style = WS_POPUP,
-            ExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TRANSPARENT,
+            ExStyle = WS_EX_TOPMOST | WS_EX_TRANSPARENT |
+                (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_VISIBLE") == "1" ? 0 : WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE),
         });
     }
 
@@ -43,6 +44,8 @@ internal sealed class ThumbnailSurface : NativeWindow, IDisposable
     public float Scale { get; }
 
     public int SpriteCount => _sprites.Count;
+    /// <summary>Changes whenever shared thumbnails are cleared, invalidating a cached slide.</summary>
+    public int Generation { get; private set; }
 
     public bool IsShown { get; private set; }
 
@@ -108,6 +111,7 @@ internal sealed class ThumbnailSurface : NativeWindow, IDisposable
     {
         foreach (var sprite in _sprites) DwmUnregisterThumbnail(sprite.Handle);
         _sprites.Clear();
+        Generation++;
     }
 
     public void Show()
@@ -166,11 +170,8 @@ internal sealed class ThumbnailSurface : NativeWindow, IDisposable
 internal sealed class Sprite
 {
     private readonly ThumbnailSurface _surface;
-    private bool _applied;
-    private Rectangle _destination;
-    private Rectangle? _source;
-    private byte _opacity;
-    private bool _visible;
+    private readonly ThumbnailUpdateCache _cache = new();
+    private readonly Rectangle _fullSource;
 
     internal Sprite(ThumbnailSurface surface, IntPtr handle, SceneItem item)
     {
@@ -181,6 +182,12 @@ internal sealed class Sprite
         var home = PlaceUnscaled(item, SourceSize);
         home.Offset(-surface.Monitor.X, -surface.Monitor.Y);
         Home = home;
+        // Explicit DWM source rectangles use window coordinates, including the resize borders.
+        // Its default thumbnail excludes those borders. Preserve that origin when cropping.
+        var sourceOrigin = item.IsMinimized ? Point.Empty : new Point(
+            Math.Max(0, home.X + surface.Monitor.X - item.Bounds.X),
+            Math.Max(0, home.Y + surface.Monitor.Y - item.Bounds.Y));
+        _fullSource = new Rectangle(sourceOrigin, SourceSize);
 
         Hide(handle); // until placed: otherwise DWM may draw it for a frame wherever its defaults put it
     }
@@ -207,30 +214,54 @@ internal sealed class Sprite
     /// Places the thumbnail. <paramref name="source"/> crops the window (in thumbnail pixels) before
     /// scaling it into <paramref name="destination"/>. Skips the DWM call when nothing changed.
     /// </summary>
-    public void Place(Rectangle destination, byte opacity = 255, Rectangle? source = null)
+    public void Place(Rectangle destination, byte opacity = 255, Rectangle? source = null, Rectangle? clip = null)
     {
+        // A desktop or tile is its own viewport: nothing may bleed into its neighbours.
+        if (clip is { } viewport)
+        {
+            if (!ThumbnailClip.TryClip(destination, viewport, source ?? _fullSource, out var cropped, out var crop))
+            {
+                SetHidden();
+                return;
+            }
+            if (cropped != destination)
+            {
+                destination = cropped;
+                source = crop;
+            }
+        }
         var visible = opacity > 0 && destination.Width > 0 && destination.Height > 0
             && destination.IntersectsWith(new Rectangle(Point.Empty, _surface.Monitor.Size));
-        if (_applied && destination == _destination && opacity == _opacity && visible == _visible && source == _source) return;
+        if (!visible)
+        {
+            SetHidden();
+            return;
+        }
+        var previousSource = _cache.Source;
+        if (!_cache.Update(destination, opacity, source, visible)) return;
 
         // Leave the source rectangle unset unless cropping: DWM's default is exactly the visible window,
         // whereas an explicit rectangle is measured differently and shifts the content.
         var properties = new DWM_THUMBNAIL_PROPERTIES
         {
-            Flags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_SOURCECLIENTAREAONLY | (source is null ? 0 : DWM_TNP_RECTSOURCE),
+            Flags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_SOURCECLIENTAREAONLY | (source is null && previousSource is null ? 0 : DWM_TNP_RECTSOURCE),
             Destination = ToRect(destination),
-            Source = source is { } crop ? ToRect(crop) : default,
+            // Omitting RECTSOURCE would retain the last crop when the whole window re-enters.
+            Source = ToRect(source ?? _fullSource),
             Opacity = opacity,
             Visible = visible ? 1 : 0,
             SourceClientAreaOnly = 0,
         };
         DwmUpdateThumbnailProperties(Handle, ref properties);
         FramePerf.ThumbnailUpdates++;
-        _applied = true;
-        _destination = destination;
-        _opacity = opacity;
-        _visible = visible;
-        _source = source;
+    }
+
+    private void SetHidden()
+    {
+        // Hidden geometry is irrelevant to DWM. Don't send new off-screen rectangles every frame.
+        if (!_cache.Update(default, 0, null, false)) return;
+        Hide(Handle);
+        FramePerf.ThumbnailUpdates++;
     }
 
     /// <summary>Switches to a newly registered thumbnail, placed where this one was. Returns the old one.</summary>
@@ -238,8 +269,10 @@ internal sealed class Sprite
     {
         var old = Handle;
         Handle = handle;
-        _applied = false;
-        Place(_destination, _opacity, _source);
+        var wasVisible = _cache.Visible;
+        _cache.Reset();
+        if (wasVisible) Place(_cache.Destination, _cache.Opacity, _cache.Source);
+        else Hide(handle);
         return old;
     }
 

@@ -545,7 +545,12 @@ internal sealed class MissionControl : IDisposable
                     Math.Max(1, (int)Math.Round(home.Height * scale)));
                 var from = to;
                 from.Offset(0, -lift);
-                plan.Parts.Add(new Part(surface, sprite, from, to, 0, 255) { Slot = slot, Backing = backing });
+                var clipFrom = tile.Bounds;
+                clipFrom.Offset(0, -lift);
+                plan.Parts.Add(new Part(surface, sprite, from, to, 0, 255)
+                {
+                    Slot = slot, Backing = backing, ClipFrom = clipFrom, ClipTo = tile.Bounds,
+                });
             }
         }
 
@@ -595,7 +600,12 @@ internal sealed class MissionControl : IDisposable
             var spreads = item.IsAppWindow && (item.IsMinimized || screen.Contains(centre));
             var from = sprite.Home;
             from.Offset(shift, 0);
-            var part = new Part(surface, sprite, from, from, item.IsMinimized ? (byte)0 : (byte)255, spreads ? (byte)255 : (byte)0) { Pans = true, Slot = "spread", Backing = backing };
+            var viewport = screen;
+            viewport.Offset(shift, 0);
+            var part = new Part(surface, sprite, from, from, item.IsMinimized ? (byte)0 : (byte)255, spreads ? (byte)255 : (byte)0)
+            {
+                Pans = true, Slot = "spread", Backing = backing, ClipFrom = viewport, ClipTo = viewport,
+            };
             plan.Parts.Add(part);
             if (spreads) spread.Add(part);
         }
@@ -624,8 +634,15 @@ internal sealed class MissionControl : IDisposable
             if ((_pan > 0 ? part.PanNext : _pan < 0 ? part.PanPrevious : null) is { } panTarget)
                 rect = Round(LayoutRect.Lerp(ToLayout(rect), ToLayout(panTarget), Math.Min(1, Math.Abs(_pan))));
             var opacity = (byte)Math.Round(part.FromOpacity + (part.ToOpacity - part.FromOpacity) * openness);
-            part.Backing?.Place(rect, opacity);
-            part.Sprite.Place(rect, opacity);
+            Rectangle? clip = null;
+            if (part.ClipFrom is { } clipFrom && part.ClipTo is { } clipTo)
+            {
+                var viewport = Round(LayoutRect.Lerp(ToLayout(clipFrom), ToLayout(clipTo), openness));
+                if (part.Pans) viewport.Offset(-panBy, 0);
+                clip = viewport;
+            }
+            part.Backing?.Place(rect, opacity, clip: clip);
+            part.Sprite.Place(rect, opacity, clip: clip);
         }
         // Labels fade in over the second half of the gesture.
         plan.Decoration.SetAlpha((byte)Math.Round(255 * Math.Clamp(openness * 2 - 1, 0, 1)));
@@ -824,6 +841,9 @@ internal sealed class MissionControl : IDisposable
         public string Slot { get; init; } = "";
         /// <summary>Solid Mica-coloured thumbnail kept underneath, for apps that leave their background to the system backdrop.</summary>
         public Sprite? Backing { get; init; }
+        /// <summary>The desktop or tile viewport follows its own journey, independently of the window.</summary>
+        public Rectangle? ClipFrom { get; init; }
+        public Rectangle? ClipTo { get; init; }
         /// <summary>Where this part heads while panning towards the previous/next desktop (the highlight ring).</summary>
         public Rectangle? PanPrevious { get; init; }
         public Rectangle? PanNext { get; init; }

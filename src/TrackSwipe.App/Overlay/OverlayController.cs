@@ -95,7 +95,7 @@ internal sealed class OverlayController : IDisposable
             var started = Clock.Now;
             var scene = CaptureScene();
             var captured = Clock.Now;
-            _mission.BeginOpening(scene);
+            BeginMission(scene);
             Log.Write($"Mission Control start: scene {(captured - started) * 1000:0} ms, overview {(Clock.Now - captured) * 1000:0} ms, " +
                 $"{PrepareSurfaces().Sum(surface => surface.SpriteCount)} thumbnails");
             _mode = Mode.MissionOpening;
@@ -192,7 +192,7 @@ internal sealed class OverlayController : IDisposable
             (1.5, () => _slide.Render(0)),
             (3.0, () => _slide.Render(0.5)),
             (4.5, () => _slide.Render(1)),
-            (4.6, () => { HideSlide(); _mission.BeginOpening(CaptureScene()); }),
+            (4.6, () => { HideSlide(); BeginMission(CaptureScene()); }),
             (6.0, () => _mission.Render(0.5)),
             (7.5, () =>
             {
@@ -202,11 +202,14 @@ internal sealed class OverlayController : IDisposable
             }),
             (9.0, () => _mission.Pan(_mission.CanPan(+1) ? 0.5 : _mission.CanPan(-1) ? -0.5 : 0)),
         };
+        // Allow visual inspection without racing the default 1.5-second diagnostic stages.
+        var diagnosticSlowdown = double.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLOWDOWN"),
+            System.Globalization.CultureInfo.InvariantCulture, out var slowdown) ? Math.Clamp(slowdown, 1, 20) : 1;
         var start = Clock.Now;
         var timer = new System.Windows.Forms.Timer { Interval = 50 };
         timer.Tick += (_, _) =>
         {
-            var t = Clock.Now - start;
+            var t = (Clock.Now - start) / diagnosticSlowdown;
             var stage = stages.FirstOrDefault(s => t < s.Until);
             if (stage.Show is not null)
             {
@@ -227,7 +230,7 @@ internal sealed class OverlayController : IDisposable
     /// </summary>
     public void RunMissionDiagnostics(Action done, int switchDirection = 0)
     {
-        _mission.BeginOpening(CaptureScene());
+        BeginMission(CaptureScene());
         var direction = 0;
         var step = 0;
         var start = Clock.Now;
@@ -276,7 +279,7 @@ internal sealed class OverlayController : IDisposable
             RunSwipeDownDiagnostics(window, done);
             return;
         }
-        _mission.BeginOpening(CaptureScene());
+        BeginMission(CaptureScene());
         var step = 0;
         var start = Clock.Now;
         var timer = new System.Windows.Forms.Timer { Interval = 8 };
@@ -306,7 +309,7 @@ internal sealed class OverlayController : IDisposable
 
     private void RunSwipeDownDiagnostics(IntPtr window, Action done)
     {
-        _mission.BeginOpening(CaptureScene());
+        BeginMission(CaptureScene());
         Interop.NativeMethods.GetCursorPos(out var originalCursor);
         var step = 0;
         var start = Clock.Now;
@@ -411,8 +414,16 @@ internal sealed class OverlayController : IDisposable
         foreach (var surface in _surfaces)
         {
             surface.Hide();
-            surface.Clear();
         }
+    }
+
+    private void BeginMission(DesktopScene scene)
+    {
+        // Slide registrations may be parked on these shared surfaces. Mission Control uses its
+        // own stacking and layout, so discard the slide cache before showing the overview.
+        if (!_mission.IsVisible)
+            foreach (var surface in _surfaces) surface.Clear();
+        _mission.BeginOpening(scene);
     }
 
     private DesktopScene CaptureScene()

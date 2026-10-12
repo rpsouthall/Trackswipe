@@ -9,9 +9,21 @@ internal sealed class DesktopSlide(Swatches swatches)
     private const int Fixed = int.MaxValue;
 
     private readonly List<(Sprite Sprite, Sprite? Backing, int Layer, int Width)> _parts = new();
+    private DesktopScene? _scene;
+    private (ThumbnailSurface Surface, int Generation)[] _surfaces = Array.Empty<(ThumbnailSurface, int)>();
 
     public void Begin(DesktopScene scene, IReadOnlyList<ThumbnailSurface> surfaces)
     {
+        // A repeated swipe on an unchanged desktop can reuse all registrations and their z-order.
+        // Any moved/closed/reordered window, desktop change, monitor change or shared-surface clear
+        // invalidates the entire cache, so stale thumbnails never get shown.
+        if (_scene is { } previous && previous.Current == scene.Current && previous.Items.SequenceEqual(scene.Items)
+            && (previous.Desktops?.Ids ?? Array.Empty<Guid>()).SequenceEqual(scene.Desktops?.Ids ?? Array.Empty<Guid>())
+            && _surfaces.Length == surfaces.Count
+            && _surfaces.Select(pair => pair.Surface).SequenceEqual(surfaces)
+            && _surfaces.All(pair => pair.Generation == pair.Surface.Generation)) return;
+
+        foreach (var surface in surfaces) surface.Clear();
         _parts.Clear();
         foreach (var surface in surfaces)
         {
@@ -23,6 +35,8 @@ internal sealed class DesktopSlide(Swatches swatches)
                 Add(surface, window, window.Desktop - scene.Current);
             foreach (var taskbar in scene.Taskbars) Add(surface, taskbar, Fixed);
         }
+        _scene = scene;
+        _surfaces = surfaces.Select(surface => (surface, surface.Generation)).ToArray();
     }
 
     public void Render(double progress)
@@ -30,9 +44,15 @@ internal sealed class DesktopSlide(Swatches swatches)
         foreach (var (sprite, backing, layer, width) in _parts)
         {
             var destination = sprite.Home;
-            if (layer != Fixed) destination.Offset((int)Math.Round((layer - progress) * width), 0);
-            backing?.Place(destination);
-            sprite.Place(destination);
+            Rectangle? clip = null;
+            if (layer != Fixed)
+            {
+                var offset = (int)Math.Round((layer - progress) * width);
+                destination.Offset(offset, 0);
+                clip = new Rectangle(offset, 0, width, sprite.Surface.Monitor.Height);
+            }
+            backing?.Place(destination, clip: clip);
+            sprite.Place(destination, clip: clip);
         }
     }
 

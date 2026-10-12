@@ -51,6 +51,14 @@ Options: `--fingers 3|4|5`, `--distance <mm>` (finger travel for one full deskto
 - **Preview animation:** a synthetic swipe out to 60% and back through the real engine and slide. Never switches desktops.
 - **Input monitor:** live contacts (blue finger, orange palm, outline lifting), report rate, phase, progress and velocity. Use this to check Phase 0 question 1 and to tune.
 
+## Rendering and performance
+
+Window thumbnails are clipped to their own desktop during slides and to their own miniature in Mission Control, including windows partly outside a monitor. Desktop assignment uses Windows' desktop ID for visible and shell-cloaked windows, with an owner lookup for auxiliary windows.
+
+Hidden thumbnails receive no per-frame position updates. Repeated sideways gestures reuse registrations when the window positions, stacking, desktops and monitors are unchanged; a change rebuilds the slide. Opening Mission Control clears that cache before building its own layout. Previews remain live, so compositor load still grows with the number of visible windows.
+
+For visual checks with `--diagnose`, `TRACKSWIPE_DIAGNOSE_SLOWDOWN=8` lengthens each stage eightfold. `TRACKSWIPE_DIAGNOSE_VISIBLE=1` makes the overlay surface discoverable by window screenshot tools; normal runs keep it out of Alt+Tab and the taskbar.
+
 ## Privacy
 
 Touch data stays in memory and is never written to disk. The log (`%LOCALAPPDATA%\TrackSwipe\trackswipe.log`) records only startup settings, the touchpad's description and errors. No network access, no telemetry.
