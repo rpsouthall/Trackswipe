@@ -17,7 +17,7 @@ This is the **basic version**: one gesture done end to end, built so the rest of
 | Instant switch | `src/TrackSwipe.App/Desktops` | On commit, the target layer is exactly where the real windows will be, so the app switches desktops through Explorer's internal `SwitchDesktop`, which has no animation. It keeps the overlay up until the target windows actually uncloak, then removes it. |
 | App shell | `src/TrackSwipe.App` | Tray icon, pause, spring preset, input monitor, crash-safe reset, local log. |
 
-**Gestures (default 4 fingers):**
+**Gestures (default 4 fingers; choose 3 or 4 in the tray menu):**
 
 - **Left/right:** switch desktops (tracked, reversible, no native animation afterwards). Rubber-bands when there is no desktop in that direction.
 - **Up:** Mission Control, tracking your fingers and reversible. Once open:
@@ -41,11 +41,12 @@ dotnet run --project src/TrackSwipe.App
 
 Options: `--fingers 3|4|5`, `--distance <mm>` (finger travel for one full desktop, default 55), `--smooth` (softer spring), `--preview` (play a demo swipe on start), `--diagnose` (log what gestures would see, hold the slide at 0, ½ and 1, then Mission Control at 0, ½ and open, then quit), `--diagnose-mission` (open Mission Control, pan to a neighbouring desktop and back, close), `--diagnose-focus <window handle>` (open Mission Control and click that window), `--diagnose-swipe <window handle>` (point at it and swipe down: once abandoned, then for real).
 
-**First run:** open *Settings → Bluetooth & devices → Touchpad → Three- and four-finger gestures* and set **four-finger swipes to "Nothing"**. Otherwise Windows switches desktops too. The app shows a reminder if it's still on.
+**First run:** choose **Gesture fingers → Three fingers** or **Four fingers** in the tray menu. Four is the default; your menu choice is remembered between launches. Open *Settings → Bluetooth & devices → Touchpad → Three- and four-finger gestures* and set **swipes for your selected finger count to "Nothing"**. Otherwise Windows handles the same swipe too. The app shows a reminder if it's still on. `--fingers` overrides the saved choice for that launch.
 
 ## Tray menu
 
 - **Gestures enabled:** pause/resume.
+- **Gesture fingers:** choose three or four fingers. Changes apply immediately, cancel any active gesture, and are saved for next time.
 - **Spring:** Snappy or Smooth.
 - **Preview animation:** a synthetic swipe out to 60% and back through the real engine and slide. Never switches desktops.
 - **Input monitor:** live contacts (blue finger, orange palm, outline lifting), report rate, phase, progress and velocity. Use this to check Phase 0 question 1 and to tune.

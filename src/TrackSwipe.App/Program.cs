@@ -24,7 +24,7 @@ internal static class Program
     /// <remarks>MissionDiagnostics is null when not requested, 0 for a round trip, or ±1 to really switch that way.</remarks>
     private static (GestureOptions Options, bool Preview, bool Diagnose, int? MissionDiagnostics) ParseArguments(string[] args)
     {
-        var options = new GestureOptions();
+        var options = new GestureOptions { Fingers = GesturePreferences.LoadFingers() };
         bool preview = false, diagnose = false, diagnoseMission = false;
         var switchDirection = 0;
         for (var i = 0; i < args.Length; i++)

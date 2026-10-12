@@ -4,6 +4,55 @@ namespace TrackSwipe.Core.Tests;
 
 public class GestureEngineTests
 {
+    [Theory]
+    [InlineData(3, -45, 0, SwipeAction.NextDesktop)]
+    [InlineData(3, 45, 0, SwipeAction.PreviousDesktop)]
+    [InlineData(3, 0, -25, SwipeAction.SwipeUp)]
+    [InlineData(3, 0, 25, SwipeAction.SwipeDown)]
+    [InlineData(4, -45, 0, SwipeAction.NextDesktop)]
+    [InlineData(4, 45, 0, SwipeAction.PreviousDesktop)]
+    [InlineData(4, 0, -25, SwipeAction.SwipeUp)]
+    [InlineData(4, 0, 25, SwipeAction.SwipeDown)]
+    public void Selected_finger_count_supports_each_direction(int fingers, double dx, double dy, SwipeAction action)
+    {
+        var h = new GestureHarness(new GestureOptions { Fingers = fingers }) { Fingers = fingers };
+        h.Move(dx, dy, 0.5).Lift();
+
+        Assert.Equal(new[] { action }, h.Actions);
+        Assert.Equal(GesturePhase.Idle, h.Engine.Phase);
+    }
+
+    [Theory]
+    [InlineData(3, 4)]
+    [InlineData(4, 3)]
+    public void Unselected_finger_count_does_not_start_a_gesture(int selected, int contacts)
+    {
+        var h = new GestureHarness(new GestureOptions { Fingers = selected }) { Fingers = contacts };
+        h.Move(-45, 0, 0.5).Lift();
+
+        Assert.Empty(h.Actions);
+        Assert.Equal(0, h.TrackingStarts);
+    }
+
+    [Theory]
+    [InlineData(3, 4)]
+    [InlineData(4, 3)]
+    public void Changing_finger_count_after_reset_cancels_old_swipe_and_accepts_new_count(int previous, int selected)
+    {
+        var h = new GestureHarness(new GestureOptions { Fingers = previous }) { Fingers = previous };
+        h.Move(-35, 0, 0.5);
+        Assert.Equal(GesturePhase.Tracking, h.Engine.Phase);
+
+        h.Engine.Reset();
+        h.Engine.Options.Fingers = selected;
+        h.Lift();
+        Assert.Empty(h.Actions);
+
+        h.Fingers = selected;
+        h.Move(45, 0, 0.5).Lift();
+        Assert.Equal(new[] { SwipeAction.PreviousDesktop }, h.Actions);
+    }
+
     [Fact]
     public void Full_swipe_left_commits_next_desktop()
     {

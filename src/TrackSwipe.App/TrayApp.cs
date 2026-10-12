@@ -18,6 +18,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly NotifyIcon _tray;
     private readonly IntPtr _iconHandle;
     private readonly ToolStripMenuItem _enabledItem, _snappyItem, _smoothItem;
+    private readonly ToolStripMenuItem _gestureTitle, _threeFingerItem, _fourFingerItem;
     private string _device = "No precision touchpad input seen yet";
     private InputMonitorForm? _monitor;
     private System.Windows.Forms.Timer? _preview;
@@ -52,11 +53,15 @@ internal sealed class TrayApp : ApplicationContext
         _snappyItem = new ToolStripMenuItem("Snappy", null, (_, _) => SetSpring(SpringPreset.Snappy));
         _smoothItem = new ToolStripMenuItem("Smooth", null, (_, _) => SetSpring(SpringPreset.Smooth));
         SetSpring(options.Spring);
+        _gestureTitle = new ToolStripMenuItem($"TrackSwipe: {options.Fingers}-finger swipes") { Enabled = false };
+        _threeFingerItem = new ToolStripMenuItem("Three fingers", null, (_, _) => SetFingers(3)) { Checked = options.Fingers == 3 };
+        _fourFingerItem = new ToolStripMenuItem("Four fingers", null, (_, _) => SetFingers(4)) { Checked = options.Fingers == 4 };
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(new ToolStripMenuItem($"TrackSwipe: {options.Fingers}-finger swipes") { Enabled = false });
+        menu.Items.Add(_gestureTitle);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_enabledItem);
+        menu.Items.Add(new ToolStripMenuItem("Gesture fingers", null, _threeFingerItem, _fourFingerItem));
         menu.Items.Add(new ToolStripMenuItem("Spring", null, _snappyItem, _smoothItem));
         menu.Items.Add("Preview animation", null, (_, _) => RunPreview());
         menu.Items.Add("Input monitor...", null, (_, _) => ShowMonitor());
@@ -173,6 +178,19 @@ internal sealed class TrayApp : ApplicationContext
         }
         _monitor.Show();
         _monitor.Activate();
+    }
+
+    private void SetFingers(int fingers)
+    {
+        if (_engine.Options.Fingers == fingers) return;
+        CancelGesture();
+        _engine.Options.Fingers = fingers;
+        _threeFingerItem.Checked = fingers == 3;
+        _fourFingerItem.Checked = fingers == 4;
+        _gestureTitle.Text = $"TrackSwipe: {fingers}-finger swipes";
+        GesturePreferences.SaveFingers(fingers);
+        Log.Write($"Gesture fingers changed to {fingers}.");
+        WarnIfWindowsGestureEnabled(fingers);
     }
 
     /// <summary>Plays a synthetic swipe out to 60% and back through the real engine and overlay. Never switches desktops.</summary>
