@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>TrackSwipe</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>TrackSwipe</Product>
+    <Company>rpsouthall</Company>
+    <ApplicationIcon>..\..\assets\TrackSwipe.ico</ApplicationIcon>
+    <RootNamespace>TrackSwipe</RootNamespace>
+    <!-- No WinForms and no built-in COM interop: plain Win32 and raw vtables, so the app compiles to native code. -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- The self-tests in Diagnostics/ (the diagnose switches): Debug builds, or -p:Diagnostics=true. Release builds leave them out. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' Or '$(Diagnostics)' == 'true'">
+    <DefineConstants>$(DefineConstants);DIAGNOSTICS</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Published builds are Native AOT: one self-contained native .exe, no JIT, no .NET install needed, and a
+       fraction of the memory. build.ps1 publishes both architectures; it needs the C++ build tools. -->
+  <PropertyGroup>
+    <PublishAot>true</PublishAot>
+    <!-- Default (blended) code generation, not Size: input decoding and frames are hot paths, and code pages
+         are mapped from the image (shared, not private memory), so a smaller binary saves little RAM. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <EventSourceSupport>false</EventSourceSupport>
+    <DebuggerSupport>false</DebuggerSupport>
+    <StackTraceSupport>true</StackTraceSupport>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- A small background app: one heap, collected without a background GC thread, kept compact. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+    <!-- SharpGen's warnings concern COM callbacks implemented in C#, which TrackSwipe doesn't use. -->
+    <NoWarn>$(NoWarn);IL2104</NoWarn>
+    <!-- Release executables carry no symbols file. -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <!-- Windows 11 requires SSE4.2 and POPCNT on Intel/AMD, so target that baseline instead of checking at run time. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <IlcInstructionSet>x86-x64-v2</IlcInstructionSet>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.Drawing" />
+    <Using Include="TrackSwipe.Win32" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TrackSwipe.Core\TrackSwipe.Core.csproj" />
+    <PackageReference Include="Vortice.DirectComposition" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+  </ItemGroup>
+
+</Project>

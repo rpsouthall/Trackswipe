@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TrackSwipe.Core\TrackSwipe.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="TrackSwipe.Core" />
+    <Compile Include="..\..\src\TrackSwipe\AnimationStatistics.cs" Link="AnimationStatistics.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Touchpad\TouchFrameQueue.cs" Link="Touchpad\TouchFrameQueue.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Touchpad\TouchFilter.cs" Link="Touchpad\TouchFilter.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\CurveFit.cs" Link="Overlay\CurveFit.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\SpriteState.cs" Link="Overlay\SpriteState.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\ThumbnailSizing.cs" Link="Overlay\ThumbnailSizing.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\GpuCaptureLayout.cs" Link="Overlay\GpuCaptureLayout.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopBarLayout.cs" Link="Overlay\DesktopBarLayout.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopReorder.cs" Link="Overlay\DesktopReorder.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\RestoreFrameHistory.cs" Link="Overlay\RestoreFrameHistory.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\RestoreCoverLayout.cs" Link="Overlay\RestoreCoverLayout.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\SwitchLanding.cs" Link="Overlay\SwitchLanding.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopBarReveal.cs" Link="Overlay\DesktopBarReveal.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopBarSelection.cs" Link="Overlay\DesktopBarSelection.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopMembership.cs" Link="Overlay\DesktopMembership.cs" />
+  </ItemGroup>
+
+</Project>

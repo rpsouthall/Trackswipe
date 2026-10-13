@@ -6,7 +6,7 @@ public sealed class GestureOptions
     public int Fingers { get; set; } = 4;
 
     /// <summary>Finger travel (mm) before the gesture locks to an axis.</summary>
-    public double DeadZoneMm { get; set; } = 5;
+    public double DeadZoneMm { get; set; } = 1;
 
     /// <summary>Horizontal finger travel (mm) that equals progress 1.0, i.e. one whole desktop.</summary>
     public double FullSwipeMm { get; set; } = 55;

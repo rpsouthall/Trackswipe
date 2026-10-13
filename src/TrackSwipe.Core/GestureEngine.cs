@@ -19,6 +19,8 @@ public sealed class GestureEngine
     private readonly VelocityTracker _velocity = new(VelocityWindow);
     private readonly TrackingPresentation _presentation = new();
     private SettleMotion? _settleMotion;
+    private SettleMotion? _interruptedMotion;
+    private double _interruptedStarted, _interruptedPosition;
     private double _travelX, _travelY;
     private double _lastFrameTime = double.NegativeInfinity;
     private double _lastTickTime;
@@ -69,6 +71,7 @@ public sealed class GestureEngine
     /// <summary>Raised when a tracked gesture is fully over, after <see cref="Committed"/> if it committed.</summary>
     public event Action? Ended;
     public event Action<SettleMotion>? SettlingStarted;
+    public event Action? SettlingInterrupted;
 
     public void Process(TouchFrame frame)
     {
@@ -117,6 +120,21 @@ public sealed class GestureEngine
             case GesturePhase.Rejected:
                 if (count == 0) Phase = GesturePhase.Idle;
                 break;
+            case GesturePhase.Settling when count == fingers && _settleMotion is { } motion:
+                // A fresh touch takes ownership of the animation at its current position.
+                _interruptedMotion = motion;
+                _interruptedStarted = _lastTickTime;
+                _interruptedPosition = motion.At(Math.Max(0, frame.Time - _lastTickTime));
+                _settleMotion = null;
+                Phase = GesturePhase.Tracking;
+                DisplayProgress = _interruptedPosition;
+                Progress = Unshape(_interruptedPosition);
+                SetTravel(Progress);
+                _velocity.Clear();
+                _presentation.Reset();
+                _presentation.Add(frame.Time, Progress);
+                SettlingInterrupted?.Invoke();
+                break;
         }
     }
 
@@ -126,6 +144,18 @@ public sealed class GestureEngine
         if (Phase == GesturePhase.Tracking && time - _lastFrameTime > Options.ReleaseTimeout) Release(time);
         if (Phase == GesturePhase.Tracking)
         {
+            if (_interruptedMotion is { } interrupted)
+            {
+                // Match the compositor's position at the first new display time, not an
+                // older input-arrival time. Any new finger travel is preserved as an offset.
+                Progress += Unshape(interrupted.At(Math.Max(0, time - _interruptedStarted))) - Unshape(_interruptedPosition);
+                SetTravel(Progress);
+                _presentation.Reset();
+                _presentation.Add(_lastFrameTime, Progress);
+                _velocity.Clear();
+                _velocity.Add(_lastFrameTime, Progress);
+                _interruptedMotion = null;
+            }
             DisplayProgress = Shape(_presentation.Sample(time));
             return;
         }
@@ -163,6 +193,7 @@ public sealed class GestureEngine
         Phase = GesturePhase.Idle;
         Axis = GestureAxis.None;
         _settleMotion = null;
+        _interruptedMotion = null;
         Progress = DisplayProgress = Velocity = 0;
         _presentation.Reset();
         _previous.Clear();
@@ -176,8 +207,9 @@ public sealed class GestureEngine
     {
         int count = 0, shared = 0;
         double dx = 0, dy = 0;
-        foreach (var contact in frame.Contacts)
+        for (var i = 0; i < frame.Contacts.Count; i++)
         {
+            var contact = frame.Contacts[i];
             if (!contact.IsActive) continue;
             count++;
             if (_previous.TryGetValue(contact.Id, out var previous))
@@ -189,8 +221,9 @@ public sealed class GestureEngine
         }
 
         _previous.Clear();
-        foreach (var contact in frame.Contacts)
+        for (var i = 0; i < frame.Contacts.Count; i++)
         {
+            var contact = frame.Contacts[i];
             if (contact.IsActive) _previous[contact.Id] = (contact.X, contact.Y);
         }
 
@@ -230,6 +263,7 @@ public sealed class GestureEngine
 
     private void Release(double time)
     {
+        _interruptedMotion = null;
         var p = Progress;
         var v = _velocity.Estimate(time);
         var flick = Options.FlickVelocity;
@@ -243,9 +277,17 @@ public sealed class GestureEngine
         const double h = 1e-3;
         // Start from the last displayed position, even if lift reports arrived between display frames.
         var displayed = _presentation.HasPresented ? Shape(_presentation.Value) : DisplayProgress;
-        _settleMotion = SettleMotion.Create(Options.Spring, displayed, (Shape(p + v * h) - Shape(p)) / h, _target, Options.CommitTolerance);
+        // Decisions use the trailing velocity above; the visual spring inherits the much
+        // more recent tracking velocity, including a reversal just before lifting.
+        var visualVelocity = _presentation.HasPresented ? _presentation.MotionVelocity(time) : v;
+        var visualProgress = _presentation.HasPresented ? _presentation.Value : p;
+        _settleMotion = SettleMotion.Create(Options.Spring, displayed,
+            (Shape(visualProgress + visualVelocity * h) - Shape(visualProgress)) / h,
+            _target, Options.CommitTolerance, allowOvershoot: Axis == GestureAxis.Vertical && _target > 0);
         DisplayProgress = displayed;
-        _lastTickTime = time;
+        // The position above was drawn for a predicted display time. Starting its curve
+        // at an older hardware lift timestamp would immediately advance it a second time.
+        _lastTickTime = _presentation.HasPresented ? Math.Max(time, _presentation.PresentedAt) : time;
         Phase = GesturePhase.Settling;
         SettlingStarted?.Invoke(_settleMotion);
     }
@@ -255,6 +297,7 @@ public sealed class GestureEngine
         Phase = GesturePhase.Idle;
         Axis = GestureAxis.None;
         _settleMotion = null;
+        _interruptedMotion = null;
         Progress = DisplayProgress = Velocity = 0;
         if (action is { } committed) Committed?.Invoke(committed);
         Ended?.Invoke();
@@ -275,5 +318,21 @@ public sealed class GestureEngine
     {
         var limit = Options.RubberBandLimit;
         return limit * (1 - 1 / (distance * 0.55 / limit + 1));
+    }
+
+    private void SetTravel(double progress)
+    {
+        if (Axis == GestureAxis.Horizontal) _travelX = -progress * Options.FullSwipeMm;
+        else _travelY = -progress * Options.FullSwipeVerticalMm;
+    }
+
+    private double Unshape(double displayed)
+    {
+        var magnitude = Math.Abs(displayed);
+        double InverseBand(double value) => Options.RubberBandLimit * value /
+            (0.55 * Math.Max(0.000001, Options.RubberBandLimit - value));
+        var canGo = displayed >= 0 ? CanGoPositive : CanGoNegative;
+        var raw = !canGo ? InverseBand(magnitude) : magnitude <= 1 ? magnitude : 1 + InverseBand(magnitude - 1);
+        return Math.CopySign(raw, displayed);
     }
 }
