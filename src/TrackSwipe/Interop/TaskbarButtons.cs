@@ -46,7 +46,14 @@ internal static unsafe class TaskbarButtons
         if ((WindowAppId(window) ?? ProcessAppId(window)) is { } appId &&
             Pick(button => string.Equals(button.AppId, appId, StringComparison.OrdinalIgnoreCase)) is { } byId) return byId;
 
-        if (ProcessName(window) is { Length: >= 3 } exe)
+        var image = ProcessImage(window);
+        // A classic app without an app ID of its own is known by its program's path, with a known-folder GUID for the
+        // folder ("{1AC14E77-...}\charmap.exe"): its file name is enough to tell it apart.
+        if (image is not null && Path.GetFileName(image) is { Length: > 4 } file &&
+            Pick(button => button.AppId.EndsWith("\\" + file, StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(button.AppId, image, StringComparison.OrdinalIgnoreCase)) is { } byPath) return byPath;
+
+        if (image is not null && Path.GetFileNameWithoutExtension(image) is { Length: >= 3 } exe)
         {
             // "Figma pinned", "File Explorer pinned", "Microsoft Edge - 2 running windows": compare the app's name part.
             static string AppName(string name)
@@ -164,7 +171,7 @@ internal static unsafe class TaskbarButtons
         finally { CloseHandle(process); }
     }
 
-    private static string? ProcessName(IntPtr window)
+    private static string? ProcessImage(IntPtr window)
     {
         GetWindowThreadProcessId(window, out var pid);
         var process = OpenProcess(0x1000, false, pid);
@@ -174,7 +181,7 @@ internal static unsafe class TaskbarButtons
             var length = 1024u;
             var buffer = stackalloc char[1024];
             if (!QueryFullProcessImageNameW(process, 0, buffer, ref length)) return null;
-            return Path.GetFileNameWithoutExtension(new string(buffer, 0, (int)length));
+            return new string(buffer, 0, (int)length);
         }
         finally { CloseHandle(process); }
     }

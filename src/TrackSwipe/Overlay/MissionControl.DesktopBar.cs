@@ -13,7 +13,7 @@ internal sealed partial class MissionControl
     private double? _barTransitionUntil;
     private bool _refreshingBar;
     private readonly Dictionary<(ThumbnailSurface Surface, Guid Desktop, Size Size), GpuDecorationLayer> _spareTileDecorations = new();
-    private bool DesktopBarBusy => _windowDrag is not null || _desktopDrag is not null || _desktopChange is not null || _barTransitionUntil is not null || _refreshingBar;
+    private bool DesktopBarBusy => _windowDrag is not null || _desktopDrag is not null || _desktopChange is not null || _barTransitionUntil is not null || _refreshingBar || _focusing is not null;
 
     private static Rectangle TileLabelBounds(Tile tile, float scale) => Rectangle.FromLTRB(
         tile.Bounds.Left - (int)(12 * scale), tile.Bounds.Top - (int)(4 * scale),

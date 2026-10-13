@@ -22,13 +22,22 @@ internal sealed class DesktopSlide(Swatches swatches)
     private readonly Dictionary<ThumbnailSurface, float> _offsets = new();
     private DesktopScene? _scene;
     private (ThumbnailSurface Surface, int Generation)[] _surfaces = Array.Empty<(ThumbnailSurface, int)>();
+    private int? _target;
+    private IntPtr[] _raised = Array.Empty<IntPtr>();
 
-    public void Begin(DesktopScene scene, IReadOnlyList<ThumbnailSurface> surfaces)
+    /// <param name="target">
+    /// A desktop to slide to that may not be a neighbour (a jump from the taskbar): it takes the neighbour's place on
+    /// its side, and only it and the current desktop are prepared.
+    /// </param>
+    /// <param name="raise">Windows that come to the front as the switch lands (the one being activated).</param>
+    public void Begin(DesktopScene scene, IReadOnlyList<ThumbnailSurface> surfaces, int? target = null, IReadOnlyCollection<IntPtr>? raise = null)
     {
+        var raised = raise?.ToArray() ?? Array.Empty<IntPtr>();
         // A repeated swipe on an unchanged desktop can reuse all registrations and their z-order.
         // On a changed scene, reuse unchanged windows individually rather than discarding
         // their DWM representations merely because the current desktop index changed.
         if (_scene is { } previous && previous.Current == scene.Current && previous.Items.SequenceEqual(scene.Items)
+            && _target == target && _raised.SequenceEqual(raised)
             && (previous.Desktops?.Ids ?? Array.Empty<Guid>()).SequenceEqual(scene.Desktops?.Ids ?? Array.Empty<Guid>())
             && _surfaces.Length == surfaces.Count
             && _surfaces.Select(pair => pair.Surface).SequenceEqual(surfaces)
@@ -46,8 +55,9 @@ internal sealed class DesktopSlide(Swatches swatches)
             {
                 foreach (var wallpaper in scene.Wallpapers) Add(surface, wallpaper, layer);
             }
-            foreach (var window in scene.Items.Where(item => item.Kind == SceneKind.Window && !item.IsMinimized && Math.Abs(item.Desktop - scene.Current) <= 1))
-                Add(surface, window, window.Desktop - scene.Current);
+            var windows = scene.Items.Where(item => item.Kind == SceneKind.Window && !item.IsMinimized && LayerOf(item) is not null).ToList();
+            foreach (var window in windows.Where(item => !raised.Contains(item.Window)).Concat(windows.Where(item => raised.Contains(item.Window))))
+                Add(surface, window, LayerOf(window)!.Value);
             foreach (var taskbar in scene.Taskbars) Add(surface, taskbar, Fixed);
         }
         foreach (var stale in reusable.Values)
@@ -63,8 +73,17 @@ internal sealed class DesktopSlide(Swatches swatches)
         }
         foreach (var surface in surfaces) Arrange(surface);
         _scene = scene;
+        _target = target;
+        _raised = raised;
         _surfaces = surfaces.Select(surface => (surface, surface.Generation)).ToArray();
         Log.Verbose($"Desktop slide prepared: {reused} reused thumbnails, {created} new thumbnails.");
+
+        int? LayerOf(SceneItem item)
+        {
+            if (target is not { } to) return Math.Abs(item.Desktop - scene.Current) <= 1 ? item.Desktop - scene.Current : null;
+            if (item.Desktop == scene.Current) return 0;
+            return item.Desktop == to ? Math.Sign(to - scene.Current) : null;
+        }
 
         void Add(ThumbnailSurface surface, SceneItem item, int layer)
         {

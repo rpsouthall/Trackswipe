@@ -82,7 +82,7 @@ internal sealed partial class MissionControl : IDisposable
 
     public bool IsOpen => _state == State.Open && !DesktopBarBusy;
 
-    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _barRevealAnimating || _handoff is not null || _afterWake is not null || _zoom is not null;
+    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _barRevealAnimating || _handoff is not null || _afterWake is not null || _zoom is not null || _focusing is not null;
 
     /// <summary>Closing, or handing off to the real desktop; a gesture shouldn't reopen it.</summary>
     public bool IsClosing => _state == State.Closing;
@@ -274,6 +274,7 @@ internal sealed partial class MissionControl : IDisposable
     {
         RunAfterWake();
         TickBarReveal(now);
+        TickFocus(now);
         RunDeferred(budget: 0.003);
         if (_leaveUntil is { } finish)
         {
@@ -335,6 +336,8 @@ internal sealed partial class MissionControl : IDisposable
         _closeDecidedAt = null;
         _activatedEarly = false;
         _zoom = null;
+        _focusing = null;
+        StopDwell();
         if (_zoomStarted is { } zoomed) Log.Verbose($"Zoom into a desktop: overlay off {(Clock.Now - zoomed) * 1000:0} ms after the click (clock {Clock.Now:0.000}).");
         _zoomStarted = null;
         foreach (var plan in _plans)
@@ -414,6 +417,7 @@ internal sealed partial class MissionControl : IDisposable
     {
         Hide();
         _cacheExpiry.Dispose();
+        _dwell?.Dispose();
         ReleaseCache();
         foreach (var decoration in _decorations.Values) decoration.Dispose();
         _decorations.Clear();
@@ -435,6 +439,18 @@ internal sealed partial class MissionControl : IDisposable
         }
         return null;
     }
+
+    /// <summary>For diagnostics: the screen point at the centre of <paramref name="desktop"/>'s tile in the bar.</summary>
+    public Point? TileCentre(int desktop)
+    {
+        foreach (var plan in _plans)
+            if (plan.Tiles.FirstOrDefault(tile => tile.Desktop == desktop) is { } tile)
+                return new Point(plan.Surface.Monitor.X + tile.Bounds.X + tile.Bounds.Width / 2, plan.Surface.Monitor.Y + tile.Bounds.Y + tile.Bounds.Height / 2);
+        return null;
+    }
+
+    /// <summary>For diagnostics: the desktop whose windows the overview shows.</summary>
+    public int? ViewedDesktop => _scene?.Current;
 
     /// <summary>For diagnostics: expands the desktop bar, as pointing at it does.</summary>
     public void ExpandDesktopBar() => SetBarExpanded(true);
@@ -460,6 +476,7 @@ internal sealed partial class MissionControl : IDisposable
     private void Close(Part? focus = null)
     {
         if (_state is State.Hidden or State.Closing || DesktopBarBusy) return;
+        StopDwell();
         if (DeferUntilAwake(() => Close(focus))) return; // sharp thumbnails: wake the scaled copies a frame first
         StopBarReveal();
         RunDeferred(budget: double.PositiveInfinity);
@@ -1196,7 +1213,9 @@ internal sealed partial class MissionControl : IDisposable
         }
         if (!IsOpen || PlanFor(surface) is not { } plan) return;
         UpdateBarHover(plan, point);
-        SetHover(plan, HitTest(plan, point));
+        var hit = HitTest(plan, point);
+        SetHover(plan, hit);
+        UpdateDwell(hit);
     }
 
     private void OnClicked(ThumbnailSurface surface, Point point)

@@ -138,6 +138,53 @@ internal sealed partial class OverlayController
         timer.Start();
     }
 
+    /// <summary>
+    /// For --diagnose-dwell: opens Mission Control, shows the desktop bar, rests the pointer on <paramref name="desktop"/>'s
+    /// tile until the overview shows that desktop, then clicks empty space (which goes there).
+    /// </summary>
+    public void RunDwellDiagnostics(int desktop, Action done)
+    {
+        BeginMission(CaptureScene());
+        Interop.NativeMethods.GetCursorPos(out var originalCursor);
+        var step = 0;
+        var stepStart = Clock.Now;
+        var timer = new UiTimer { Interval = 8 };
+        void Next() { step++; stepStart = Clock.Now; }
+        timer.Tick += (_, _) =>
+        {
+            var t = Clock.Now - stepStart;
+            switch (step)
+            {
+                case 0 when t < 0.4: _mission.Render(t / 0.4); return;
+                case 0: _mission.SetOpen(); Next(); return;
+                case 1 when t < 0.3: return;
+                case 1: _mission.ExpandDesktopBar(); Next(); return;
+                case 2 when t < 0.8: return;
+                case 2:
+                    if (_mission.TileCentre(desktop) is { } centre) SetCursorPos(centre.X, centre.Y);
+                    Log.Write($"Diagnose dwell: pointer on desktop {desktop + 1}'s tile, viewing desktop {_mission.ViewedDesktop + 1} (clock {Clock.Now:0.000})");
+                    Next();
+                    return;
+                case 3 when t < 0.5:
+                    if (t > 0.25 && _mission.TileCentre(desktop) is { } wiggle) SetCursorPos(wiggle.X + 2, wiggle.Y); // a resting hand still moves a little
+                    return;
+                case 3: Log.Write($"Diagnose dwell: after 0.5 s viewing desktop {_mission.ViewedDesktop + 1}"); Next(); return;
+                case 4 when t < 1.2: return;
+                case 4: Log.Write($"Diagnose dwell: after 1.7 s viewing desktop {_mission.ViewedDesktop + 1}; {_mission.Describe()}"); Next(); return;
+                case 5 when t < 0.4: return;
+                case 5: SetCursorPos(originalCursor.X, originalCursor.Y); _mission.Dismiss(); Next(); return;
+                case 6 when _mission.IsVisible && t < 3: return;
+                default:
+                    timer.Dispose();
+                    _mission.Hide();
+                    Log.Write("Diagnose dwell: done");
+                    done();
+                    return;
+            }
+        };
+        timer.Start();
+    }
+
     /// <summary>For --diagnose-zoom: opens Mission Control, shows the desktop bar, then clicks <paramref name="desktop"/>'s tile.</summary>
     public void RunZoomDiagnostics(int desktop, Action done)
     {

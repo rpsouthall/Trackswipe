@@ -38,6 +38,8 @@ internal sealed partial class TrayApp
                 var desktops = VirtualDesktops.Read();
                 RunSlideDiagnostics(desktops is not null && desktops.Index < desktops.Count - 1 ? 1 : -1, roundTrip: true);
             }
+            if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DWELL"), out var dwellDesktop))
+                _overlay.RunDwellDiagnostics(dwellDesktop, ExitOnShell);
             if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_ZOOM"), out var zoomDesktop))
                 _overlay.RunZoomDiagnostics(zoomDesktop, ExitOnShell);
             if (missionDiagnostics is { } switchDirection) _overlay.RunMissionDiagnostics(ExitOnShell, switchDirection);

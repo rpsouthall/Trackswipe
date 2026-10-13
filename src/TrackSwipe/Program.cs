@@ -181,6 +181,10 @@ internal static class Program
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE", slide.ToString());
                     i++;
                     break;
+                case "--diagnose-dwell" when int.TryParse(next, out var dwellDesktop):
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DWELL", dwellDesktop.ToString());
+                    i++;
+                    break;
                 case "--diagnose-zoom" when int.TryParse(next, out var zoomDesktop):
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_ZOOM", zoomDesktop.ToString());
                     i++;

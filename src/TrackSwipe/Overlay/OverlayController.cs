@@ -117,7 +117,7 @@ internal sealed partial class OverlayController : IDisposable
     /// <summary>Raised when something starts animating on its own, outside a gesture.</summary>
     public event Action? FramesNeeded;
 
-    public bool NeedsFrames => _switchVisible is not null || _peekLanded is not null || _mission.IsAnimating;
+    public bool NeedsFrames => _switchVisible is not null || _peekLanded is not null || _mission.IsAnimating || _jump is { ReleasedAt: not null };
 
     /// <summary>
     /// The right fingers just landed: capture the scene now, while they travel through the dead zone,
@@ -127,12 +127,9 @@ internal sealed partial class OverlayController : IDisposable
     {
         if (_switcher is null) RetrySwitcher();
         if (_mission.IsOpen) _mission.WakeScaledCopies(); // a pan or close may follow: compose the scaled copies first
-        if (_mission.IsVisible || _switchVisible is not null || _peekLanded is not null) return;
-        var desktops = VirtualDesktops.Read();
-        var scene = _invalidation.Available && !_invalidation.Dirty && _idleScene is { } idle &&
-            SameDesktops(idle.Desktops, desktops) && _idleLayout.SequenceEqual(Screen.AllScreens.Select(screen => (screen.Bounds, screen.WorkingArea)))
-            ? idle : CaptureScene();
-        _idleScene = scene;
+        if (_jump is { ReleasedAt: null }) _jump = null; // fingers on the touchpad: that press wasn't a click after all
+        if (_mission.IsVisible || _switchVisible is not null || _peekLanded is not null || _jump is not null) return;
+        var scene = IdleScene();
         _prewarmed = (scene, Clock.Now);
         // Prepare the last-used gesture first. Other directions still use this scene when
         // their axis locks, without registering two complete sets on every finger landing.
@@ -143,10 +140,22 @@ internal sealed partial class OverlayController : IDisposable
         _peek.Begin(scene, _peekSurfaces.Prepare());
     }
 
+    /// <summary>The desktop as it is now: the last capture while nothing has changed since, otherwise a fresh one.</summary>
+    private DesktopScene IdleScene()
+    {
+        var desktops = VirtualDesktops.Read();
+        var scene = _invalidation.Available && !_invalidation.Dirty && _idleScene is { } idle &&
+            SameDesktops(idle.Desktops, desktops) && _idleLayout.SequenceEqual(Screen.AllScreens.Select(screen => (screen.Bounds, screen.WorkingArea)))
+            ? idle : CaptureScene();
+        _idleScene = scene;
+        return scene;
+    }
+
     public void TrackingStarted(GestureAxis axis)
     {
         _lastAxis = axis;
         _settling = false;
+        if (_jump is not null) { _jump = null; HideSlide(); }
         if (_switchVisible is not null) HideSlide();
         if (_peekLanded is not null) HidePeek();
 
@@ -278,6 +287,7 @@ internal sealed partial class OverlayController : IDisposable
     {
         var progress = _engine.DisplayProgress;
         if (_switchVisible is not null) PollSwitch(now);
+        else if (_jump is { ReleasedAt: not null }) PollJump(now);
         else if (_peekLanded is not null) PollPeek(now);
         else if (!_settling && _mode == Mode.Slide) _slide.Render(progress);
         else if (!_settling && _mode == Mode.Peek) _peek.Render(-progress);
@@ -317,6 +327,7 @@ internal sealed partial class OverlayController : IDisposable
     {
         _settling = false;
         _mode = Mode.None;
+        _jump = null;
         _mission.Hide();
         HideSlide();
         HidePeek();

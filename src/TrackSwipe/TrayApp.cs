@@ -45,6 +45,7 @@ internal sealed partial class TrayApp : IDisposable
     private readonly bool _elevated = Setup.Startup.IsElevated;
     private Action? _balloonAction;
     private ForegroundWatch? _adminAppWatch;
+    private TaskbarClickWatch? _taskbarClicks;
 
     /// <summary>Set when TrackSwipe should start again once this instance has exited (switching administrator mode).</summary>
     public RestartMode Restart { get; private set; }
@@ -144,6 +145,12 @@ internal sealed partial class TrayApp : IDisposable
                 (adminDeclined ? "Administrator mode wasn't approved; you can turn it on from this icon's menu." : "Settings are in this icon's menu."));
         // Windows keeps a normal app's input away from apps running as administrator: say so the first time one is in front.
         if (!_elevated) _adminAppWatch = new ForegroundWatch(OnAdminAppInFront);
+        // A taskbar click that jumps to another desktop slides there instead of cutting.
+        _taskbarClicks = new TaskbarClickWatch(
+            (point, interested) => _compositionThread.Post(() => interested(_overlay.TaskbarPressed(point))),
+            (point, shown) => _compositionThread.Post(() => { try { _overlay.TaskbarReleased(point); } finally { shown(); } }),
+            () => _compositionThread.Post(_overlay.TaskbarAbandoned));
+        _compositionThread.Post(_overlay.WarmTaskbarButtons);
 #if DIAGNOSTICS
         StartDiagnostics(preview, diagnose, missionDiagnostics);
 #else
@@ -178,6 +185,7 @@ internal sealed partial class TrayApp : IDisposable
         if (_disposed) return;
         _disposed = true;
         _shuttingDown = true;
+        _taskbarClicks?.Dispose();
         _compositionThread.Dispose();
         _shellPump.Dispose();
         _monitor?.Dispose();
