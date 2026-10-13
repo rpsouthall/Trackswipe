@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo-slide.gif" width="832" alt="Swiping between desktops with TrackSwipe: the whole desktop follows the fingers">
+  <img src="assets/demo.gif" width="800" alt="TrackSwipe in use: swiping between desktops and opening Mission Control">
 </p>
 
 Windows switches desktops with a canned animation that plays *after* you swipe. TrackSwipe makes the desktop follow your fingers instead, like a Mac: your live windows slide away under your fingers while the next desktop slides in, you can change your mind halfway, and a spring finishes the move when you let go. Swipe up and every window spreads out in a Mission Control overview.
