@@ -75,6 +75,10 @@ internal sealed class TouchpadThread : IDisposable
         try
         {
             touchpad = new RawInputTouchpad();
+#if DIAGNOSTICS
+            // Self-tests that inject touches ignore the real touchpad, so someone using it can't disturb them.
+            if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SYNTHETIC") != "1")
+#endif
             touchpad.FrameReceived += EnqueueIfRelevant;
             touchpad.DeviceFound += device => DeviceFound?.Invoke(device);
             _threadId = NativeMethods.GetCurrentThreadId();

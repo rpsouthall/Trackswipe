@@ -23,6 +23,21 @@ public class GestureEngineTests
     }
 
     [Theory]
+    [InlineData(-45, 0, GestureAxis.Horizontal, 1)]
+    [InlineData(45, 0, GestureAxis.Horizontal, -1)]
+    [InlineData(0, -25, GestureAxis.Vertical, 1)]
+    [InlineData(0, 25, GestureAxis.Vertical, -1)]
+    public void Tracking_direction_is_known_when_tracking_starts(double dx, double dy, GestureAxis axis, int direction)
+    {
+        var h = new GestureHarness();
+        (GestureAxis Axis, int Direction)? seen = null;
+        h.Engine.TrackingStarted += started => seen ??= (started, h.Engine.TrackingDirection);
+        h.Move(dx, dy, 0.5).Lift();
+
+        Assert.Equal((axis, direction), seen);
+    }
+
+    [Theory]
     [InlineData(3, 4)]
     [InlineData(4, 3)]
     public void Unselected_finger_count_does_not_start_a_gesture(int selected, int contacts)

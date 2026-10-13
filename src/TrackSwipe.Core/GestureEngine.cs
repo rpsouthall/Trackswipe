@@ -40,6 +40,12 @@ public sealed class GestureEngine
     /// <summary>Progress to draw: follows the fingers, rubber-bands where a direction is blocked, then animates while settling.</summary>
     public double DisplayProgress { get; private set; }
 
+    /// <summary>
+    /// Which way the fingers were heading when tracking started (+1 next desktop or up, -1 previous desktop or
+    /// down), so a gesture can choose what to show before its first frame.
+    /// </summary>
+    public int TrackingDirection { get; private set; }
+
     /// <summary>Progress per second, measured over the last few frames.</summary>
     public double Velocity { get; private set; }
     public double SettleStartedAt => _lastTickTime;
@@ -248,6 +254,7 @@ public sealed class GestureEngine
         Phase = GesturePhase.Tracking;
         _velocity.Clear();
         _presentation.Reset();
+        TrackingDirection = Math.Sign(axis == GestureAxis.Horizontal ? -_travelX : -_travelY);
         TrackingStarted?.Invoke(axis);
         UpdateProgress(time);
     }

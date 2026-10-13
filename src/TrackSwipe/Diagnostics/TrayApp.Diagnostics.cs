@@ -20,6 +20,8 @@ internal sealed partial class TrayApp
             if (preview) RunPreview();
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_OPEN") is { } open)
                 RunOpenDiagnostics(int.TryParse(open, out var cycles) && cycles > 2 ? Math.Min(cycles, 100) : 2);
+            if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_PEEK") is { } peek)
+                RunPeekDiagnostics(peek);
             if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE"), out var slideDirection) && slideDirection is 1 or -1)
                 RunSlideDiagnostics(slideDirection);
             if (diagnose) _overlay.RunDiagnostics(ExitOnShell);
@@ -36,6 +38,8 @@ internal sealed partial class TrayApp
                 var desktops = VirtualDesktops.Read();
                 RunSlideDiagnostics(desktops is not null && desktops.Index < desktops.Count - 1 ? 1 : -1, roundTrip: true);
             }
+            if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_ZOOM"), out var zoomDesktop))
+                _overlay.RunZoomDiagnostics(zoomDesktop, ExitOnShell);
             if (missionDiagnostics is { } switchDirection) _overlay.RunMissionDiagnostics(ExitOnShell, switchDirection);
             if (long.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_FOCUS"), out var focusWindow))
                 _overlay.RunFocusDiagnostics(new IntPtr(focusWindow), ExitOnShell, Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SWIPE") == "1");
@@ -149,6 +153,48 @@ internal sealed partial class TrayApp
             var travel = -direction * (returning ? -1 : 1) * reach * Math.Min(sampleTime / swipe, 1);
             var contacts = Enumerable.Range(0, fingers)
                 .Select(i => new Contact((returning ? 400 : 300) + i, 80 + i * 12 + travel, 40, Tip: !lifted, Confidence: true))
+                .ToArray();
+            _touchpad.Inject(new TouchFrame(Clock.Now, contacts, 110, 70));
+        };
+        timer.Start();
+    }
+
+    /// <summary>
+    /// For --diagnose-peek [reverse|hold]: a synthetic swipe down through the real engine and display clock. Plain
+    /// ("commit"), it shows the desktop (really minimizing the windows). With reverse, the fingers go 60% of the way,
+    /// come back to 10% and lift, which must cancel with every window back where it was. With hold, they move just
+    /// past the dead zone, rest and lift: barely any motion, so the overlay's appearance and removal can be checked
+    /// for flashes on their own. Quits after.
+    /// </summary>
+    private void RunPeekDiagnostics(string mode)
+    {
+        var start = Clock.Now;
+        var fingers = _engine.Options.Fingers;
+        var full = _engine.Options.FullSwipeVerticalMm;
+        // Fingers' travel down over time.
+        double TravelAt(double t) => mode switch
+        {
+            "reverse" => t < 0.45 ? full * 0.6 * Math.Min(1, t / 0.45) : full * (0.6 - 0.5 * Math.Min(1, (t - 0.45) / 0.45)),
+            "hold" => 2.5 * Math.Min(1, t / 0.1),
+            _ => full * 0.9 * Math.Min(1, t / 0.3),
+        };
+        var lift = mode switch { "reverse" => 1.0, "hold" => 0.8, _ => 0.32 };
+        var reverse = mode != "commit";
+        var timer = new UiTimer { Interval = 8 };
+        timer.Tick += (_, _) =>
+        {
+            var t = Clock.Now - start;
+            if (t > lift + 2.0)
+            {
+                Log.Write($"Peek diagnostic ({mode}): done.");
+                timer.Dispose();
+                ExitOnShell();
+                return;
+            }
+            if (t > lift + 0.02) return;
+            var lifted = t > lift;
+            var contacts = Enumerable.Range(0, fingers)
+                .Select(i => new Contact(500 + i, 30 + i * 12, 15 + TravelAt(Math.Min(t, lift)), Tip: !lifted, Confidence: true))
                 .ToArray();
             _touchpad.Inject(new TouchFrame(Clock.Now, contacts, 110, 70));
         };

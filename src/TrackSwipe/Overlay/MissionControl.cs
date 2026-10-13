@@ -49,6 +49,11 @@ internal sealed partial class MissionControl : IDisposable
     private readonly Dictionary<(ThumbnailSurface Surface, IntPtr Window, string Slot), Sprite> _reusable = new();
     private readonly UiTimer _cacheExpiry = new() { Interval = 15000 };
     private bool _pendingShow;
+    private double? _closeDecidedAt;
+    /// <summary>Zooming into a desktop's tile: which desktop, when to switch to it underneath, and when the zoom lands.</summary>
+    private (int Desktop, double SwitchAt, double Until, bool Switched)? _zoom;
+    private double? _zoomStarted;
+    private bool _activatedEarly;
 
     public MissionControl(Func<IReadOnlyList<ThumbnailSurface>> surfaces, Func<DesktopScene> capture, DesktopSwitcher? switcher, Swatches swatches)
     {
@@ -66,7 +71,7 @@ internal sealed partial class MissionControl : IDisposable
 
     public bool IsOpen => _state == State.Open && !DesktopBarBusy;
 
-    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _barRevealAnimating || _handoff is not null || _afterWake is not null;
+    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _barRevealAnimating || _handoff is not null || _afterWake is not null || _zoom is not null;
 
     /// <summary>Closing, or handing off to the real desktop; a gesture shouldn't reopen it.</summary>
     public bool IsClosing => _state == State.Closing;
@@ -216,6 +221,14 @@ internal sealed partial class MissionControl : IDisposable
         Rebuild(_scene!.WithCurrent(_scene.Current + step)); // the target spread is now exactly where the pan left it
     }
 
+    /// <summary>A swipe down was released to close: the chosen window can take input already, while it settles.</summary>
+    public void CommitGestureClose()
+    {
+        if (_state == State.Hidden) return;
+        _closeDecidedAt = Clock.Now;
+        ActivateChosenEarly();
+    }
+
     /// <summary>A swipe down finished closing it: hand off to the viewed desktop.</summary>
     public void FinishGestureClose()
     {
@@ -257,6 +270,27 @@ internal sealed partial class MissionControl : IDisposable
             return;
         }
 
+        if (_zoom is { } zoom)
+        {
+            if (!zoom.Switched && now >= zoom.SwitchAt)
+            {
+                _zoom = zoom with { Switched = true };
+                SwitchUnderZoom(zoom.Desktop);
+                if (_zoom is null) return; // fell back to the shortcut and hid
+            }
+            if (_handoff is { } switching)
+            {
+                switching.Tick(now);
+                if (!switching.IsDone) return;
+            }
+            if (now >= zoom.Until)
+            {
+                _zoom = null;
+                BeginLeave(now);
+            }
+            return;
+        }
+
         if (_state == State.Closing && _closeMotion is { } motion)
         {
             if (now - _lastTick >= motion.Duration)
@@ -284,6 +318,24 @@ internal sealed partial class MissionControl : IDisposable
     public void Hide()
     {
         DropSharpThumbnails();
+        if (_closeDecidedAt is { } decided && _focus is { } chosen)
+            Log.Verbose($"Mission Control closed onto a window: overlay off {(Clock.Now - decided) * 1000:0} ms after the close was decided; " +
+                $"input reached it {(_activatedEarly ? "straight away" : "at the hand-off")}, foreground now {GetForegroundWindow() == chosen.Sprite.Item.Window}.");
+        _closeDecidedAt = null;
+        _activatedEarly = false;
+        _zoom = null;
+        if (_zoomStarted is { } zoomed) Log.Verbose($"Zoom into a desktop: overlay off {(Clock.Now - zoomed) * 1000:0} ms after the click (clock {Clock.Now:0.000}).");
+        _zoomStarted = null;
+        foreach (var plan in _plans)
+        {
+            // The other monitors' windows of a desktop zoomed into: only for that zoom, never reused.
+            foreach (var part in plan.Parts.Where(part => part.Slot == "zoom"))
+            {
+                plan.Surface.Remove(part.Sprite);
+                if (part.Backing is not null) plan.Surface.Remove(part.Backing);
+            }
+            plan.Parts.RemoveAll(part => part.Slot == "zoom");
+        }
         var handoff = _handoff;
         var complete = _deferred.Count == 0;
         Unchoose();
@@ -373,6 +425,17 @@ internal sealed partial class MissionControl : IDisposable
         return null;
     }
 
+    /// <summary>For diagnostics: expands the desktop bar, as pointing at it does.</summary>
+    public void ExpandDesktopBar() => SetBarExpanded(true);
+
+    /// <summary>For diagnostics: acts as if <paramref name="desktop"/>'s tile were clicked. False if it can't be.</summary>
+    public bool ClickDesktop(int desktop)
+    {
+        if (!IsOpen || BarExpansion < 0.98 || _plans.All(plan => plan.Tiles.All(tile => tile.Desktop != desktop))) return false;
+        SwitchTo(desktop);
+        return true;
+    }
+
     /// <summary>For diagnostics: acts as if <paramref name="window"/> were clicked. False if it isn't in the spread.</summary>
     public bool Choose(IntPtr window)
     {
@@ -393,6 +456,8 @@ internal sealed partial class MissionControl : IDisposable
         SetHover(null, default);
         UnregisterEscape();
         if (focus is not null) Choose(focus);
+        _closeDecidedAt = Clock.Now;
+        ActivateChosenEarly();
         _closeMotion = SettleMotion.Create(SpringPreset.Snappy, _openness, 0, 0);
         _lastTick = Clock.Now;
         _state = State.Closing;
@@ -439,6 +504,22 @@ internal sealed partial class MissionControl : IDisposable
         if (focus.Sprite.Item.IsMinimized) Interop.Composition.Gpu.Capture.Prepare(focus.Surface.Monitor);
     }
 
+    /// <summary>
+    /// The close is decided. If the chosen window will rest exactly where it is now (on this desktop, not minimized),
+    /// raise and activate it straight away, underneath the overlay, which is already click-through: typing and clicks
+    /// reach it while the overview is still animating closed, rather than after the hand-off. Windows that have to be
+    /// restored or wait for a desktop switch still go through the hand-off.
+    /// </summary>
+    private void ActivateChosenEarly()
+    {
+        if (_focus is not { } focus || _scene is null || _scene.Current != _realDesktop || focus.Sprite.Item.IsMinimized) return;
+        var window = focus.Sprite.Item.Window;
+        if (!IsWindow(window) || IsIconic(window)) return;
+        SetWindowPos(window, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        Foreground.Take(window);
+        _activatedEarly = GetForegroundWindow() == window;
+    }
+
     /// <summary>Undoes <see cref="Choose"/>, e.g. when a swipe down is released before it closes.</summary>
     private void Unchoose()
     {
@@ -468,6 +549,7 @@ internal sealed partial class MissionControl : IDisposable
     private void SwitchTo(int desktop)
     {
         if (_scene is null) return;
+        if (ZoomInto(desktop)) return;
         if (desktop != _scene.Current) Rebuild(_scene.WithCurrent(desktop));
         Close();
     }
@@ -905,27 +987,164 @@ internal sealed partial class MissionControl : IDisposable
                 part.Sprite.Animate(frames, begin);
                 part.Backing?.Animate(frames, begin);
             }
-            var labels = motion.Samples.Select(sample =>
-            {
-                var value = openness(sample.Value);
-                RectangleF bounds = plan.Decoration.Bounds;
-                return new SpriteFrame(sample.Time, bounds, (float)Math.Clamp(value * 2 - 1, 0, 1), null);
-            }).ToArray();
-            plan.Decoration.Animate(labels, begin);
-            var expansion = BarExpansion;
-            plan.CompactLabels?.AnimateOpacity(motion.Samples.Select(sample => new SpriteFrame(sample.Time,
-                RectangleF.Empty, (float)(Math.Clamp(openness(sample.Value) * 2 - 1, 0, 1) * (1 - expansion)), null)).ToArray(), begin);
-            foreach (var (desktop, pill) in plan.CompactPills)
-                pill.AnimateOpacity(motion.Samples.Select(sample => new SpriteFrame(sample.Time, RectangleF.Empty,
-                    CompactPillOpacity(plan, desktop, openness(sample.Value), expansion, pan ? sample.Value : _pan), null)).ToArray(), begin);
-            plan.AddControl?.Animate(motion.Samples.Select(sample => AddControlFrame(plan, openness(sample.Value), expansion, sample.Time)).ToArray(), begin);
-            foreach (var tile in plan.Tiles)
-                tile.Decoration!.Animate(motion.Samples.Select(sample => TileLabelFrame(plan, tile, openness(sample.Value), sample.Time, expansion)).ToArray(), begin);
+            AnimateDecorations(plan, motion, begin, openness, pan);
         }
         _openness = openness(motion.Target);
         if (pan) _pan = motion.Target;
         ShowPending();
         Interop.Composition.Flush();
+    }
+
+    /// <summary>Labels, highlights and bar controls follow <paramref name="openness"/> along the motion.</summary>
+    private void AnimateDecorations(Plan plan, SettleMotion motion, long begin, Func<double, double> openness, bool pan)
+    {
+        var labels = motion.Samples.Select(sample =>
+        {
+            var value = openness(sample.Value);
+            RectangleF bounds = plan.Decoration.Bounds;
+            return new SpriteFrame(sample.Time, bounds, (float)Math.Clamp(value * 2 - 1, 0, 1), null);
+        }).ToArray();
+        plan.Decoration.Animate(labels, begin);
+        var expansion = BarExpansion;
+        plan.CompactLabels?.AnimateOpacity(motion.Samples.Select(sample => new SpriteFrame(sample.Time,
+            RectangleF.Empty, (float)(Math.Clamp(openness(sample.Value) * 2 - 1, 0, 1) * (1 - expansion)), null)).ToArray(), begin);
+        foreach (var (desktop, pill) in plan.CompactPills)
+            pill.AnimateOpacity(motion.Samples.Select(sample => new SpriteFrame(sample.Time, RectangleF.Empty,
+                CompactPillOpacity(plan, desktop, openness(sample.Value), expansion, pan ? sample.Value : _pan), null)).ToArray(), begin);
+        plan.AddControl?.Animate(motion.Samples.Select(sample => AddControlFrame(plan, openness(sample.Value), expansion, sample.Time)).ToArray(), begin);
+        foreach (var tile in plan.Tiles)
+            tile.Decoration!.Animate(motion.Samples.Select(sample => TileLabelFrame(plan, tile, openness(sample.Value), sample.Time, expansion)).ToArray(), begin);
+    }
+
+    /// <summary>
+    /// Clicking a desktop in the bar zooms into it, as macOS does: its miniature (wallpaper and windows, live) grows
+    /// out of its tile until it fills the screen, covering the overview, while labels fade and the taskbar stays put.
+    /// Other monitors cross-fade to that desktop's windows. Once it fills the screen the real switch happens
+    /// underneath (<see cref="SwitchUnderZoom"/>). False when there's no tile to zoom or no instant switching.
+    /// </summary>
+    /// <summary>A little gentler than a gesture's settle: nothing under the fingers to keep up with.</summary>
+    private static readonly SpringPreset ZoomSpring = new(0.34, 1.0);
+
+    private bool ZoomInto(int desktop)
+    {
+        if (_state != State.Open || DesktopBarBusy || _switcher is null || _scene?.Desktops is null) return false;
+        if (_plans.FirstOrDefault(plan => plan.Tiles.Any(tile => tile.Desktop == desktop)) is not { } zoomPlan) return false;
+        if (DeferUntilAwake(() => SwitchTo(desktop))) return true; // sharp thumbnails: wake the scaled copies a frame first
+        var tile = zoomPlan.Tiles.First(tile => tile.Desktop == desktop);
+        StopBarReveal();
+        RunDeferred(budget: double.PositiveInfinity);
+        SetInteractive(false);
+        SetHover(null, default);
+        UnregisterEscape();
+        Unchoose();
+
+        var motion = SettleMotion.Create(ZoomSpring, 0, 0, 1);
+        var now = Clock.Now;
+        var begin = (long)(now * System.Diagnostics.Stopwatch.Frequency);
+        foreach (var plan in _plans)
+        {
+            DisableBarGroup(plan);
+            AnimateDecorations(plan, motion, begin, value => 1 - value, pan: false);
+        }
+
+        // The tile's contents scale up as one picture, from the tile to the whole screen, about the one point that
+        // stays put. Like a camera, the size grows by the same ratio each step (linearly, the first few percent of
+        // the motion would multiply its size and feel like a jump).
+        var screen = new Rectangle(Point.Empty, zoomPlan.Surface.Monitor.Size);
+        var start = Math.Clamp(tile.Bounds.Width / (double)screen.Width, 0.01, 0.99);
+        double Zoomed(double value) => (Math.Pow(start, 1 - value) - start) / (1 - start);
+        var stack = new List<Sprite>();
+        foreach (var part in zoomPlan.Parts)
+        {
+            if (part.TileId == tile.Id)
+            {
+                var frames = motion.Samples.Select(sample => new SpriteFrame(sample.Time,
+                    ToRectangleF(LayoutRect.Lerp(ToLayout(part.To), ToLayout(part.Sprite.Home), Zoomed(sample.Value))), 1,
+                    ToRectangleF(LayoutRect.Lerp(ToLayout(tile.Bounds), ToLayout(screen), Zoomed(sample.Value))))).ToArray();
+                part.Sprite.Animate(frames, begin);
+                part.Backing?.Animate(frames, begin);
+                if (part.Backing is not null) stack.Add(part.Backing);
+                stack.Add(part.Sprite);
+            }
+            else if (part.Slot == "ring")
+            {
+                var at = FrameFor(zoomPlan, part, 1, 0, 0);
+                part.Sprite.Animate(motion.Samples.Select(sample => at with { Time = sample.Time, Opacity = (float)Math.Max(0, 1 - 3 * sample.Value) }).ToArray(), begin);
+            }
+        }
+        stack.AddRange(zoomPlan.Parts.Where(part => part.Slot == "taskbar").Select(part => part.Sprite));
+        zoomPlan.Surface.Restack(stack);
+
+        foreach (var plan in _plans.Where(plan => plan != zoomPlan)) CrossFadeTo(plan, desktop, motion, begin);
+
+        _state = State.Closing;
+        // The zoom runs in the compositor, so the switch (which blocks this thread for a few frames) can happen
+        // underneath while it finishes: the new desktop is live sooner, and the zoom doesn't stutter.
+        var switchAt = motion.Samples.Where(sample => sample.Value >= 0.85).Select(sample => sample.Time).DefaultIfEmpty(motion.Duration).First();
+        _zoom = (desktop, now + switchAt, now + motion.Duration, false);
+        _zoomStarted = now;
+        Log.Verbose($"Zoom into desktop {desktop + 1}: {stack.Count} sprites grow out of its tile over {motion.Duration * 1000:0} ms (clock {now:0.000}).");
+        Interop.Composition.Flush();
+        FramesNeeded?.Invoke();
+        return true;
+    }
+
+    /// <summary>A monitor without the desktop's tile: its spread fades away and that desktop's windows fade in where they are.</summary>
+    private void CrossFadeTo(Plan plan, int desktop, SettleMotion motion, long begin)
+    {
+        var surface = plan.Surface;
+        foreach (var part in plan.Parts.ToList())
+        {
+            if (part.Slot == "taskbar") continue;
+            var at = FrameFor(plan, part, _openness, _pan, 0);
+            var target = part.Slot == "wallpaper" ? 1f : 0f;
+            var frames = motion.Samples.Select(sample => at with
+            {
+                Time = sample.Time,
+                Opacity = (float)(at.Opacity + (target - at.Opacity) * sample.Value),
+            }).ToArray();
+            part.Sprite.Animate(frames, begin);
+            part.Backing?.Animate(frames, begin);
+        }
+        var stack = new List<Sprite>();
+        foreach (var item in _scene!.VisibleWindowsOn(desktop).Where(item => item.Bounds.IntersectsWith(surface.Monitor)))
+        {
+            var backing = item.NeedsBacking ? surface.Add(_swatches.BackingFor(item)) : null;
+            if (surface.Add(item) is not { } sprite)
+            {
+                if (backing is not null) surface.Remove(backing);
+                continue;
+            }
+            var frames = motion.Samples.Select(sample => new SpriteFrame(sample.Time, sprite.Home, (float)sample.Value, null)).ToArray();
+            backing?.Animate(frames, begin);
+            sprite.Animate(frames, begin);
+            plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, 255) { Slot = "zoom", Backing = backing });
+            if (backing is not null) stack.Add(backing);
+            stack.Add(sprite);
+        }
+        stack.AddRange(plan.Parts.Where(part => part.Slot == "taskbar").Select(part => part.Sprite));
+        surface.Restack(stack);
+    }
+
+    /// <summary>The zoom nearly fills the screen: switch to that desktop underneath it.</summary>
+    private void SwitchUnderZoom(int desktop)
+    {
+        if (_scene is not { Desktops: { } desktops } scene || _switcher is not { } switcher || desktop == _realDesktop) return;
+        var id = desktops.Ids[desktop];
+        Log.Verbose($"Zoom nearly there; switching desktop underneath (clock {Clock.Now:0.000}).");
+        Interop.Composition.Flush();
+        if (!switcher.TrySwitch(id))
+        {
+            var steps = desktop - _realDesktop;
+            Hide();
+            for (var i = 0; i < Math.Abs(steps); i++)
+                KeySender.Send(steps > 0 ? SwipeAction.NextDesktop : SwipeAction.PreviousDesktop);
+            return;
+        }
+        var landing = new SwitchLanding(scene.TopWindowOn(desktop), scene.TopWindowOn(_realDesktop), DesktopScene.IsShown,
+            () => switcher.CurrentDesktopId() == id, Clock.Now);
+        _handoff = new WindowHandoff(id, landing, null, null, Rectangle.Empty, Clock.Now);
+        FramesNeeded?.Invoke();
     }
 
     private SpriteFrame FrameFor(Plan plan, Part part, double openness, double pan, double time, double? barExpansion = null)

@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using TrackSwipe.Desktops;
 using TrackSwipe.Interop;
 using static TrackSwipe.Interop.NativeMethods;
@@ -122,6 +122,7 @@ internal sealed class DesktopScene
                 frame = DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, out RECT f, System.Runtime.InteropServices.Marshal.SizeOf<RECT>()) == 0
                     ? Rectangle.FromLTRB(f.Left, f.Top, f.Right, f.Bottom)
                     : bounds;
+                LearnBorders(window, bounds, frame);
                 var placement = new WINDOWPLACEMENT { Length = System.Runtime.InteropServices.Marshal.SizeOf<WINDOWPLACEMENT>() };
                 if (GetWindowPlacement(window, ref placement))
                 {
@@ -224,8 +225,33 @@ internal sealed class DesktopScene
         var restored = Rectangle.FromLTRB(normal.Left + origin.X, normal.Top + origin.Y, normal.Right + origin.X, normal.Bottom + origin.Y);
         // Minimized from maximized: it comes back filling its monitor's work area, not at its normal position.
         const int WPF_RESTORETOMAXIMIZED = 0x2;
-        return (placement.Flags & WPF_RESTORETOMAXIMIZED) != 0 ? Screen.FromRectangle(restored).WorkingArea : restored;
+        if ((placement.Flags & WPF_RESTORETOMAXIMIZED) != 0) return Screen.FromRectangle(restored).WorkingArea;
+        // The normal position includes the invisible resize borders; the visible frame is what lands.
+        (int Left, int Top, int Right, int Bottom) border = default;
+        bool known;
+        lock (Borders) known = Borders.TryGetValue(GetDpiForWindow(window), out border);
+        if (known && Resizable(window))
+            restored = Rectangle.FromLTRB(restored.Left + border.Left, restored.Top + border.Top, restored.Right - border.Right, restored.Bottom - border.Bottom);
+        return restored;
     }
+
+    /// <summary>
+    /// The invisible resize borders of resizable windows, by DPI, as last seen on a window on screen. They're the same
+    /// for nearly every such window at a given DPI, so a minimized window that hasn't been seen restored borrows them.
+    /// </summary>
+    private static readonly Dictionary<uint, (int Left, int Top, int Right, int Bottom)> Borders = new();
+
+    private static void LearnBorders(IntPtr window, Rectangle bounds, Rectangle frame)
+    {
+        if (!Resizable(window) || frame == bounds || !bounds.Contains(frame)) return;
+        var border = (frame.Left - bounds.Left, frame.Top - bounds.Top, bounds.Right - frame.Right, bounds.Bottom - frame.Bottom);
+        if (border.Item1 > 32 || border.Item2 > 32 || border.Item3 > 32 || border.Item4 > 32) return; // a custom frame, not borders
+        lock (Borders) Borders[GetDpiForWindow(window)] = border;
+    }
+
+    private static bool Resizable(IntPtr window) => (GetWindowLongW(window, -16 /* GWL_STYLE */) & 0x00040000 /* WS_THICKFRAME */) != 0;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr window);
 
     /// <summary>Alt+Tab's rule of thumb: unowned and not a tool window, unless it explicitly asks for a taskbar button.</summary>
     private static bool IsAppWindow(IntPtr window)

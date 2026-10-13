@@ -171,8 +171,18 @@ internal static class Program
                 case "--diagnose-slide-roundtrip":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE_ROUNDTRIP", "1");
                     break;
+                case "--diagnose-peek":
+                    var peekMode = next?.ToLowerInvariant() is "reverse" or "hold" ? next.ToLowerInvariant() : "commit";
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_PEEK", peekMode);
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SYNTHETIC", "1");
+                    if (peekMode != "commit") i++;
+                    break;
                 case "--diagnose-slide" when int.TryParse(next, out var slide) && slide is 1 or -1:
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE", slide.ToString());
+                    i++;
+                    break;
+                case "--diagnose-zoom" when int.TryParse(next, out var zoomDesktop):
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_ZOOM", zoomDesktop.ToString());
                     i++;
                     break;
                 case "--diagnose-mission":

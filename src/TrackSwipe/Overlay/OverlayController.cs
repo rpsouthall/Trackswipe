@@ -6,12 +6,13 @@ namespace TrackSwipe.Overlay;
 
 /// <summary>
 /// Decides what each gesture shows: sideways swipes slide between desktops (or pan between them
-/// inside Mission Control), upward swipes open Mission Control and downward swipes close it. Owns the per-monitor thumbnail surfaces both use.
+/// inside Mission Control), upward swipes open Mission Control and downward swipes close it, or, from the
+/// desktop, slide every window away to show the desktop. Owns the per-monitor thumbnail surfaces they use.
 /// Everything runs on the UI thread.
 /// </summary>
 internal sealed partial class OverlayController : IDisposable
 {
-    private enum Mode { None, Slide, MissionOpening, MissionClosing, MissionPan, Ignored }
+    private enum Mode { None, Slide, MissionOpening, MissionClosing, MissionPan, Peek, Ignored }
 
     private readonly GestureEngine _engine;
     private readonly WindowDesktopLookup _windowDesktops = new();
@@ -19,7 +20,15 @@ internal sealed partial class OverlayController : IDisposable
     private readonly Swatches _swatches = new();
     private readonly SurfaceSet _slideSurfaces;
     private readonly SurfaceSet _missionSurfaces;
+    private readonly SurfaceSet _peekSurfaces;
     private readonly DesktopSlide _slide;
+    private readonly DesktopPeek _peek;
+    private Func<bool>? _peekLanded;
+    private double _peekStarted;
+    private bool _peekSeen;
+    private bool _lastWasPeek;
+    private double _peekNotBefore;
+    private readonly List<(IntPtr Window, int Original)> _transitionsDisabled = new();
     private readonly MissionControl _mission;
     private Mode _mode;
     private DesktopScene? _scene;
@@ -40,9 +49,12 @@ internal sealed partial class OverlayController : IDisposable
         SwitcherStatus = status;
         _slideSurfaces = new SurfaceSet(_swatches);
         _missionSurfaces = new SurfaceSet(_swatches);
+        _peekSurfaces = new SurfaceSet(_swatches);
         _slideSurfaces.Prepare();
         _missionSurfaces.Prepare();
+        _peekSurfaces.Prepare();
         _slide = new DesktopSlide(_swatches);
+        _peek = new DesktopPeek(_swatches);
         _mission = new MissionControl(_missionSurfaces.Prepare, CaptureScene, _switcher, _swatches);
         _mission.FramesNeeded += () => FramesNeeded?.Invoke();
         _mission.InputBusy = () => _engine.Phase != GesturePhase.Idle;
@@ -56,7 +68,7 @@ internal sealed partial class OverlayController : IDisposable
     /// <summary>Raised when something starts animating on its own, outside a gesture.</summary>
     public event Action? FramesNeeded;
 
-    public bool NeedsFrames => _switchVisible is not null || _mission.IsAnimating;
+    public bool NeedsFrames => _switchVisible is not null || _peekLanded is not null || _mission.IsAnimating;
 
     /// <summary>
     /// The right fingers just landed: capture the scene now, while they travel through the dead zone,
@@ -65,7 +77,7 @@ internal sealed partial class OverlayController : IDisposable
     public void Prewarm()
     {
         if (_mission.IsOpen) _mission.WakeScaledCopies(); // a pan or close may follow: compose the scaled copies first
-        if (_mission.IsVisible || _switchVisible is not null) return;
+        if (_mission.IsVisible || _switchVisible is not null || _peekLanded is not null) return;
         var desktops = VirtualDesktops.Read();
         var scene = _invalidation.Available && !_invalidation.Dirty && _idleScene is { } idle &&
             SameDesktops(idle.Desktops, desktops) && _idleLayout.SequenceEqual(Screen.AllScreens.Select(screen => (screen.Bounds, screen.WorkingArea)))
@@ -75,7 +87,10 @@ internal sealed partial class OverlayController : IDisposable
         // Prepare the last-used gesture first. Other directions still use this scene when
         // their axis locks, without registering two complete sets on every finger landing.
         if (_lastAxis == GestureAxis.Horizontal) _slide.Begin(scene, _slideSurfaces.Prepare());
-        else _mission.Prepare(scene);
+        else if (!_lastWasPeek) _mission.Prepare(scene);
+        // Show desktop always: it's only this desktop's windows, reused while nothing changes, and a thumbnail
+        // registered at the last moment can show blank for its first frame.
+        _peek.Begin(scene, _peekSurfaces.Prepare());
     }
 
     public void TrackingStarted(GestureAxis axis)
@@ -83,6 +98,7 @@ internal sealed partial class OverlayController : IDisposable
         _lastAxis = axis;
         _settling = false;
         if (_switchVisible is not null) HideSlide();
+        if (_peekLanded is not null) HidePeek();
 
         if (axis == GestureAxis.Horizontal)
         {
@@ -122,10 +138,30 @@ internal sealed partial class OverlayController : IDisposable
         {
             Ignore(); // mid-animation
         }
+        else if (_engine.TrackingDirection < 0)
+        {
+            // Swipe down from the desktop: every window slides away with the fingers to show the desktop.
+            _lastWasPeek = true;
+            var scene = TakeScene(out _);
+            var surfaces = _peekSurfaces.Prepare();
+            _peek.Begin(scene, surfaces); // usually already done, hidden, as the fingers landed
+            if (!_peek.HasWindows)
+            {
+                // Nothing on screen. Win+D would bring back windows an earlier show-desktop hid, so do nothing.
+                Ignore();
+                return;
+            }
+            _engine.CanGoPositive = false; // reversing past the start rubber-bands rather than opening Mission Control
+            _engine.CanGoNegative = true;
+            _peek.Render(0); // place every thumbnail before showing, so the first frame matches the desktop
+            foreach (var surface in surfaces) surface.Show();
+            _mode = Mode.Peek;
+        }
         else
         {
+            _lastWasPeek = false;
             _engine.CanGoPositive = true;
-            _engine.CanGoNegative = true; // swipe down from the desktop: show desktop
+            _engine.CanGoNegative = false; // a swipe that starts upwards stays Mission Control; down is its own gesture
             var started = Clock.Now;
             var scene = TakeScene(out var prewarmed);
             var captured = Clock.Now;
@@ -148,9 +184,9 @@ internal sealed partial class OverlayController : IDisposable
             case (Mode.MissionOpening, SwipeAction.SwipeUp):
                 _mission.SetOpen();
                 return true;
-            case (Mode.MissionOpening, SwipeAction.SwipeDown):
-                _mission.Hide();
-                return false;
+            case (Mode.Peek, SwipeAction.SwipeDown):
+                ShowDesktop();
+                return true;
             case (Mode.MissionClosing, SwipeAction.SwipeDown):
                 _mission.FinishGestureClose();
                 return true;
@@ -175,6 +211,9 @@ internal sealed partial class OverlayController : IDisposable
             case Mode.MissionOpening when !_mission.IsOpen:
                 _mission.Hide();
                 break;
+            case Mode.Peek when _peekLanded is null:
+                HidePeek(); // cancelled: the windows are back where they were
+                break;
             case Mode.MissionClosing when _mission.IsVisible && !_mission.IsClosing:
                 _mission.SetOpen(); // close was cancelled
                 break;
@@ -189,7 +228,9 @@ internal sealed partial class OverlayController : IDisposable
     {
         var progress = _engine.DisplayProgress;
         if (_switchVisible is not null) PollSwitch(now);
+        else if (_peekLanded is not null) PollPeek(now);
         else if (!_settling && _mode == Mode.Slide) _slide.Render(progress);
+        else if (!_settling && _mode == Mode.Peek) _peek.Render(-progress);
         else if (!_settling && _mode == Mode.MissionOpening) _mission.Render(Math.Max(0, progress));
         else if (!_settling && _mode == Mode.MissionClosing) _mission.Render(1 + progress);
         else if (!_settling && _mode == Mode.MissionPan) _mission.Pan(progress);
@@ -204,10 +245,16 @@ internal sealed partial class OverlayController : IDisposable
 
     public void SettlingStarted(SettleMotion motion)
     {
+        Log.Verbose($"Release ({_mode}): progress {_engine.Progress:+0.00;-0.00}, velocity {_engine.Velocity:+0.00;-0.00}/s, settling to {motion.Target:+0;-0;0}.");
         var begin = (long)(_engine.SettleStartedAt * Stopwatch.Frequency);
         if (_mode == Mode.Slide) _slide.Settle(motion, begin);
+        else if (_mode == Mode.Peek) _peek.Settle(motion, begin, value => -value);
         else if (_mode == Mode.MissionOpening) _mission.Settle(motion, begin, value => Math.Max(0, value));
-        else if (_mode == Mode.MissionClosing) _mission.Settle(motion, begin, value => 1 + value);
+        else if (_mode == Mode.MissionClosing)
+        {
+            _mission.Settle(motion, begin, value => 1 + value);
+            if (motion.Target < 0) _mission.CommitGestureClose();
+        }
         else if (_mode == Mode.MissionPan) _mission.Settle(motion, begin, _ => 1, pan: true);
         else return;
         _settling = true;
@@ -222,6 +269,7 @@ internal sealed partial class OverlayController : IDisposable
         _mode = Mode.None;
         _mission.Hide();
         HideSlide();
+        HidePeek();
     }
 
     public void Dispose()
@@ -230,6 +278,7 @@ internal sealed partial class OverlayController : IDisposable
         _mission.Dispose();
         _slideSurfaces.Dispose();
         _missionSurfaces.Dispose();
+        _peekSurfaces.Dispose();
         _swatches.Dispose(); // after the surfaces, whose base thumbnails mirror one of them
     }
 
@@ -274,6 +323,64 @@ internal sealed partial class OverlayController : IDisposable
         }
     }
 
+    /// <summary>
+    /// The windows are in their buttons: minimize them for real underneath, with Windows' own show desktop (Win+D), so
+    /// Win+D or the corner of the taskbar brings them all back. Windows' minimize animation is switched off for each
+    /// window first; where Windows won't allow that, the overlay stays up until its animation would have finished.
+    /// </summary>
+    private void ShowDesktop()
+    {
+        _peek.Render(1);
+        Interop.Composition.Flush(); // on screen before Windows starts minimizing underneath
+        var windows = _peek.Windows;
+        var allDisabled = true;
+        foreach (var window in windows)
+        {
+            int original = 0, disabled = 1;
+            if (Interop.NativeMethods.DwmGetWindowAttribute(window, Interop.NativeMethods.DWMWA_TRANSITIONS_FORCEDISABLED, out original, sizeof(int)) == 0 &&
+                Interop.NativeMethods.DwmSetWindowAttribute(window, Interop.NativeMethods.DWMWA_TRANSITIONS_FORCEDISABLED, ref disabled, sizeof(int)) == 0)
+                _transitionsDisabled.Add((window, original));
+            else allDisabled = false;
+        }
+        KeySender.Send(SwipeAction.SwipeDown);
+        _peekNotBefore = Clock.Now + (allDisabled ? 0 : 0.35); // Windows' minimize animation takes about 0.25 s
+        _peekLanded = () => windows.All(window => !Interop.NativeMethods.IsWindow(window) || Interop.NativeMethods.IsIconic(window) ||
+            !Interop.NativeMethods.IsWindowVisible(window) || DesktopScene.IsShown(window) == false);
+        _peekStarted = Clock.Now;
+        _peekSeen = false;
+        FramesNeeded?.Invoke();
+    }
+
+    /// <summary>Removes the overlay a frame after every window that slid away is really minimized.</summary>
+    private void PollPeek(double now)
+    {
+        if (_peekSeen)
+        {
+            Log.Verbose($"Show desktop: overlay off after {(now - _peekStarted) * 1000:0} ms; native animation {(_peekNotBefore > _peekStarted ? "waited out" : "switched off")}.");
+            HidePeek();
+            return;
+        }
+        if (_peekLanded!() && now >= _peekNotBefore) _peekSeen = true;
+        else if (now - _peekStarted > 1.0)
+        {
+            Log.Write("Show desktop wasn't confirmed in time; removed the overlay anyway.");
+            HidePeek();
+        }
+    }
+
+    private void HidePeek()
+    {
+        _peekSurfaces.Hide();
+        _peekLanded = null;
+        // Windows' own animations back on, so restoring them later animates as usual.
+        foreach (var (window, original) in _transitionsDisabled)
+        {
+            var value = original;
+            Interop.NativeMethods.DwmSetWindowAttribute(window, Interop.NativeMethods.DWMWA_TRANSITIONS_FORCEDISABLED, ref value, sizeof(int));
+        }
+        _transitionsDisabled.Clear();
+    }
+
     /// <summary>Hides the slide. Its thumbnails stay registered, so the next swipe on an unchanged desktop starts instantly.</summary>
     private void HideSlide()
     {
@@ -300,7 +407,7 @@ internal sealed partial class OverlayController : IDisposable
     {
         _invalidation.Arm(); // changes from here on mark this capture stale
         _idleLayout = Screen.AllScreens.Select(screen => (screen.Bounds, screen.WorkingArea)).ToArray();
-        var exclude = _slideSurfaces.Handles.Concat(_missionSurfaces.Handles).Concat(_mission.DecorationHandles).Concat(_swatches.Handles).ToHashSet();
+        var exclude = _slideSurfaces.Handles.Concat(_missionSurfaces.Handles).Concat(_peekSurfaces.Handles).Concat(_mission.DecorationHandles).Concat(_swatches.Handles).ToHashSet();
         return DesktopScene.Capture(VirtualDesktops.Read(), _windowDesktops, exclude);
     }
 
