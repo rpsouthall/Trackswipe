@@ -93,8 +93,13 @@ internal sealed unsafe class DesktopSwitcher
     private DesktopSwitcher(ComObject manager) => _manager = manager;
 
     /// <summary>Connects, then checks the interface answers sensibly against the registry before trusting it.</summary>
-    public static DesktopSwitcher? TryCreate(VirtualDesktopInfo? expected, out string status)
+    /// <param name="permanent">
+    /// The interface itself doesn't match this Windows build, so asking again won't help. Otherwise (Explorer still
+    /// starting at sign-in, or restarting) it's worth asking again shortly.
+    /// </param>
+    public static DesktopSwitcher? TryCreate(VirtualDesktopInfo? expected, out string status, out bool permanent)
     {
+        permanent = false;
         try
         {
             var manager = Connect();
@@ -112,7 +117,11 @@ internal sealed unsafe class DesktopSwitcher
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException)
         {
-            status = $"unavailable on this Windows build ({ex.GetType().Name} 0x{ex.HResult:X8})";
+            const int E_NOINTERFACE = unchecked((int)0x80004002);
+            permanent = ex is InvalidCastException || ex.HResult == E_NOINTERFACE;
+            status = permanent
+                ? $"unavailable on this Windows build ({ex.GetType().Name} 0x{ex.HResult:X8})"
+                : $"not ready yet ({ex.GetType().Name} 0x{ex.HResult:X8}); trying again shortly";
             return null;
         }
     }

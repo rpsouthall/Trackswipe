@@ -16,7 +16,10 @@ internal sealed partial class OverlayController : IDisposable
 
     private readonly GestureEngine _engine;
     private readonly WindowDesktopLookup _windowDesktops = new();
-    private readonly DesktopSwitcher? _switcher;
+    private DesktopSwitcher? _switcher;
+    private bool _switcherUnsupported;
+    private double _switcherRetryAt;
+    private UiTimer? _switcherRetry;
     private readonly Swatches _swatches = new();
     private readonly SurfaceSet _slideSurfaces;
     private readonly SurfaceSet _missionSurfaces;
@@ -45,7 +48,14 @@ internal sealed partial class OverlayController : IDisposable
     public OverlayController(GestureEngine engine)
     {
         _engine = engine;
-        _switcher = DesktopSwitcher.TryCreate(VirtualDesktops.Read(), out var status);
+        _switcher = DesktopSwitcher.TryCreate(VirtualDesktops.Read(), out var status, out _switcherUnsupported);
+#if DIAGNOSTICS
+        if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_LATE_EXPLORER") == "1")
+        {
+            _switcher = null; // as at sign-in, before Explorer's virtual desktops are up
+            status = "not ready yet (simulated); trying again shortly";
+        }
+#endif
         SwitcherStatus = status;
         _slideSurfaces = new SurfaceSet(_swatches);
         _missionSurfaces = new SurfaceSet(_swatches);
@@ -61,9 +71,48 @@ internal sealed partial class OverlayController : IDisposable
         // Captured once now; window changes only mark it stale. Nothing is rebuilt in the background: the
         // fingers landing (Prewarm) recapture and prepare while they cross the dead zone.
         _idleScene = CaptureScene();
+        if (_switcher is null && !_switcherUnsupported)
+        {
+            // Started at sign-in before Explorer's virtual desktops were up: keep asking until they are.
+            _switcherRetry = new UiTimer { Interval = 2000 };
+            _switcherRetry.Tick += (_, _) => RetrySwitcher();
+            _switcherRetry.Start();
+        }
     }
 
-    public string SwitcherStatus { get; }
+    public string SwitcherStatus { get; private set; }
+
+    /// <summary>
+    /// Connects to Explorer's desktop switching if that failed earlier for a reason that can pass (Explorer still
+    /// starting). Without it, desktop swipes fall back to the shortcut (Windows animates again after our slide) and
+    /// Mission Control can't add desktops, so it mustn't stay off for the whole session.
+    /// </summary>
+    private void RetrySwitcher()
+    {
+        if (_switcher is not null || _switcherUnsupported || Clock.Now < _switcherRetryAt)
+        {
+            if (_switcher is not null || _switcherUnsupported) StopSwitcherRetry();
+            return;
+        }
+        _switcherRetryAt = Clock.Now + 1.5;
+        var switcher = DesktopSwitcher.TryCreate(VirtualDesktops.Read(), out var status, out _switcherUnsupported);
+        if (switcher is null)
+        {
+            if (_switcherUnsupported) { Log.Write($"Instant desktop switching {status}."); StopSwitcherRetry(); }
+            return;
+        }
+        _switcher = switcher;
+        SwitcherStatus = status;
+        _mission.Switcher = switcher;
+        StopSwitcherRetry();
+        Log.Write($"Instant desktop switching {status} (Explorer was still starting earlier).");
+    }
+
+    private void StopSwitcherRetry()
+    {
+        _switcherRetry?.Dispose();
+        _switcherRetry = null;
+    }
 
     /// <summary>Raised when something starts animating on its own, outside a gesture.</summary>
     public event Action? FramesNeeded;
@@ -76,6 +125,7 @@ internal sealed partial class OverlayController : IDisposable
     /// </summary>
     public void Prewarm()
     {
+        if (_switcher is null) RetrySwitcher();
         if (_mission.IsOpen) _mission.WakeScaledCopies(); // a pan or close may follow: compose the scaled copies first
         if (_mission.IsVisible || _switchVisible is not null || _peekLanded is not null) return;
         var desktops = VirtualDesktops.Read();

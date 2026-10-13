@@ -24,7 +24,18 @@ internal sealed partial class MissionControl : IDisposable
 
     private readonly Func<IReadOnlyList<ThumbnailSurface>> _surfaces;
     private readonly Func<DesktopScene> _capture;
-    private readonly DesktopSwitcher? _switcher;
+    private DesktopSwitcher? _switcher;
+
+    /// <summary>Set once Explorer's desktop switching becomes available after starting without it.</summary>
+    public DesktopSwitcher? Switcher
+    {
+        set
+        {
+            _switcher = value;
+            // The cached overview was laid out without desktop controls (no add button): build it afresh next time.
+            if (_state == State.Hidden) { _prepared = null; _scene = null; }
+        }
+    }
     private readonly Swatches _swatches;
     private readonly Dictionary<ThumbnailSurface, GpuDecorationLayer> _decorations = new();
     private readonly Dictionary<ThumbnailSurface, GpuRestoreCover> _freezeCovers = new();
