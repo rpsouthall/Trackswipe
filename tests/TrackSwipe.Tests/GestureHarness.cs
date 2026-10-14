@@ -59,6 +59,19 @@ internal sealed class GestureHarness
         return this;
     }
 
+    /// <summary>Lifts, but lets the settle run only briefly: fingers landing next catch it mid-flight.</summary>
+    public GestureHarness LiftBriefly(double seconds)
+    {
+        Send(tip: false);
+        for (var t = 0.0; t < seconds && Engine.Phase == GesturePhase.Settling; t += TickInterval)
+        {
+            Time += TickInterval;
+            Engine.Tick(Time);
+            Observe();
+        }
+        return this;
+    }
+
     private void Send(bool tip)
     {
         Time += FrameInterval;

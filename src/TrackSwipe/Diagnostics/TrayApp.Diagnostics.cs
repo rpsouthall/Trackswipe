@@ -22,6 +22,8 @@ internal sealed partial class TrayApp
                 RunOpenDiagnostics(int.TryParse(open, out var cycles) && cycles > 2 ? Math.Min(cycles, 100) : 2);
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_PEEK") is { } peek)
                 RunPeekDiagnostics(peek);
+            if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE_CATCH") == "1")
+                RunSlideCatchDiagnostics();
             if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE"), out var slideDirection) && slideDirection is 1 or -1)
                 RunSlideDiagnostics(slideDirection);
             if (diagnose) _overlay.RunDiagnostics(ExitOnShell);
@@ -155,6 +157,42 @@ internal sealed partial class TrayApp
             var travel = -direction * (returning ? -1 : 1) * reach * Math.Min(sampleTime / swipe, 1);
             var contacts = Enumerable.Range(0, fingers)
                 .Select(i => new Contact((returning ? 400 : 300) + i, 80 + i * 12 + travel, 40, Tip: !lifted, Confidence: true))
+                .ToArray();
+            _touchpad.Inject(new TouchFrame(Clock.Now, contacts, 110, 70));
+        };
+        timer.Start();
+    }
+
+    /// <summary>
+    /// For --diagnose-slide-catch: a quick flick to the next desktop, lifted, then caught 60 ms later (while it's still
+    /// settling) by a second flick the same way. That should go on to the desktop after: two desktops along in all.
+    /// </summary>
+    private void RunSlideCatchDiagnostics()
+    {
+        const double flick = 0.12, gap = 0.06;
+        var initial = VirtualDesktops.Read();
+        var start = Clock.Now;
+        var fingers = _engine.Options.Fingers;
+        var reach = _engine.Options.FullSwipeMm * 0.55;
+        var timer = new UiTimer { Interval = 8 };
+        timer.Tick += (_, _) =>
+        {
+            var t = Clock.Now - start;
+            if (t > 2 * flick + gap + 1.5)
+            {
+                var now = VirtualDesktops.Read();
+                Log.Write($"Slide catch diagnostic: from desktop {initial?.Index + 1} to {now?.Index + 1} ({(now?.Index - initial?.Index)} along).");
+                timer.Dispose();
+                ExitOnShell();
+                return;
+            }
+            var second = t >= flick + gap;
+            var sample = second ? t - flick - gap : t;
+            if (sample > flick + 0.02 || (!second && t > flick + 0.02)) return;
+            var lifted = sample > flick;
+            var travel = -reach * Math.Min(sample / flick, 1);
+            var contacts = Enumerable.Range(0, fingers)
+                .Select(i => new Contact((second ? 600 : 500) + i, 80 + i * 12 + travel, 40, Tip: !lifted, Confidence: true))
                 .ToArray();
             _touchpad.Inject(new TouchFrame(Clock.Now, contacts, 110, 70));
         };

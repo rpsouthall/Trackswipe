@@ -26,6 +26,33 @@ internal sealed record DesktopBarLayout(Rectangle[] Tiles, Rectangle? AddButton,
         return new(tiles, add, y + Math.Max(height, button) + (int)(70 * scale));
     }
 
+    /// <summary>
+    /// Where a dragged window drops onto each desktop, and onto +: generous, so the pointer needn't be exactly over
+    /// a miniature. Each tile's zone runs halfway to its neighbours and from the top of the screen to well below its
+    /// label; + takes the whole corner from a few buttons' width to its left out to the edge of the screen.
+    /// </summary>
+    public static (Rectangle[] Tiles, Rectangle? Add) DropZones(Rectangle[] tiles, Rectangle? add, int screenWidth, float scale)
+    {
+        if (tiles.Length == 0) return (tiles, add);
+        var pad = (int)(40 * scale);
+        var bottom = Math.Max(tiles[0].Bottom, add?.Bottom ?? 0) + (int)(60 * scale);
+        var zones = new Rectangle[tiles.Length];
+        for (var i = 0; i < tiles.Length; i++)
+        {
+            var left = i == 0 ? tiles[i].Left - pad : (tiles[i - 1].Right + tiles[i].Left) / 2;
+            var right = i == tiles.Length - 1 ? tiles[i].Right + pad : (tiles[i].Right + tiles[i + 1].Left) / 2;
+            zones[i] = Rectangle.FromLTRB(left, 0, right, bottom);
+        }
+        Rectangle? addZone = null;
+        if (add is { } button)
+        {
+            var left = Math.Max(zones[^1].Right, button.Left - 4 * button.Width);
+            addZone = Rectangle.FromLTRB(left, 0, Math.Max(screenWidth, button.Right), bottom);
+            if (zones[^1].Right > left) zones[^1] = Rectangle.FromLTRB(zones[^1].Left, 0, left, bottom);
+        }
+        return (zones, addZone);
+    }
+
     public static Rectangle CloseButton(Rectangle tile, float scale)
     {
         var shortest = Math.Min(tile.Width, tile.Height);

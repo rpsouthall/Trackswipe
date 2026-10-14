@@ -96,8 +96,12 @@ public class TrackingTakeoverTests
         Assert.Equal(before, motion!.At(0), 9);
     }
 
+    /// <summary>
+    /// One report rolling back just before the lift (as fingers leave the pad) doesn't change the decision to open,
+    /// and the panel mustn't dip backwards before opening: it keeps the swipe's momentum towards the target.
+    /// </summary>
     [Fact]
-    public void Lift_after_a_reversal_does_not_inherit_the_old_forward_velocity()
+    public void Lift_after_a_brief_roll_back_settles_towards_the_target_without_dipping()
     {
         var engine = new GestureEngine(new GestureOptions { DeadZoneMm = 0 });
         engine.Process(Report(10, 50));
@@ -112,6 +116,7 @@ public class TrackingTakeoverTests
         SettleMotion? motion = null;
         engine.SettlingStarted += value => motion = value;
         engine.Process(Report(10.080, 37, false));
-        Assert.True(motion!.At(1.0 / 240) < motion.At(0));
+        Assert.Equal(1, Math.Round(motion!.Target));
+        Assert.True(motion.At(1.0 / 240) > motion.At(0));
     }
 }

@@ -93,11 +93,14 @@ internal sealed partial class MissionControl
         var screen = new Point(drag.Plan.Surface.Monitor.X + drag.Pointer.X, drag.Plan.Surface.Monitor.Y + drag.Pointer.Y);
         foreach (var plan in _plans)
         {
+            if (plan.Tiles.Count == 0) continue;
             var point = new Point(screen.X - plan.Surface.Monitor.X, screen.Y - plan.Surface.Monitor.Y);
-            foreach (var tile in plan.Tiles)
-                if (Rectangle.Inflate(tile.Bounds, (int)(6 * plan.Surface.Scale), (int)(6 * plan.Surface.Scale)).Contains(point))
-                    return tile.Desktop == _scene?.Current ? (null, default) : (plan, new Hit(HitKind.DropDesktop, Desktop: tile.Desktop));
-            if (plan.AddTile is { } add && add.Contains(point)) return (plan, new Hit(HitKind.AddDesktop));
+            var (zones, addZone) = DesktopBarLayout.DropZones(plan.Tiles.Select(tile => tile.Bounds).ToArray(), plan.AddTile,
+                plan.Surface.Monitor.Width, plan.Surface.Scale);
+            for (var i = 0; i < zones.Length; i++)
+                if (zones[i].Contains(point))
+                    return plan.Tiles[i].Desktop == _scene?.Current ? (null, default) : (plan, new Hit(HitKind.DropDesktop, Desktop: plan.Tiles[i].Desktop));
+            if (addZone is { } add && add.Contains(point)) return (plan, new Hit(HitKind.AddDesktop));
         }
         return (null, default);
     }

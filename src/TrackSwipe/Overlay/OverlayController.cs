@@ -37,6 +37,10 @@ internal sealed partial class OverlayController : IDisposable
     private DesktopScene? _scene;
     private Func<bool>? _switchVisible;
     private double _switchStarted;
+    /// <summary>A switch made mid-gesture (a caught swipe moved on to its desktop): when it has reached the screen.</summary>
+    private SwitchLanding? _advanceLanding;
+    /// <summary>The slide's last release animation, as handed to the compositor, so a mid-gesture switch can carry it on.</summary>
+    private (SettleMotion Motion, long Begin)? _slideSettle;
     private bool _switchSeen;
     private (DesktopScene Scene, double CapturedAt)? _prewarmed;
     private bool _settling;
@@ -68,6 +72,7 @@ internal sealed partial class OverlayController : IDisposable
         _mission = new MissionControl(_missionSurfaces.Prepare, CaptureScene, _switcher, _swatches);
         _mission.FramesNeeded += () => FramesNeeded?.Invoke();
         _mission.InputBusy = () => _engine.Phase != GesturePhase.Idle;
+        _engine.AdvanceRequested = AdvanceDesktop;
         // Captured once now; window changes only mark it stale. Nothing is rebuilt in the background: the
         // fingers landing (Prewarm) recapture and prepare while they cross the dead zone.
         _idleScene = CaptureScene();
@@ -264,6 +269,13 @@ internal sealed partial class OverlayController : IDisposable
         _settling = false;
         switch (_mode)
         {
+            case Mode.Slide when _switchVisible is null && _advanceLanding is { } landing:
+                // Back where a mid-gesture switch went: remove the slide once that switch is on screen beneath it.
+                _switchVisible = () => landing.HasLanded(Clock.Now);
+                _switchStarted = Clock.Now;
+                _switchSeen = false;
+                _advanceLanding = null;
+                break;
             case Mode.Slide when _switchVisible is null:
                 HideSlide();
                 break;
@@ -305,9 +317,9 @@ internal sealed partial class OverlayController : IDisposable
 
     public void SettlingStarted(SettleMotion motion)
     {
-        Log.Verbose($"Release ({_mode}): progress {_engine.Progress:+0.00;-0.00}, velocity {_engine.Velocity:+0.00;-0.00}/s, settling to {motion.Target:+0;-0;0}.");
+        Log.Verbose($"Release ({_mode}): progress {_engine.Progress:+0.00;-0.00}, velocity {_engine.Velocity:+0.00;-0.00}/s, settling to {motion.Target:+0;-0;0} (clock {Clock.Now:0.000}).");
         var begin = (long)(_engine.SettleStartedAt * Stopwatch.Frequency);
-        if (_mode == Mode.Slide) _slide.Settle(motion, begin);
+        if (_mode == Mode.Slide) { _slide.Settle(motion, begin); _slideSettle = (motion, begin); }
         else if (_mode == Mode.Peek) _peek.Settle(motion, begin, value => -value);
         else if (_mode == Mode.MissionOpening) _mission.Settle(motion, begin, value => Math.Max(0, value));
         else if (_mode == Mode.MissionClosing)
@@ -356,7 +368,12 @@ internal sealed partial class OverlayController : IDisposable
     private bool TrySwitchInstantly(SwipeAction action)
     {
         var step = action == SwipeAction.NextDesktop ? 1 : -1;
-        if (_switcher is null || _scene?.Desktops?.Neighbour(step) is not { } target) return false;
+        // From the scene's own current desktop: after a mid-gesture switch it's no longer the one first captured.
+        if (_switcher is null || _scene?.Desktops is not { } desktops) return false;
+        var next = _scene.Current + step;
+        if (next < 0 || next >= desktops.Count) return false;
+        var target = desktops.Ids[next];
+        _advanceLanding = null;
 
         _slide.Render(step);
         Interop.Composition.Flush(); // on screen before the switch call, which blocks for a few frames
@@ -375,7 +392,7 @@ internal sealed partial class OverlayController : IDisposable
     /// <summary>Reveals the destination once its windows are visible in successive compositor frames.</summary>
     private void PollSwitch(double now)
     {
-        if (_switchSeen) { HideSlide(); return; }
+        if (_switchSeen) { Log.Verbose($"Desktop slide: switch on screen, slide removed (clock {now:0.000})."); HideSlide(); return; }
         if (_switchVisible!()) _switchSeen = true;
         if (now - _switchStarted > 0.5)
         {
@@ -447,6 +464,36 @@ internal sealed partial class OverlayController : IDisposable
     {
         _slideSurfaces.Hide();
         _switchVisible = null;
+        _advanceLanding = null;
+    }
+
+    /// <summary>
+    /// Fingers caught a slide on its way to the neighbouring desktop: switch to it now, underneath, and re-centre the
+    /// slide on it, so the same touch can go on to the desktop after it (or back). The picture doesn't change: the
+    /// slide is rebuilt around the new desktop and placed at the equivalent position in the same frame.
+    /// </summary>
+    private bool AdvanceDesktop(int direction, double position)
+    {
+        if (_mode != Mode.Slide || _switcher is not { } switcher || _scene?.Desktops is not { } desktops) return false;
+        var from = _scene.Current;
+        var next = from + direction;
+        if (next < 0 || next >= desktops.Count) return false;
+        var target = desktops.Ids[next];
+        if (!switcher.TrySwitch(target)) return false;
+        var landing = new SwitchLanding(_scene.TopWindowOn(next), _scene.TopWindowOn(from), DesktopScene.IsShown,
+            () => switcher.CurrentDesktopId() == target, Clock.Now);
+        _advanceLanding = landing;
+        _scene = _scene.WithCurrent(next);
+        _engine.CanGoPositive = next < desktops.Count - 1;
+        _engine.CanGoNegative = next > 0;
+        _slide.Begin(_scene, _slideSurfaces.Prepare());
+        // The switch call blocks for a few frames while the compositor carries on animating: continue that same
+        // animation, measured from the new desktop, rather than placing the slide where it was when the fingers landed.
+        if (_slideSettle is { } settle) _slide.Settle(settle.Motion.Shifted(-direction), settle.Begin);
+        else _slide.Render(position);
+        Interop.Composition.Flush();
+        Log.Verbose($"Caught a swipe on its way to desktop {next + 1}: switched there and carrying on from it (clock {Clock.Now:0.000}).");
+        return true;
     }
 
     private void BeginMission(DesktopScene scene) => _mission.BeginOpening(scene);

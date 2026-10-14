@@ -168,6 +168,10 @@ internal static class Program
                 case "--diagnose-bar-hover":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_BAR_HOVER", "1");
                     break;
+                case "--diagnose-slide-catch":
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE_CATCH", "1");
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SYNTHETIC", "1");
+                    break;
                 case "--diagnose-slide-roundtrip":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE_ROUNDTRIP", "1");
                     break;

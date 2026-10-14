@@ -21,6 +21,8 @@ public sealed class GestureEngine
     private SettleMotion? _settleMotion;
     private SettleMotion? _interruptedMotion;
     private double _interruptedStarted, _interruptedPosition;
+    /// <summary>When a caught swipe was moved on to its target desktop: how far the gesture's origin moved (±1).</summary>
+    private double _interruptedShift;
     private double _travelX, _travelY;
     private double _lastFrameTime = double.NegativeInfinity;
     private double _lastTickTime;
@@ -79,6 +81,13 @@ public sealed class GestureEngine
     public event Action<SettleMotion>? SettlingStarted;
     public event Action? SettlingInterrupted;
 
+    /// <summary>
+    /// Fingers caught a sideways swipe on its way to the neighbouring desktop (+1 or -1): may that switch be completed
+    /// now, so the new touch carries on from there? Given the direction and the position to show afterwards,
+    /// measured from the new desktop. True if it switched; the gesture then continues from the new desktop.
+    /// </summary>
+    public Func<int, double, bool>? AdvanceRequested { get; set; }
+
     public void Process(TouchFrame frame)
     {
         // A long silence means we missed the lift; start fresh rather than stay stuck.
@@ -133,8 +142,14 @@ public sealed class GestureEngine
                 _interruptedPosition = motion.At(Math.Max(0, frame.Time - _lastTickTime));
                 _settleMotion = null;
                 Phase = GesturePhase.Tracking;
-                DisplayProgress = _interruptedPosition;
-                Progress = Unshape(_interruptedPosition);
+                // A swipe caught on its way to the next desktop belongs to that desktop now: otherwise this touch
+                // could only reach the desktop the first swipe was heading for, and would meet its rubber band there.
+                _interruptedShift = 0;
+                if (Axis == GestureAxis.Horizontal && _target != 0 &&
+                    AdvanceRequested?.Invoke(Math.Sign(_target), _interruptedPosition - _target) == true)
+                    _interruptedShift = _target;
+                DisplayProgress = _interruptedPosition - _interruptedShift;
+                Progress = Unshape(DisplayProgress);
                 SetTravel(Progress);
                 _velocity.Clear();
                 _presentation.Reset();
@@ -154,7 +169,7 @@ public sealed class GestureEngine
             {
                 // Match the compositor's position at the first new display time, not an
                 // older input-arrival time. Any new finger travel is preserved as an offset.
-                Progress += Unshape(interrupted.At(Math.Max(0, time - _interruptedStarted))) - Unshape(_interruptedPosition);
+                Progress += Unshape(interrupted.At(Math.Max(0, time - _interruptedStarted)) - _interruptedShift) - Unshape(_interruptedPosition - _interruptedShift);
                 SetTravel(Progress);
                 _presentation.Reset();
                 _presentation.Add(_lastFrameTime, Progress);
@@ -288,8 +303,17 @@ public sealed class GestureEngine
         // more recent tracking velocity, including a reversal just before lifting.
         var visualVelocity = _presentation.HasPresented ? _presentation.MotionVelocity(time) : v;
         var visualProgress = _presentation.HasPresented ? _presentation.Value : p;
-        _settleMotion = SettleMotion.Create(Options.Spring, displayed,
-            (Shape(visualProgress + visualVelocity * h) - Shape(visualProgress)) / h,
+        var springVelocity = (Shape(visualProgress + visualVelocity * h) - Shape(visualProgress)) / h;
+        // Fingers often roll back a little as they leave the pad, so a flick can end with a moment of motion away
+        // from where it's going. Carried into the spring, that makes the panel dip backwards before it heads off.
+        // As GNOME does, never start the settle moving away from its target: use the steadier trailing velocity
+        // the decision was made on if it points the right way, otherwise start from rest.
+        if ((_target - displayed) * springVelocity < 0)
+        {
+            var trailing = (Shape(p + v * h) - Shape(p)) / h;
+            springVelocity = (_target - displayed) * trailing > 0 ? trailing : 0;
+        }
+        _settleMotion = SettleMotion.Create(Options.Spring, displayed, springVelocity,
             _target, Options.CommitTolerance, allowOvershoot: Axis == GestureAxis.Vertical && _target > 0);
         DisplayProgress = displayed;
         // The position above was drawn for a predicted display time. Starting its curve

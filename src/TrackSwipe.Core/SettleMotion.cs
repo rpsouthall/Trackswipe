@@ -31,6 +31,10 @@ public sealed class SettleMotion
         return new SettleMotion(samples.ToArray());
     }
 
+    /// <summary>The same motion measured from somewhere else: every value moved by <paramref name="offset"/>.</summary>
+    public SettleMotion Shifted(double offset) =>
+        new(_samples.Select(sample => sample with { Value = sample.Value + offset }).ToArray());
+
     public double At(double time)
     {
         if (time <= 0) return _samples[0].Value;

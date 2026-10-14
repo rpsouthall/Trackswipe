@@ -214,6 +214,35 @@ public class GestureEngineTests
     }
 
     [Fact]
+    public void A_swipe_caught_on_its_way_moves_on_so_the_same_touch_can_reach_the_next_desktop()
+    {
+        var h = new GestureHarness();
+        var advances = new List<(int Direction, double Position)>();
+        h.Engine.AdvanceRequested = (direction, position) => { advances.Add((direction, position)); return true; };
+
+        h.Move(-30, 0, 0.12).LiftBriefly(0.06); // a flick, still settling towards the next desktop
+        Assert.Equal(GesturePhase.Settling, h.Engine.Phase);
+        h.Move(-30, 0, 0.12).Lift(); // caught mid-flight, and flicked again
+
+        Assert.Equal(new[] { 1 }, advances.Select(advance => advance.Direction));
+        Assert.InRange(advances[0].Position, -0.5, 0); // just short of the desktop it moved on to
+        Assert.Equal(new[] { SwipeAction.NextDesktop }, h.Actions); // and the second flick goes on to the one after
+    }
+
+    [Fact]
+    public void A_caught_swipe_that_cannot_move_on_still_ends_at_its_own_desktop()
+    {
+        var h = new GestureHarness();
+        h.Engine.AdvanceRequested = (_, _) => false;
+
+        h.Move(-30, 0, 0.12).LiftBriefly(0.06);
+        h.Move(-30, 0, 0.12).Lift();
+
+        Assert.Equal(new[] { SwipeAction.NextDesktop }, h.Actions);
+        Assert.InRange(h.MaxDisplay, 1, 1 + h.Engine.Options.RubberBandLimit); // rubber-banded past it, as before
+    }
+
+    [Fact]
     public void Ended_fires_once_after_committed()
     {
         var events = new List<string>();
@@ -309,6 +338,54 @@ public class TrackingPresentationTests
         engine.Process(Report(10 + 3.0 / 60, 0.20));
         engine.Tick(10 + 3.0 / 60);
         Assert.True(engine.DisplayProgress < before);
+    }
+    [Theory]
+    [InlineData(0.01)]
+    [InlineData(0.03)]
+    public void A_flick_that_rolls_back_as_the_fingers_lift_never_moves_backwards(double rollBack)
+    {
+        // Fingers flick quickly, then roll back a little as they leave the pad (real touchpads report this).
+        var engine = new GestureEngine(new GestureOptions { DeadZoneMm = 0 });
+        engine.Process(Report(10, 0));
+        var time = 10.0;
+        var progress = 0.0;
+        for (var i = 0; i < 10; i++)
+        {
+            time += 1.0 / 120;
+            progress += 3.0 / 120; // 3 screens per second
+            engine.Process(Report(time, progress));
+            engine.Tick(time);
+        }
+        time += 1.0 / 120;
+        engine.Process(Report(time, progress - rollBack));
+        engine.Tick(time);
+        SettleMotion? motion = null;
+        engine.SettlingStarted += started => motion = started;
+        engine.Process(Report(time + 1.0 / 120, progress - rollBack, tip: false));
+
+        Assert.NotNull(motion);
+        Assert.Equal(1, Math.Round(motion!.Target));
+        var start = engine.DisplayProgress;
+        var lowest = motion.Samples.Min(sample => sample.Value);
+        Assert.True(lowest >= start - 1e-9, $"settle dipped back to {lowest:0.0000} from {start:0.0000} before heading to the target");
+    }
+
+    [Fact]
+    public void A_release_back_towards_the_start_keeps_its_own_momentum()
+    {
+        // Moving back towards the start when lifting: the cancel should carry that motion, not restart from rest.
+        var engine = Tracking();
+        engine.Process(Report(10 + 2.0 / 60, 0.22));
+        engine.Tick(10 + 2.0 / 60);
+        engine.Process(Report(10 + 3.0 / 60, 0.14));
+        engine.Tick(10 + 3.0 / 60);
+        SettleMotion? motion = null;
+        engine.SettlingStarted += started => motion = started;
+        engine.Process(Report(10 + 3.5 / 60, 0.10, tip: false));
+
+        Assert.NotNull(motion);
+        Assert.Equal(0, motion!.Target);
+        Assert.True(motion.Samples[1].Value < motion.Samples[0].Value, "the cancel should start moving back immediately");
     }
 
     [Fact]

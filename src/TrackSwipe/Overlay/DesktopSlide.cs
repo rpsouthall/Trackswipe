@@ -51,8 +51,10 @@ internal sealed class DesktopSlide(Swatches swatches)
         var created = 0;
         foreach (var surface in surfaces)
         {
+            // Wallpaper only where there's a desktop: past the first or last one, the rubber band shows black.
             for (var layer = -1; layer <= 1; layer++)
             {
+                if (!HasDesktop(layer)) continue;
                 foreach (var wallpaper in scene.Wallpapers) Add(surface, wallpaper, layer);
             }
             var windows = scene.Items.Where(item => item.Kind == SceneKind.Window && !item.IsMinimized && LayerOf(item) is not null).ToList();
@@ -77,6 +79,14 @@ internal sealed class DesktopSlide(Swatches swatches)
         _raised = raised;
         _surfaces = surfaces.Select(surface => (surface, surface.Generation)).ToArray();
         Log.Verbose($"Desktop slide prepared: {reused} reused thumbnails, {created} new thumbnails.");
+
+        bool HasDesktop(int layer)
+        {
+            if (layer == 0 || scene.Desktops is not { } desktops) return true;
+            if (target is { } to) return layer == Math.Sign(to - scene.Current);
+            var index = scene.Current + layer;
+            return index >= 0 && index < desktops.Count;
+        }
 
         int? LayerOf(SceneItem item)
         {
