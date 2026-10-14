@@ -14,9 +14,12 @@ public enum SwipeAction { NextDesktop, PreviousDesktop, SwipeUp, SwipeDown }
 public sealed class GestureEngine
 {
     private const double VelocityWindow = 0.1;
+    /// <summary>How far (mm) fingers may come back after a flick's fast part and still count as rolling off the pad.</summary>
+    private const double FlickRollBackMm = 1.5;
 
     private readonly Dictionary<int, (double X, double Y)> _previous = new();
     private readonly VelocityTracker _velocity = new(VelocityWindow);
+    private readonly FlickHistory _flick = new();
     private readonly TrackingPresentation _presentation = new();
     private SettleMotion? _settleMotion;
     private SettleMotion? _interruptedMotion;
@@ -152,6 +155,7 @@ public sealed class GestureEngine
                 Progress = Unshape(DisplayProgress);
                 SetTravel(Progress);
                 _velocity.Clear();
+                _flick.Clear();
                 _presentation.Reset();
                 _presentation.Add(frame.Time, Progress);
                 SettlingInterrupted?.Invoke();
@@ -175,6 +179,8 @@ public sealed class GestureEngine
                 _presentation.Add(_lastFrameTime, Progress);
                 _velocity.Clear();
                 _velocity.Add(_lastFrameTime, Progress);
+                _flick.Clear();
+                _flick.Add(_lastFrameTime, Progress);
                 _interruptedMotion = null;
             }
             DisplayProgress = Shape(_presentation.Sample(time));
@@ -268,6 +274,7 @@ public sealed class GestureEngine
         Axis = axis;
         Phase = GesturePhase.Tracking;
         _velocity.Clear();
+        _flick.Clear();
         _presentation.Reset();
         TrackingDirection = Math.Sign(axis == GestureAxis.Horizontal ? -_travelX : -_travelY);
         TrackingStarted?.Invoke(axis);
@@ -278,6 +285,7 @@ public sealed class GestureEngine
     {
         Progress = Axis == GestureAxis.Horizontal ? -_travelX / Options.FullSwipeMm : -_travelY / Options.FullSwipeVerticalMm;
         _velocity.Add(time, Progress);
+        _flick.Add(time, Progress);
         _presentation.Add(time, Progress);
         Velocity = _velocity.Estimate(time);
         DisplayProgress = Shape(Progress);
@@ -287,7 +295,11 @@ public sealed class GestureEngine
     {
         _interruptedMotion = null;
         var p = Progress;
-        var v = _velocity.Estimate(time);
+        // A flick is judged by how fast the fingers went just before lifting (unless they then turned back), not by the
+        // average over the slowing, pause and roll-off that follow it, which made quick flicks spring back.
+        var fullSwipe = Axis == GestureAxis.Horizontal ? Options.FullSwipeMm : Options.FullSwipeVerticalMm;
+        var average = _velocity.Estimate(time);
+        var v = _flick.Peak(time, FlickRollBackMm / fullSwipe) is { } peak && Math.Abs(peak) > Math.Abs(average) ? peak : average;
         var flick = Options.FlickVelocity;
         var threshold = Axis == GestureAxis.Horizontal ? Options.CommitProgress : Options.VerticalCommitProgress;
 
@@ -312,6 +324,12 @@ public sealed class GestureEngine
         {
             var trailing = (Shape(p + v * h) - Shape(p)) / h;
             springVelocity = (_target - displayed) * trailing > 0 ? trailing : 0;
+        }
+        // A flick carries its own speed on to the target, even if the fingers slowed or paused before leaving the pad.
+        if (_target != 0 && Math.Abs(v) >= flick && Math.Sign(v) == Math.Sign(_target - displayed))
+        {
+            var flickVelocity = (Shape(p + v * h) - Shape(p)) / h;
+            if (Math.Abs(flickVelocity) > Math.Abs(springVelocity)) springVelocity = flickVelocity;
         }
         _settleMotion = SettleMotion.Create(Options.Spring, displayed, springVelocity,
             _target, Options.CommitTolerance, allowOvershoot: Axis == GestureAxis.Vertical && _target > 0);

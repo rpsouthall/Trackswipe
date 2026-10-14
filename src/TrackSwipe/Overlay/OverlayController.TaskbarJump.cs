@@ -26,9 +26,6 @@ internal sealed partial class OverlayController
     }
 
     private TaskbarJump? _jump;
-    private Task<Dictionary<IntPtr, Rectangle>>? _taskbarButtons;
-    private DesktopScene? _taskbarButtonsScene;
-    private double _taskbarButtonsAt = double.NegativeInfinity;
 
     private bool Busy => _mode != Mode.None || _engine.Phase is GesturePhase.Tracking or GesturePhase.Settling ||
         _mission.IsVisible || _switchVisible is not null || _peekLanded is not null;
@@ -56,16 +53,27 @@ internal sealed partial class OverlayController
         _pendingPress = null;
         _jump = null;
         if (_switcher is null || Busy) return false;
-        var scene = IdleScene();
-        // Buttons only move when apps open, close or get pinned, so the last lookup is nearly always right; a
-        // fresh one runs meanwhile for next time. Only with none yet is the press judged at the release.
-        var known = _taskbarButtons is { IsCompletedSuccessfully: true } done ? done.Result : null;
-        RefreshTaskbarButtons(scene);
-        if (known is null)
+        if (TaskbarButtons.Latest is not { } known)
         {
+            // No lookup yet (just started): judge the press at the release, once one has finished.
+            RefreshTaskbarButtons(IdleScene());
             _pendingPress = (point, Clock.Now);
             return true;
         }
+        // Cheap checks first, so a click on Start, the tray or an app on this desktop costs next to nothing: which
+        // windows the button belongs to (from the cached lookup), and whether they're all on one other desktop.
+        // Only then is the scene captured and a slide prepared.
+        var clicked = known.Where(pair => Rectangle.Inflate(pair.Value, 1, 1).Contains(point)).Select(pair => pair.Key).ToArray();
+        if (clicked.Length == 0 || VirtualDesktops.Read() is not { Index: >= 0 } desktops) return false;
+        var current = desktops.Ids[desktops.Index];
+        Guid? elsewhere = null;
+        foreach (var window in clicked)
+        {
+            if (_windowDesktops.GetDesktopId(window) is not { } id || id == current || (elsewhere is { } other && other != id)) return false;
+            elsewhere = id;
+        }
+        var scene = IdleScene();
+        RefreshTaskbarButtons(scene);
         Arm(point, scene, known);
         return _jump is not null;
     }
@@ -90,11 +98,11 @@ internal sealed partial class OverlayController
     /// <summary>The click is complete; Explorer acts on it once this returns.</summary>
     public void TaskbarReleased(Point point)
     {
-        if (_pendingPress is { } pending && _taskbarButtons is { } lookup)
+        if (_pendingPress is { } pending)
         {
             _pendingPress = null;
             // Explorer is held for this, so only briefly; thumbnails registered now may miss the first frame, so this is the fallback.
-            if (lookup.Wait(20) && lookup.IsCompletedSuccessfully && _idleScene is { } scene && !Busy) Arm(pending.Point, scene, lookup.Result);
+            if (TaskbarButtons.Wait(20) && TaskbarButtons.Latest is { } lookup && _idleScene is { } scene && !Busy) Arm(pending.Point, scene, lookup);
             if (_jump is null) Log.Verbose("Taskbar press: button positions weren't known in time.");
         }
         if (_jump is not { ReleasedAt: null } jump) return;
@@ -150,14 +158,7 @@ internal sealed partial class OverlayController
         Log.Verbose($"Taskbar jump to desktop {jump.Target + 1}: Windows switched {(now - jump.ReleasedAt!.Value) * 1000:0} ms after the release; sliding over {motion.Duration * 1000:0} ms.");
     }
 
-    /// <summary>Starts finding each window's taskbar button in the background, unless a recent lookup still fits.</summary>
-    private void RefreshTaskbarButtons(DesktopScene scene)
-    {
-        if (_taskbarButtons is { IsCompleted: false }) return;
-        if (_taskbarButtonsScene == scene && Clock.Now - _taskbarButtonsAt < 3) return;
-        var windows = scene.Items.Where(item => item.Kind == SceneKind.Window && item.IsAppWindow).Select(item => item.Window).Distinct().ToArray();
-        _taskbarButtonsScene = scene;
-        _taskbarButtonsAt = Clock.Now;
-        _taskbarButtons = Task.Run(() => TaskbarButtons.Find(windows));
-    }
+    /// <summary>Brings the shared button lookup up to date if this scene's app windows differ from the last lookup's.</summary>
+    private static void RefreshTaskbarButtons(DesktopScene scene) =>
+        TaskbarButtons.Refresh(scene.Items.Where(item => item.Kind == SceneKind.Window && item.IsAppWindow).Select(item => item.Window));
 }

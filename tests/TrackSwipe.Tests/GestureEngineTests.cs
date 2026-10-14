@@ -103,6 +103,43 @@ public class GestureEngineTests
         Assert.Equal(new[] { SwipeAction.NextDesktop }, h.Actions);
     }
 
+    /// <summary>
+    /// Real flicks are short: the fingers move fast for a few dozen milliseconds, slow, often pause and roll back a
+    /// little as they leave the pad. Fast travel just before the lift is what makes a flick, not the average speed
+    /// over everything after it.
+    /// </summary>
+    [Theory]
+    [InlineData(8, 0.05, 0.03, 0.02, 0.3)]  // 8 mm in 50 ms, slows, 20 ms pause, rolls back 0.3 mm
+    [InlineData(8, 0.04, 0.02, 0.04, 0.0)]  // 8 mm in 40 ms, a 40 ms pause before lifting
+    [InlineData(6, 0.04, 0.02, 0.03, 0.4)]  // a 6 mm flick
+    [InlineData(12, 0.06, 0.03, 0.05, 0.5)] // 12 mm, a longer pause and roll-back
+    public void A_quick_flick_that_slows_before_lifting_still_commits(double mm, double fast, double slowing, double pause, double rollBack)
+    {
+        var h = new GestureHarness();
+        h.Move(-mm, 0, fast).Move(-1, 0, slowing).Hold(pause).Move(rollBack, 0, 0.008);
+        h.Fingers = 3; // fingers leave one at a time
+        h.Lift();
+
+        Assert.Equal(new[] { SwipeAction.NextDesktop }, h.Actions);
+    }
+
+    [Theory]
+    [InlineData(2.5, 0.2)]  // a small, slow nudge
+    [InlineData(6, 0.4)]    // a short, deliberate, slow drag
+    public void A_short_slow_drag_still_cancels(double mm, double seconds)
+    {
+        var h = new GestureHarness().Move(-mm, 0, seconds).Hold(0.05).Lift();
+        Assert.Empty(h.Actions);
+    }
+
+    [Fact]
+    public void A_flick_that_turned_back_before_lifting_cancels()
+    {
+        // Out quickly, then deliberately back towards the start: no switch, however fast the way out was.
+        var h = new GestureHarness().Move(-10, 0, 0.05).Move(8, 0, 0.08).Lift();
+        Assert.Empty(h.Actions);
+    }
+
     [Fact]
     public void Reversing_mid_swipe_cancels()
     {

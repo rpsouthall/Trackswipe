@@ -12,6 +12,35 @@ internal static unsafe class TaskbarButtons
 {
     private sealed record Button(string AppId, string Name, Rectangle Bounds);
 
+    // One shared lookup for everything that needs buttons (show desktop, taskbar jumps). Explorer has to walk its
+    // whole taskbar to answer, so it only runs again when the set of app windows changes (opening or closing an app
+    // moves buttons) or after a minute (pinning moves them without any window changing). Called on the UI thread.
+    private const double MaxAge = 60;
+    private static volatile Dictionary<IntPtr, Rectangle>? _latest;
+    private static Task? _running;
+    private static IntPtr[] _lookedUpFor = Array.Empty<IntPtr>();
+    private static double _lookedUpAt = double.NegativeInfinity;
+
+    /// <summary>Each window's button as of the last finished lookup, or null before the first one finishes.</summary>
+    public static Dictionary<IntPtr, Rectangle>? Latest => _latest;
+
+    /// <summary>Whether a lookup is running in the background.</summary>
+    public static bool Looking => _running is { IsCompleted: false };
+
+    /// <summary>Waits up to <paramref name="ms"/> for a running lookup; true once none is running.</summary>
+    public static bool Wait(int ms) => _running is not { } running || running.Wait(ms);
+
+    /// <summary>Starts a lookup for these app windows unless one is running, or the last one was for the same windows recently.</summary>
+    public static void Refresh(IEnumerable<IntPtr> appWindows)
+    {
+        if (Looking) return;
+        var windows = appWindows.Distinct().Order().ToArray();
+        if (_latest is not null && Clock.Now - _lookedUpAt < MaxAge && windows.AsSpan().SequenceEqual(_lookedUpFor)) return;
+        _lookedUpFor = windows;
+        _lookedUpAt = Clock.Now;
+        _running = Task.Run(() => { _latest = Find(windows); });
+    }
+
     /// <summary>Screen rectangles of the taskbar buttons for these windows; windows with no match are left out.</summary>
     public static Dictionary<IntPtr, Rectangle> Find(IReadOnlyCollection<IntPtr> windows)
     {

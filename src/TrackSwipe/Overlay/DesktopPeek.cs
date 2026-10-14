@@ -18,12 +18,7 @@ internal sealed class DesktopPeek
     private const double FadeFrom = 0.55;
     private readonly Swatches swatches;
 
-    public DesktopPeek(Swatches swatches)
-    {
-        this.swatches = swatches;
-        // UI Automation is slow the first time a process uses it: warm it up now, in the background.
-        _buttons = Task.Run(() => TaskbarButtons.Find(Array.Empty<IntPtr>()));
-    }
+    public DesktopPeek(Swatches swatches) => this.swatches = swatches;
 
     private sealed class Part(Sprite sprite, Sprite? backing, ThumbnailSurface surface, IntPtr window)
     {
@@ -44,10 +39,6 @@ internal sealed class DesktopPeek
     private readonly List<Sprite> _registered = new();
     private DesktopScene? _scene;
     private (ThumbnailSurface Surface, int Generation)[] _surfaces = Array.Empty<(ThumbnailSurface, int)>();
-    private Task<Dictionary<IntPtr, Rectangle>>? _buttons;
-    /// <summary>The last finished lookup: buttons only move when apps open, close or get pinned, so it's usually still right.</summary>
-    private Dictionary<IntPtr, Rectangle> _lastButtons = new();
-    private IReadOnlyCollection<IntPtr> _lookingFor = Array.Empty<IntPtr>();
     private double _shown = double.NaN;
     /// <summary>A window whose button turns up mid-gesture bends towards it over this much progress, rather than jumping.</summary>
     private const double RetargetOver = 0.25;
@@ -69,7 +60,7 @@ internal sealed class DesktopPeek
             && _surfaces.Length == surfaces.Count && _surfaces.Select(pair => pair.Surface).SequenceEqual(surfaces)
             && _surfaces.All(pair => pair.Generation == pair.Surface.Generation))
         {
-            LookUpButtons();
+            LookUpButtons(scene);
             return;
         }
         foreach (var sprite in _registered) sprite.Surface.Remove(sprite);
@@ -91,7 +82,7 @@ internal sealed class DesktopPeek
         }
         _scene = scene;
         _surfaces = surfaces.Select(surface => (surface, surface.Generation)).ToArray();
-        LookUpButtons();
+        LookUpButtons(scene);
 
         void AddStill(ThumbnailSurface surface, SceneItem item, List<Sprite> order)
         {
@@ -117,22 +108,11 @@ internal sealed class DesktopPeek
         }
     }
 
-    /// <summary>Starts finding each window's taskbar button in the background (UI Automation, a few milliseconds).</summary>
-    private void LookUpButtons()
+    /// <summary>Brings the shared button lookup up to date if the scene's app windows changed (it's cached otherwise).</summary>
+    private void LookUpButtons(DesktopScene scene)
     {
         if (_moving.Count == 0) return;
-        var windows = Windows;
-        if (_buttons is { } running && !running.IsCompleted)
-        {
-            // Begin runs at finger landing and again as tracking starts: one lookup per desktop is enough.
-            if (_lookingFor.SequenceEqual(windows)) return;
-            _lookingFor = windows;
-            _buttons = running.ContinueWith(_ => TaskbarButtons.Find(windows), TaskScheduler.Default);
-            return;
-        }
-        if (_buttons is { IsCompletedSuccessfully: true } done && done.Result.Count > 0) _lastButtons = done.Result;
-        _lookingFor = windows;
-        _buttons = Task.Run(() => TaskbarButtons.Find(windows));
+        TaskbarButtons.Refresh(scene.Items.Where(item => item.Kind == SceneKind.Window && item.IsAppWindow).Select(item => item.Window));
     }
 
     /// <param name="progress">0 is the desktop as it is; 1 is every window in its button. Beyond 1 (overscroll) they stay there.</param>
@@ -140,18 +120,18 @@ internal sealed class DesktopPeek
     {
         progress = Math.Max(0, progress);
         if (progress == _shown) return;
+        var arrived = !TaskbarButtons.Looking;
         if (Log.VerboseEnabled && _moving.Count > 0 && _moving[0].End is null)
         {
-            var known = _buttons is { IsCompletedSuccessfully: true } lookup ? lookup.Result : _lastButtons;
-            var found = _moving.Count(part => known.ContainsKey(part.Window) || _lastButtons.ContainsKey(part.Window));
-            Log.Verbose($"Show desktop: {_moving.Count} windows, {found} heading for their own taskbar button{(_buttons is { IsCompleted: false } ? " (button lookup still running)" : "")}.");
+            var known = TaskbarButtons.Latest;
+            var found = known is null ? 0 : _moving.Count(part => known.ContainsKey(part.Window));
+            Log.Verbose($"Show desktop: {_moving.Count} windows, {found} heading for their own taskbar button{(arrived ? "" : " (button lookup still running)")}.");
         }
-        if (Log.VerboseEnabled && _moving.Any(part => part.Provisional) && _buttons is { IsCompletedSuccessfully: true } && progress < RetargetBefore)
+        if (Log.VerboseEnabled && _moving.Any(part => part.Provisional) && arrived && progress < RetargetBefore)
         {
             Log.Verbose($"Show desktop: button lookup arrived at progress {progress:0.00}, retargeting.");
         }
         _shown = progress;
-        var arrived = _buttons is { IsCompletedSuccessfully: true };
         foreach (var part in _moving)
         {
             // The lookup finished after the first frame: head for the real button while that's still a small nudge.
@@ -215,11 +195,10 @@ internal sealed class DesktopPeek
     {
         var monitor = part.Surface.Monitor;
         var icon = Math.Max(24, (monitor.Bottom - part.Surface.WorkArea.Bottom) * 0.5f);
-        var known = _buttons is { IsCompletedSuccessfully: true } lookup ? lookup.Result : _lastButtons;
-        part.Provisional = _buttons is { IsCompleted: false };
-        if (known.TryGetValue(part.Window, out var button) || _lastButtons.TryGetValue(part.Window, out button))
+        // Still heading for a stand-in if the lookup that may find this window's button hasn't finished yet.
+        part.Provisional = TaskbarButtons.Looking;
+        if (TaskbarButtons.Latest is { } known && known.TryGetValue(part.Window, out var button))
         {
-            if (known.ContainsKey(part.Window)) part.Provisional = false;
             float x = button.X - monitor.X + button.Width / 2f, y = button.Y - monitor.Y + button.Height / 2f;
             var size = Math.Min(button.Width, button.Height) * 0.6f;
             return new RectangleF(x - size / 2, y - size / 2, size, size);

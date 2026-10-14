@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using TrackSwipe.Core;
@@ -33,6 +34,15 @@ internal static class Log
     public static void Verbose(string message)
     {
         if (VerboseEnabled) Write(message);
+    }
+
+    /// <summary>
+    /// Writes only when verbose logging is on. An interpolated message isn't even formatted when it's off (the usual
+    /// case), so these calls cost nothing in normal use: no string is built, nothing is allocated.
+    /// </summary>
+    public static void Verbose(ref VerboseMessage message)
+    {
+        if (message.Enabled) Write(message.ToStringAndClear());
     }
 
     private static Thread StartWriter()
@@ -417,4 +427,26 @@ internal sealed class FrameClock : IDisposable
         var refreshes = Math.Max(1, (long)Math.Ceiling((now - vblank) / (double)period));
         return (vblank + refreshes * period) / (double)Stopwatch.Frequency;
     }
+}
+
+/// <summary>Builds a verbose log message only when verbose logging is on (see <see cref="Log.Verbose(ref VerboseMessage)"/>).</summary>
+[InterpolatedStringHandler]
+internal ref struct VerboseMessage
+{
+    private DefaultInterpolatedStringHandler _text;
+
+    public VerboseMessage(int literalLength, int formattedCount, out bool enabled)
+    {
+        Enabled = enabled = Log.VerboseEnabled;
+        _text = enabled ? new DefaultInterpolatedStringHandler(literalLength, formattedCount) : default;
+    }
+
+    public bool Enabled { get; }
+    public void AppendLiteral(string value) => _text.AppendLiteral(value);
+    public void AppendFormatted<T>(T value) => _text.AppendFormatted(value);
+    public void AppendFormatted<T>(T value, string? format) => _text.AppendFormatted(value, format);
+    public void AppendFormatted<T>(T value, int alignment) => _text.AppendFormatted(value, alignment);
+    public void AppendFormatted<T>(T value, int alignment, string? format) => _text.AppendFormatted(value, alignment, format);
+    public void AppendFormatted(string? value) => _text.AppendFormatted(value);
+    public string ToStringAndClear() => _text.ToStringAndClear();
 }

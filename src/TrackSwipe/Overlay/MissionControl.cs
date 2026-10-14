@@ -577,7 +577,8 @@ internal sealed partial class MissionControl : IDisposable
     private void SwitchTo(int desktop)
     {
         if (_scene is null) return;
-        if (ZoomInto(desktop)) return;
+        // The desktop already on show just lands, as clicking empty space does: zooming is for going somewhere else.
+        if (desktop != _scene.Current && ZoomInto(desktop)) return;
         if (desktop != _scene.Current) Rebuild(_scene.WithCurrent(desktop));
         Close();
     }
