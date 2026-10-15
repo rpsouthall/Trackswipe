@@ -53,6 +53,19 @@ internal sealed record DesktopBarLayout(Rectangle[] Tiles, Rectangle? AddButton,
         return (zones, addZone);
     }
 
+    /// <summary>
+    /// Where dropping a window on empty bar space (no desktop's zone, not +) inserts a new desktop for it: just
+    /// before the current desktop when dropped to its left, just after when dropped to its right. Null elsewhere.
+    /// </summary>
+    public static int? NewDesktopSlot(Rectangle[] tiles, Rectangle[] zones, Rectangle? addZone, int current, Point point)
+    {
+        if (current < 0 || current >= tiles.Length || zones.Length == 0) return null;
+        if (point.Y < 0 || point.Y >= zones[0].Bottom) return null; // below the bar
+        if (zones.Any(zone => zone.Contains(point)) || addZone?.Contains(point) == true) return null;
+        var middle = tiles[current].Left + tiles[current].Width / 2;
+        return point.X < middle ? current : current + 1;
+    }
+
     public static Rectangle CloseButton(Rectangle tile, float scale)
     {
         var shortest = Math.Min(tile.Width, tile.Height);

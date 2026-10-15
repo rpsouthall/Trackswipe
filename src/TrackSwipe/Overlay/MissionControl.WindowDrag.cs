@@ -101,6 +101,9 @@ internal sealed partial class MissionControl
                 if (zones[i].Contains(point))
                     return plan.Tiles[i].Desktop == _scene?.Current ? (null, default) : (plan, new Hit(HitKind.DropDesktop, Desktop: plan.Tiles[i].Desktop));
             if (addZone is { } add && add.Contains(point)) return (plan, new Hit(HitKind.AddDesktop));
+            var current = plan.Tiles.FindIndex(tile => tile.Desktop == _scene?.Current);
+            if (DesktopBarLayout.NewDesktopSlot(plan.Tiles.Select(tile => tile.Bounds).ToArray(), zones, addZone, current, point) is { } slot)
+                return (plan, new Hit(HitKind.NewDesktop, Desktop: slot));
         }
         return (null, default);
     }
@@ -138,6 +141,7 @@ internal sealed partial class MissionControl
         RectangleF landing;
         Guid desktop;
         bool added;
+        Guid[]? order = null;
         if (hit.Kind == HitKind.DropDesktop && targetPlan.Tiles.FirstOrDefault(tile => tile.Desktop == hit.Desktop) is { } tile)
         {
             desktop = tile.Id;
@@ -169,6 +173,32 @@ internal sealed partial class MissionControl
             }
             landing = new RectangleF(add.X + add.Width * 0.3f, add.Y + add.Height * 0.3f, add.Width * 0.4f, add.Height * 0.4f);
         }
+        else if (hit.Kind == HitKind.NewDesktop && targetPlan.Tiles.FirstOrDefault(tile => tile.Desktop == _scene.Current) is { } beside)
+        {
+            // Windows adds desktops at the end: make one, move the window there, then move it beside the current one.
+            _refreshingBar = true;
+            try
+            {
+                if (_switcher.TryCreateDesktop() is not { } created) return false;
+                desktop = created;
+                added = true;
+                var moved = _switcher.TryMoveWindow(window, desktop);
+                var ids = desktops.Ids.Append(created).ToArray();
+                if (hit.Desktop < ids.Length - 1 && _switcher.TryMoveDesktop(created, hit.Desktop)) order = DesktopReorder.Move(ids, created, hit.Desktop);
+                if (!moved)
+                {
+                    BeginDesktopEdit();
+                    _desktopChange = new(desktop, viewed, viewed, true, 0, true, Clock.Now + 1, order);
+                    FramesNeeded?.Invoke();
+                    return false;
+                }
+            }
+            finally { _refreshingBar = false; }
+            // Into the gap where the new desktop's preview will appear.
+            var b = beside.Bounds;
+            var cx = hit.Desktop <= _scene.Current ? b.Left - 10 * targetPlan.Surface.Scale : b.Right + 10 * targetPlan.Surface.Scale;
+            landing = new RectangleF(cx - b.Width * 0.2f, b.Y + b.Height * 0.3f, b.Width * 0.4f, b.Height * 0.4f);
+        }
         else return false;
 
         // The window is gone from this desktop: fly what's left of it into its new place, then refresh.
@@ -185,10 +215,10 @@ internal sealed partial class MissionControl
         drag.Part.Sprite.Animate(frames, begin);
         drag.Part.Backing?.Animate(frames, begin);
         _droppedWindow = (drag.Part, to);
-        _desktopChange = new(desktop, viewed, viewed, added, now + motion.Duration, true, now + motion.Duration + 1, Window: window);
+        _desktopChange = new(desktop, viewed, viewed, added, now + motion.Duration, true, now + motion.Duration + 1, order, window);
         Composition.Flush();
         FramesNeeded?.Invoke();
-        Log.Write($"Moved a window to {(added ? "a new desktop" : $"desktop {hit.Desktop + 1}")} by dragging it in Mission Control.");
+        Log.Write($"Moved a window to {(hit.Kind == HitKind.NewDesktop ? $"a new desktop {hit.Desktop + 1}" : added ? "a new desktop" : $"desktop {hit.Desktop + 1}")} by dragging it in Mission Control.");
         return true;
     }
 
@@ -237,7 +267,8 @@ internal sealed partial class MissionControl
 
     /// <summary>
     /// Exercises the real press, move and release path: drags <paramref name="window"/> from the spread onto
-    /// desktop <paramref name="desktopIndex"/>'s tile, or onto + when it's -1. False if either isn't there.
+    /// desktop <paramref name="desktopIndex"/>'s tile, onto + when it's -1, or into empty bar space left (-2) or
+    /// right (-3) of the desktops. False if that target isn't there.
     /// </summary>
     public bool DragWindowForDiagnostics(IntPtr window, int desktopIndex)
     {
@@ -248,7 +279,18 @@ internal sealed partial class MissionControl
             if (plan.Windows.FirstOrDefault(part => part.Sprite.Item.Window == window) is not { } part) continue;
             var bounds = OverviewWindowBounds(plan, part);
             var press = new Point((int)(bounds.X + bounds.Width / 2), (int)(bounds.Y + bounds.Height / 2));
-            Rectangle? target = desktopIndex < 0 ? plan.AddTile : plan.Tiles.FirstOrDefault(tile => tile.Desktop == desktopIndex)?.Bounds;
+            var tiles = plan.Tiles.Select(tile => tile.Bounds).ToArray();
+            var (zones, addZone) = DesktopBarLayout.DropZones(tiles, plan.AddTile, plan.Surface.Monitor.Width, plan.Surface.Scale);
+            Rectangle? EmptySpace(int left, int right) => right - left > 4 && tiles.Length > 0
+                ? new Rectangle(left, tiles[0].Y, right - left, tiles[0].Height) : null;
+            Rectangle? target = desktopIndex switch
+            {
+                -1 => plan.AddTile,
+                -2 when zones.Length > 0 => EmptySpace(0, zones[0].Left),
+                -3 when zones.Length > 0 => EmptySpace(zones[^1].Right, addZone?.Left ?? plan.Surface.Monitor.Width),
+                >= 0 => plan.Tiles.FirstOrDefault(tile => tile.Desktop == desktopIndex)?.Bounds,
+                _ => null,
+            };
             if (target is not { } drop) return false;
             OnPointerPressed(plan.Surface, press);
             if (_windowDrag is null) return false;

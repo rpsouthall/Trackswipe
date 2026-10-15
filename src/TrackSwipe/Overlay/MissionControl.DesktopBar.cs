@@ -65,6 +65,12 @@ internal sealed partial class MissionControl
                 g.DrawRounded(Color.FromArgb(170, 255, 255, 255), 2 * s, RectangleF.Inflate(bounds, 3 * s, 3 * s), 8 * s);
             if (hover.Kind == HitKind.DropDesktop && hover.Desktop == tile.Desktop) // a window held over it lands here
                 g.DrawRounded(_accent, 3 * s, RectangleF.Inflate(bounds, 3 * s, 3 * s), 8 * s);
+            if (hover.Kind == HitKind.NewDesktop && tile.Desktop == _scene?.Current)
+            {
+                // A window held over empty bar space gets a new desktop on this side of the current one.
+                var x = hover.Desktop <= tile.Desktop ? bounds.Left - 8 * s : bounds.Right + 8 * s;
+                g.FillRounded(_accent, new RectangleF(x - 1.5f * s, bounds.Top - 2 * s, 3 * s, bounds.Height + 4 * s), 1.5f * s);
+            }
             var label = new RectangleF(bounds.Left - 10 * s, bounds.Bottom + 8 * s, bounds.Width + 20 * s, 20 * s);
             g.DrawText(tile.Label, 13 * s, tile.Desktop == _scene?.Current, Color.White, label);
             var showClose = hover.Desktop == tile.Desktop &&
@@ -223,7 +229,8 @@ internal sealed partial class MissionControl
         var desktops = VirtualDesktops.Read();
         var confirmed = desktops is { Index: >= 0 } && (change.Window != IntPtr.Zero
             // A moved window: once it has flown into its tile and Explorer reports it on that desktop.
-            ? now >= change.ReadyAt && desktops.Ids.Contains(change.Desktop) && _windowDesktops.GetDesktopId(change.Window) == change.Desktop
+            ? now >= change.ReadyAt && desktops.Ids.Contains(change.Desktop) && _windowDesktops.GetDesktopId(change.Window) == change.Desktop &&
+              (change.Order is null || desktops.Ids.SequenceEqual(change.Order)) // and its new desktop is in place, if it was placed
             : change.Order is { } order ? desktops.Ids.SequenceEqual(order) : desktops.Ids.Contains(change.Desktop) == change.Added);
         if (change.Window != IntPtr.Zero && now < change.ReadyAt) return;
         if (!confirmed && now < change.Deadline) return;

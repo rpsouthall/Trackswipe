@@ -20,7 +20,7 @@ Windows switches desktops with a canned animation that plays *after* you swipe. 
 - **Finger-tracked desktop switching.** Swipe sideways with three or four fingers. The real windows, live, move 1:1 with your fingers at your display's full refresh rate (120 Hz where supported). Reverse mid-swipe to cancel; flick to go fast. It rubber-bands at the first and last desktop.
 - **Mission Control.** Swipe up to spread out every window on the desktop, minimized ones included, with live previews of all your desktops along the top.
   - Click a window to bring it forward, or swipe down with the pointer over one.
-  - **Drag a window onto a desktop** in the bar to move it there, or onto **+** to give it a new desktop.
+  - **Drag a window onto a desktop** in the bar to move it there. Drop it on empty space in the bar to give it a new desktop beside the current one (on whichever side you dropped it), or on **+** to add one at the end.
   - Click a desktop to switch to it, drag desktops to reorder them, add one with **+**, close one with its **×**.
   - Swipe sideways to look at the neighbouring desktops' windows.
 - **Works with Windows, not around it.** The switch itself is Windows' own (instantly, with its animation suppressed), so window focus, taskbar and virtual desktop state stay exactly as Windows expects.

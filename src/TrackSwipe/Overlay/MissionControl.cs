@@ -15,7 +15,8 @@ internal sealed partial class MissionControl : IDisposable
 {
     private enum State { Hidden, Tracking, Open, Closing }
 
-    private enum HitKind { None, Window, Desktop, CloseDesktop, AddDesktop, DisabledControl, DropDesktop }
+    /// <remarks>For <see cref="HitKind.NewDesktop"/>, <see cref="Hit.Desktop"/> is where the new desktop goes.</remarks>
+    private enum HitKind { None, Window, Desktop, CloseDesktop, AddDesktop, DisabledControl, DropDesktop, NewDesktop }
 
     private readonly record struct Hit(HitKind Kind, Part? Window = null, int Desktop = -1);
 
@@ -1277,9 +1278,12 @@ internal sealed partial class MissionControl : IDisposable
     {
         if (before.Kind == HitKind.AddDesktop || after.Kind == HitKind.AddDesktop) PaintAddControl(plan);
         if (before.Kind == HitKind.Window || after.Kind == HitKind.Window) PaintWindowHighlight(plan);
+        // A new-desktop drop shows its insertion line beside the current desktop's preview.
+        var newDesktopChanged = (before.Kind == HitKind.NewDesktop || after.Kind == HitKind.NewDesktop) && before != after;
         foreach (var tile in plan.Tiles)
             if ((tile.Desktop == before.Desktop && before.Kind is HitKind.Desktop or HitKind.CloseDesktop or HitKind.DisabledControl or HitKind.DropDesktop) ||
-                (tile.Desktop == after.Desktop && after.Kind is HitKind.Desktop or HitKind.CloseDesktop or HitKind.DisabledControl or HitKind.DropDesktop)) PaintTile(plan, tile);
+                (tile.Desktop == after.Desktop && after.Kind is HitKind.Desktop or HitKind.CloseDesktop or HitKind.DisabledControl or HitKind.DropDesktop) ||
+                (newDesktopChanged && tile.Desktop == _scene?.Current)) PaintTile(plan, tile);
     }
 
     private void Paint(Plan plan)

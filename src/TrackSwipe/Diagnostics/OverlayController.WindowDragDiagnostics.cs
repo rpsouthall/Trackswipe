@@ -4,14 +4,16 @@ internal sealed partial class OverlayController
 {
     /// <summary>
     /// For --diagnose-window-drag &lt;hwnd&gt;: drags that window (another app's) in Mission Control onto a temporary
-    /// desktop's tile, then onto +, checking where Explorer says it is each time. Only desktops this test made are
-    /// removed, which brings the window back to the desktop it started on.
+    /// desktop's tile, onto +, then into empty bar space on each side of the current desktop, checking where Explorer
+    /// puts the window (and the new desktop) each time. Only desktops this test made are removed, which brings the
+    /// window back to the desktop it started on.
     /// </summary>
     public void RunWindowDragDiagnostics(IntPtr window, Action done)
     {
         var original = _switcher?.CurrentDesktopId();
         if (original is null || _switcher is null) { Log.Write("Window drag diagnostic: shell unavailable."); done(); return; }
         var created = new List<Guid>();
+        var beforeDrop = -1;
         var step = 0;
         var started = Clock.Now;
         var nextAt = started;
@@ -31,7 +33,7 @@ internal sealed partial class OverlayController
         timer.Tick += (_, _) =>
         {
             var now = Clock.Now;
-            if (now - started > 20) { Log.Write("Window drag diagnostic: timed out."); Finish(); return; }
+            if (now - started > 40) { Log.Write("Window drag diagnostic: timed out."); Finish(); return; }
             if (now < nextAt) return;
             switch (step)
             {
@@ -68,6 +70,33 @@ internal sealed partial class OverlayController
                     var home = _windowDesktops.GetDesktopId(window);
                     if (home is { } fresh && fresh != original && !created.Contains(fresh)) created.Add(fresh);
                     Log.Write($"Window drag diagnostic: + made desktop {desktops?.Count} and the window is on it: {home is { } h && desktops?.Ids.LastOrDefault() == h}.");
+                    // Back again, then into empty bar space on each side of the current desktop.
+                    _switcher.TryMoveWindow(window, original.Value);
+                    _mission.RefreshForDesktopBarDiagnostics();
+                    Next(); return;
+                case 6 when !_mission.IsOpen: return;
+                case 8 when !_mission.IsOpen: return;
+                case 6:
+                case 8:
+                    var side = step == 6 ? -2 : -3;
+                    beforeDrop = VirtualDesktops.Read()?.Ids.ToList().IndexOf(original.Value) ?? -1;
+                    var empty = _mission.DragWindowForDiagnostics(window, side);
+                    Log.Write($"Window drag diagnostic: dragged into empty bar space {(side == -2 ? "left" : "right")} of the desktops, drop taken {empty}.");
+                    if (!empty) { Finish(); return; }
+                    Next(1.0); return;
+                case 7 when !_mission.IsOpen: return;
+                case 9 when !_mission.IsOpen: return;
+                case 7:
+                case 9:
+                    var ids = VirtualDesktops.Read()?.Ids.ToList() ?? new List<Guid>();
+                    var landed = _windowDesktops.GetDesktopId(window);
+                    if (landed is { } made && made != original && !created.Contains(made)) created.Add(made);
+                    var at = landed is { } l ? ids.IndexOf(l) : -1;
+                    var expected = step == 7 ? ids.IndexOf(original.Value) - 1 : ids.IndexOf(original.Value) + 1;
+                    Log.Write($"Window drag diagnostic: new desktop {at + 1} of {ids.Count} holds the window; current desktop was {beforeDrop + 1}, now {ids.IndexOf(original.Value) + 1}; " +
+                        $"placed {(step == 7 ? "just before" : "just after")} it: {landed is not null && landed != original && at == expected}.");
+                    _switcher.TryMoveWindow(window, original.Value);
+                    _mission.RefreshForDesktopBarDiagnostics();
                     Next(); return;
                 default: Finish(); return;
             }
