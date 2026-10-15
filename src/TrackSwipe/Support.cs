@@ -199,8 +199,20 @@ internal static class KeySender
             case SwipeAction.NextDesktop: Chord(VK_LWIN, VK_LCONTROL, VK_RIGHT); break;
             case SwipeAction.PreviousDesktop: Chord(VK_LWIN, VK_LCONTROL, VK_LEFT); break;
             case SwipeAction.SwipeUp: Chord(VK_LWIN, VK_TAB); break;   // Task View
-            case SwipeAction.SwipeDown: Chord(VK_LWIN, VK_D); break;   // show desktop
+            case SwipeAction.SwipeDown: if (!ToggleDesktop()) Chord(VK_LWIN, VK_D); break; // show desktop
         }
+    }
+
+    /// <summary>
+    /// Show desktop through Explorer itself: the command behind the taskbar's show-desktop corner and
+    /// Shell.Application's ToggleDesktop. Unlike a synthesised Win+D, keyboard remappers can't intercept it (PowerToys
+    /// Keyboard Manager turning the Windows key into another key would otherwise swallow it). Posted, so a busy Explorer
+    /// never holds up a frame. False if there's no taskbar to ask.
+    /// </summary>
+    private static bool ToggleDesktop()
+    {
+        var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
+        return taskbar != IntPtr.Zero && NativeMethods.PostMessageW(taskbar, 0x0111 /* WM_COMMAND */, 407 /* toggle desktop */, IntPtr.Zero);
     }
 
     /// <summary>Presses the keys in order and releases them in reverse, as one atomic SendInput batch.</summary>

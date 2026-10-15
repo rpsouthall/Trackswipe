@@ -402,9 +402,10 @@ internal sealed partial class OverlayController : IDisposable
     }
 
     /// <summary>
-    /// The windows are in their buttons: minimize them for real underneath, with Windows' own show desktop (Win+D), so
-    /// Win+D or the corner of the taskbar brings them all back. Windows' minimize animation is switched off for each
-    /// window first; where Windows won't allow that, the overlay stays up until its animation would have finished.
+    /// The windows are in their buttons: minimize them for real underneath, with Windows' own show desktop (asked of
+    /// Explorer directly, the same command as the taskbar corner), so Win+D or that corner brings them all back.
+    /// Windows' minimize animation is switched off for each window first; where Windows won't allow that, the overlay
+    /// stays up until its animation would have finished.
     /// </summary>
     private void ShowDesktop()
     {
