@@ -11,8 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 16;
-    private const string WindowClass = "TrackSwipe.Tap.16"; // "TrackSwipe.Tap.{Version}"
+    private const int Version = 18;
+    private const string WindowClass = "TrackSwipe.Tap.18"; // "TrackSwipe.Tap.{Version}"
     /// <summary>Earlier versions' windows (the first unnumbered): still in Explorer until it restarts, so they're asked to stand down first.</summary>
     private static readonly string[] OlderWindowClasses = Enumerable.Range(1, Version - 1).Select(v => v == 1 ? "TrackSwipe.Tap" : $"TrackSwipe.Tap.{v}").ToArray();
 
@@ -36,7 +36,11 @@ internal static unsafe class TaskbarTap
     /// far it's moved down; at 14 its capitals already centre on the icons' line (measured on screen).
     /// </summary>
     private const int TrayTextSize = 1400, TrayTextOffset = 0;
-    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4, TrayIconsMessage = 0x8000 + 5, IndicatorsMessage = 0x8000 + 6, TrayTextMessage = 0x8000 + 7;
+
+    /// <summary>App buttons' icons with larger tray icons, in hundredths of an effective pixel (Windows: 16), drawn sharp from the shell's own icons.
+    /// They grow from their centre, so the space before the first one (with Start hidden) grows by half as much.</summary>
+    private const int AppIconSize = 2000;
+    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4, TrayIconsMessage = 0x8000 + 5, IndicatorsMessage = 0x8000 + 6, TrayTextMessage = 0x8000 + 7, AppIconsMessage = 0x8000 + 8;
     private static readonly Guid Clsid = new("5c36979c-4b69-4ae1-9b76-9d4b249e5659");
     private const string Resource = "TrackSwipeTap.dll";
 
@@ -56,9 +60,10 @@ internal static unsafe class TaskbarTap
     {
         var window = Window;
         if (window == IntPtr.Zero) return false;
-        SendMessageTimeoutW(window, StartButtonMessage, hideStart ? 1 : 0, (IntPtr)(hideStart && LeftAligned ? LeftAlignedPadding : 0), 0x0002 /* ABORTIFHUNG */, 2000, out _);
+        SendMessageTimeoutW(window, StartButtonMessage, hideStart ? 1 : 0, (IntPtr)(hideStart && LeftAligned ? LeftAlignedPadding + (largeTrayIcons ? (AppIconSize - 1600) / 2 : 0) : 0), 0x0002 /* ABORTIFHUNG */, 2000, out _);
         SendMessageTimeoutW(window, EdgeLineMessage, hideEdge ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, TrayIconsMessage, largeTrayIcons ? TrayIconSize : 0, largeTrayIcons ? TrayIconSpace : 0, 0x0002, 2000, out _);
+        SendMessageTimeoutW(window, AppIconsMessage, largeTrayIcons ? AppIconSize : 0, IntPtr.Zero, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, TrayTextMessage, largeTrayIcons ? TrayTextSize : 0, largeTrayIcons ? TrayTextOffset : 0, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, IndicatorsMessage, hideIndicators ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
         return true;
@@ -79,7 +84,7 @@ internal static unsafe class TaskbarTap
             var window = FindWindowExW((IntPtr)(-3), IntPtr.Zero, name, null);
             if (window == IntPtr.Zero) continue;
             // Every option any version has had; a version that doesn't know one ignores it.
-            foreach (var message in new[] { StartButtonMessage, EdgeLineMessage, TrayIconsMessage, IndicatorsMessage, TrayTextMessage })
+            foreach (var message in new[] { StartButtonMessage, EdgeLineMessage, TrayIconsMessage, IndicatorsMessage, TrayTextMessage, AppIconsMessage })
                 SendMessageTimeoutW(window, message, 0, IntPtr.Zero, 0x0002, 2000, out _);
         }
     }

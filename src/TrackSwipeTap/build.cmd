@@ -20,6 +20,6 @@ call "%VCVARS%" %VCARCH% >nul || exit /b 1
 set OUT=..\..\artifacts\tap\%1
 if not exist %OUT%\obj mkdir %OUT%\obj
 cl /nologo /std:c++20 /EHsc /O2 /MT /W4 /permissive- /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /Fo%OUT%\obj\ ^
-   /LD TrackSwipeTap.cpp /Fe:%OUT%\TrackSwipeTap.dll /link /DEF:TrackSwipeTap.def ole32.lib oleaut32.lib user32.lib windowsapp.lib || exit /b 1
+   /LD TrackSwipeTap.cpp /Fe:%OUT%\TrackSwipeTap.dll /link /DEF:TrackSwipeTap.def ole32.lib oleaut32.lib user32.lib gdi32.lib shell32.lib windowsapp.lib || exit /b 1
 del %OUT%\*.exp %OUT%\*.lib 2>nul
 exit /b 0

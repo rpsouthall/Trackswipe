@@ -21,8 +21,16 @@
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
+#include <winrt/Windows.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <shellapi.h> // SHGetPropertyStoreForWindow (left out by WIN32_LEAN_AND_MEAN)
+#include <shlobj.h>
+#include <shobjidl.h>
 #include <format>
 #include <limits>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -61,6 +69,114 @@ namespace
         WideCharToMultiByte(CP_UTF8, 0, line.c_str(), (int)line.size(), utf8.data(), size, nullptr, nullptr);
         DWORD written; WriteFile(file, utf8.data(), (DWORD)utf8.size(), &written, nullptr);
         CloseHandle(file);
+    }
+
+    // ---- Shell icons (off the UI thread) ------------------------------------------------------------------
+
+    /// Posted to the control window when a shell icon has loaded: lParam is an IconPixels it takes over.
+    constexpr UINT IconReady = WM_APP + 40;
+
+    struct IconPixels
+    {
+        std::wstring key; // the taskbar button's automation ID
+        int size = 0;     // requested, in pixels
+        int width = 0, height = 0;
+        std::vector<uint8_t> bgra; // premultiplied, top-down; empty if there's no icon
+    };
+
+    // {1E87508D-89C2-42F0-8A7E-645A0F50CA58}: the Apps folder, where every app is listed by its AppUserModelID.
+    constexpr GUID AppsFolder = { 0x1e87508d, 0x89c2, 0x42f0, { 0x8a, 0x7e, 0x64, 0x5a, 0x0f, 0x50, 0xca, 0x58 } };
+    // PKEY_AppUserModel_ID
+    constexpr PROPERTYKEY AppUserModelId = { { 0x9f4c2855, 0x9f79, 0x4b39, { 0xa8, 0xd0, 0xe1, 0xd4, 0x2d, 0xe1, 0xd5, 0xf3 } }, 5 };
+
+    com_ptr<IShellItemImageFactory> FromAppId(std::wstring const& id)
+    {
+        com_ptr<IShellItem> item;
+        if (FAILED(SHCreateItemInKnownFolder(AppsFolder, 0, id.c_str(), IID_PPV_ARGS(item.put())))) return nullptr;
+        return item.try_as<IShellItemImageFactory>();
+    }
+
+    std::wstring AppIdOf(HWND window)
+    {
+        std::wstring id;
+        com_ptr<IPropertyStore> store;
+        if (FAILED(SHGetPropertyStoreForWindow(window, IID_PPV_ARGS(store.put())))) return id;
+        PROPVARIANT value;
+        PropVariantInit(&value);
+        if (SUCCEEDED(store->GetValue(AppUserModelId, &value)) && value.vt == VT_LPWSTR && value.pwszVal) id = value.pwszVal;
+        PropVariantClear(&value);
+        return id;
+    }
+
+    com_ptr<IShellItemImageFactory> FromProcessOf(HWND window)
+    {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(window, &pid);
+        auto process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!process) return nullptr;
+        wchar_t path[1024];
+        DWORD length = ARRAYSIZE(path);
+        com_ptr<IShellItemImageFactory> factory;
+        com_ptr<IShellItem> item;
+        if (QueryFullProcessImageNameW(process, 0, path, &length) && SUCCEEDED(SHCreateItemFromParsingName(path, nullptr, IID_PPV_ARGS(item.put()))))
+            factory = item.try_as<IShellItemImageFactory>();
+        CloseHandle(process);
+        return factory;
+    }
+
+    /// The shell's image for a taskbar button ("Appid: <AppUserModelID>" or "Window: 0x<handle>"): the app as the
+    /// Apps folder lists it, else the program the window belongs to.
+    com_ptr<IShellItemImageFactory> IconSource(std::wstring const& key)
+    {
+        if (key.starts_with(L"Window: "))
+        {
+            auto window = reinterpret_cast<HWND>(static_cast<intptr_t>(wcstoull(key.c_str() + 8, nullptr, 16)));
+            if (auto id = AppIdOf(window); !id.empty())
+                if (auto factory = FromAppId(id)) return factory;
+            return FromProcessOf(window);
+        }
+        if (!key.starts_with(L"Appid: ")) return nullptr;
+        auto id = key.substr(7);
+        if (auto factory = FromAppId(id)) return factory;
+        // An ID the Apps folder doesn't list (a browser profile, say): the program of an open window that has it.
+        struct Search { std::wstring const* id; HWND found; } search{ &id, nullptr };
+        EnumWindows([](HWND window, LPARAM data) -> BOOL
+        {
+            auto s = reinterpret_cast<Search*>(data);
+            if (IsWindowVisible(window) && AppIdOf(window) == *s->id) { s->found = window; return FALSE; }
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&search));
+        return search.found ? FromProcessOf(search.found) : nullptr;
+    }
+
+    IconPixels LoadShellIcon(std::wstring const& key, int size)
+    {
+        IconPixels result{ key, size };
+        auto factory = IconSource(key);
+        HBITMAP bitmap = nullptr;
+        if (!factory || FAILED(factory->GetImage({ size, size }, SIIGBF_ICONONLY, &bitmap)) || !bitmap) return result;
+        BITMAP info{};
+        GetObjectW(bitmap, sizeof(info), &info);
+        int width = info.bmWidth, height = std::abs(info.bmHeight);
+        std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+        BITMAPINFO format{};
+        format.bmiHeader = { sizeof(BITMAPINFOHEADER), width, -height, 1, 32, BI_RGB };
+        auto dc = GetDC(nullptr);
+        auto rows = GetDIBits(dc, bitmap, 0, height, pixels.data(), &format, DIB_RGB_COLORS);
+        ReleaseDC(nullptr, dc);
+        DeleteObject(bitmap);
+        if (rows != height) return result;
+        // XAML wants premultiplied alpha. The shell's bitmaps usually are already; if any colour exceeds its alpha, it isn't.
+        auto premultiplied = true;
+        for (size_t i = 0; i < pixels.size() && premultiplied; i += 4)
+            premultiplied = pixels[i] <= pixels[i + 3] && pixels[i + 1] <= pixels[i + 3] && pixels[i + 2] <= pixels[i + 3];
+        if (!premultiplied)
+            for (size_t i = 0; i < pixels.size(); i += 4)
+                for (int c = 0; c < 3; ++c) pixels[i + c] = static_cast<uint8_t>(pixels[i + c] * pixels[i + 3] / 255);
+        result.width = width;
+        result.height = height;
+        result.bgra = std::move(pixels);
+        return result;
     }
 
     DependencyObject TopOf(DependencyObject node)
@@ -136,7 +252,8 @@ namespace
                 auto isTrayIcon = IsIconViewType(type);
                 auto isIndicator = element.Name && std::wstring_view(element.Name) == L"RunningIndicator";
                 auto isLabel = element.Name && std::wstring_view(element.Name) == L"LabelControl"; // an app button's title
-                if (!isFrame && !isTrayIcon && !isIndicator && !isLabel && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
+                auto isAppIcon = type == L"Windows.UI.Xaml.Controls.Image" && element.Name && std::wstring_view(element.Name) == L"Icon";
+                if (!isFrame && !isTrayIcon && !isIndicator && !isLabel && !isAppIcon && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
                 EnsureControlWindow();
                 Windows::Foundation::IInspectable object;
                 if (FAILED(m_diagnostics->GetIInspectableFromHandle(element.Handle, reinterpret_cast<::IInspectable**>(put_abi(object))))) return S_OK;
@@ -146,6 +263,7 @@ namespace
                 else if (isTrayIcon) AddTrayIcon(found);
                 else if (isIndicator) AddIndicator(found);
                 else if (isLabel) { if (auto text = found.try_as<Controls::TextBlock>()) TrackText(text); }
+                else if (isAppIcon) { if (auto image = found.try_as<Controls::Image>()) AddAppIcon(image); }
                 else ConsiderButton(found);
             }
             catch (...) {}
@@ -591,6 +709,177 @@ namespace
             else if (item.watched) { item.watched = false; slot.ClearValue(FrameworkElement::MarginProperty()); }
         }
 
+        // ---- App icons ----------------------------------------------------------------------------------
+        // Each app button's icon is an Image showing a bitmap Explorer made at exactly its 16 px size, so it can't be
+        // enlarged without blurring. Larger icons get their own bitmap from the shell (as Start and File Explorer's
+        // big icons do) at the new size in pixels, loaded off the taskbar's thread; until it arrives, and if there's
+        // none, Explorer's is shown enlarged. Explorer's bitmap and size are put back afterwards.
+
+    public:
+        void SetAppIcons(double size)
+        {
+            m_appIconSize = size;
+            for (auto& frame : m_frames)
+                if (auto f = frame.get()) FindAppIcons(TopOf(f));
+            std::erase_if(m_appIcons, [](auto& item) { return !item.image.get(); });
+            for (auto& item : m_appIcons) ApplyAppIcon(item);
+        }
+
+        /// A shell icon has loaded (or turned out not to exist): make it a XAML bitmap and show it.
+        void IconLoaded(IconPixels const& pixels)
+        {
+            auto key = std::make_pair(pixels.key, pixels.size);
+            m_iconPending.erase(key);
+            Media::ImageSource bitmap{ nullptr };
+            if (!pixels.bgra.empty())
+            {
+                Media::Imaging::WriteableBitmap writeable(pixels.width, pixels.height);
+                memcpy(writeable.PixelBuffer().data(), pixels.bgra.data(), pixels.bgra.size());
+                writeable.Invalidate();
+                bitmap = writeable;
+            }
+            m_iconCache.insert_or_assign(key, bitmap); // kept even when empty, so a missing icon isn't looked up again
+            for (auto& item : m_appIcons) if (item.key == pixels.key) ApplyAppIcon(item);
+        }
+
+    private:
+        struct AppIcon
+        {
+            weak_ref<Controls::Image> image;
+            std::wstring key;   // its button's automation ID
+            bool sized = false; // TrackSwipe has set its size; Explorer's own values saved here
+            Windows::Foundation::IInspectable width{ nullptr }, height{ nullptr };
+            Media::ImageSource original{ nullptr }; // Explorer's latest bitmap
+            Media::ImageSource ours{ nullptr };     // the shell's, while shown
+            bool watched = false;
+        };
+
+        static std::wstring ButtonKeyOf(DependencyObject node)
+        {
+            for (auto depth = 0; node && depth < 8; ++depth, node = Media::VisualTreeHelper::GetParent(node))
+                if (get_class_name(node) == L"Taskbar.TaskListButton")
+                    return std::wstring(Automation::AutomationProperties::GetAutomationId(node.as<UIElement>()));
+            return {};
+        }
+
+        void AddAppIcon(Controls::Image const& image)
+        {
+            // Its button may not be its ancestor yet: look once it has loaded too.
+            image.Loaded([this, weak = make_weak(image)](auto&&, auto&&)
+            {
+                try { if (auto i = weak.get(); i && m_appIconSize > 0) TrackAppIcon(i); }
+                catch (...) {}
+            });
+            if (m_appIconSize > 0) TrackAppIcon(image);
+        }
+
+        void FindAppIcons(DependencyObject const& root, int depth = 0)
+        {
+            if (auto image = root.try_as<Controls::Image>(); image && image.Name() == L"Icon") { TrackAppIcon(image); return; }
+            if (depth > 60) return;
+            auto count = Media::VisualTreeHelper::GetChildrenCount(root);
+            for (int i = 0; i < count; ++i) FindAppIcons(Media::VisualTreeHelper::GetChild(root, i), depth + 1);
+        }
+
+        void TrackAppIcon(Controls::Image const& image)
+        {
+            auto key = ButtonKeyOf(image);
+            if (key.empty()) return; // not an app button's (the Start button's, say)
+            for (auto& item : m_appIcons)
+                if (item.image.get() == image) { item.key = key; ApplyAppIcon(item); return; }
+            m_appIcons.push_back(AppIcon{ make_weak(image), key });
+            ApplyAppIcon(m_appIcons.back());
+        }
+
+        int PixelsOf(Controls::Image const& image) const
+        {
+            auto scale = 1.0;
+            try { if (auto root = image.XamlRoot()) scale = root.RasterizationScale(); }
+            catch (...) {}
+            return static_cast<int>(std::lround(m_appIconSize * scale));
+        }
+
+        void ApplyAppIcon(AppIcon& item)
+        {
+            auto image = item.image.get();
+            if (!image) return;
+            if (!item.watched)
+            {
+                item.watched = true;
+                // Explorer gives the button a new bitmap when the app's icon changes: remember it, and fetch the
+                // shell's again in case that changed too.
+                image.RegisterPropertyChangedCallback(Controls::Image::SourceProperty(), [this](DependencyObject const& sender, DependencyProperty const&)
+                {
+                    try
+                    {
+                        auto i = sender.try_as<Controls::Image>();
+                        if (!i) return;
+                        for (auto& item : m_appIcons)
+                        {
+                            if (item.image.get() != i) continue;
+                            auto source = i.Source();
+                            if (source && source == item.ours) return; // ours, just set
+                            item.original = source;
+                            item.ours = nullptr;
+                            if (m_appIconSize > 0)
+                            {
+                                m_iconCache.erase(std::make_pair(item.key, PixelsOf(i)));
+                                ApplyAppIcon(item);
+                            }
+                            return;
+                        }
+                    }
+                    catch (...) {}
+                });
+            }
+            if (m_appIconSize > 0)
+            {
+                if (!item.sized)
+                {
+                    item.width = image.ReadLocalValue(FrameworkElement::WidthProperty());
+                    item.height = image.ReadLocalValue(FrameworkElement::HeightProperty());
+                    item.sized = true;
+                }
+                image.Width(m_appIconSize);
+                image.Height(m_appIconSize);
+                auto key = std::make_pair(item.key, PixelsOf(image));
+                if (auto cached = m_iconCache.find(key); cached != m_iconCache.end())
+                {
+                    if (cached->second && image.Source() != cached->second)
+                    {
+                        if (!item.ours) item.original = image.Source();
+                        item.ours = cached->second;
+                        image.Source(cached->second);
+                    }
+                }
+                else if (m_control && m_iconPending.insert(key).second)
+                {
+                    std::thread([control = m_control, key]
+                    {
+                        auto com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+                        auto pixels = std::make_unique<IconPixels>();
+                        try { *pixels = LoadShellIcon(key.first, key.second); }
+                        catch (...) { pixels->key = key.first; pixels->size = key.second; }
+                        if (com) CoUninitialize();
+                        if (PostMessageW(control, IconReady, 0, reinterpret_cast<LPARAM>(pixels.get()))) pixels.release();
+                    }).detach();
+                }
+            }
+            else if (item.sized)
+            {
+                item.sized = false;
+                auto restore = [&](DependencyProperty const& property, Windows::Foundation::IInspectable const& value)
+                {
+                    if (value && value != DependencyProperty::UnsetValue()) image.SetValue(property, value);
+                    else image.ClearValue(property);
+                };
+                restore(FrameworkElement::WidthProperty(), item.width);
+                restore(FrameworkElement::HeightProperty(), item.height);
+                if (item.ours && image.Source() == item.ours && item.original) image.Source(item.original);
+                item.ours = nullptr;
+            }
+        }
+
         // ---- Diagnostics --------------------------------------------------------------------------------
 
         static void DumpElement(DependencyObject const& node, UIElement const& frame, int depth, std::wstring& out)
@@ -618,6 +907,17 @@ namespace
                     catch (...) {}
                     if (auto value = text.Text(); !value.empty() && IsIconFont(text)) line += std::format(L" glyph U+{:04X}", (unsigned)value[0]);
                 }
+                if (auto image = element.try_as<Controls::Image>())
+                    if (auto source = image.Source())
+                    {
+                        line += std::format(L" source {}", std::wstring_view(get_class_name(source)));
+                        if (auto bitmap = source.try_as<Media::Imaging::BitmapSource>()) line += std::format(L" {}x{}px", bitmap.PixelWidth(), bitmap.PixelHeight());
+                        if (auto decoded = source.try_as<Media::Imaging::BitmapImage>())
+                        {
+                            line += std::format(L" decode {}x{}", decoded.DecodePixelWidth(), decoded.DecodePixelHeight());
+                            if (auto uri = decoded.UriSource()) line += std::format(L" uri {}", std::wstring_view(uri.AbsoluteUri()));
+                        }
+                    }
             }
             out += line + L"\n";
             if (depth > 60) return;
@@ -640,7 +940,7 @@ namespace
             if (!m_control) return;
             SetWindowLongPtrW(m_control, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -658,6 +958,13 @@ namespace
                     case TrackSwipeTap::Dump: tap->DumpTrees(); return 1;
                     case TrackSwipeTap::TrayIcons: tap->SetTrayIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
+                    case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0); return 1;
+                    case IconReady:
+                    {
+                        std::unique_ptr<IconPixels> pixels(reinterpret_cast<IconPixels*>(lParam));
+                        tap->IconLoaded(*pixels);
+                        return 1;
+                    }
                     case TrackSwipeTap::Indicators: tap->SetIndicatorsHidden(wParam != 0); return 1;
                     }
                 }
@@ -675,6 +982,10 @@ namespace
         bool m_startHidden = false;
         bool m_edgeHidden = false;
         bool m_indicatorsHidden = false;
+        std::vector<AppIcon> m_appIcons;
+        double m_appIconSize = 0; // app button icons' size, 0 for Explorer's own
+        std::map<std::pair<std::wstring, int>, Media::ImageSource> m_iconCache; // shell icons by button and pixel size
+        std::set<std::pair<std::wstring, int>> m_iconPending;
         double m_padding = 0; // space before the first app button while Start is hidden
         std::vector<Watched<Controls::TextBlock>> m_glyphs; // tray icon glyphs
         std::vector<Watched<FrameworkElement>> m_slots;     // their IconViews

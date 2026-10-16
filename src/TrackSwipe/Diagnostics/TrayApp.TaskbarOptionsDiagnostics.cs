@@ -34,8 +34,9 @@ internal sealed partial class TrayApp
                 .Where(m => m.Success).Select(m => $"{m.Groups[3].Value}pt {m.Groups[1].Value}x{m.Groups[2].Value}").Distinct();
             var clock = lines.FirstOrDefault(line => line.Contains("#TimeInnerTextBlock")) is { } c ? System.Text.RegularExpressions.Regex.Match(c, @"font ([\d.]+)").Groups[1].Value : "?";
             var tray = lines.FirstOrDefault(line => line.Contains("#SystemTrayFrameGrid"))?.Trim() is { } g ? System.Text.RegularExpressions.Regex.Match(g, @"at (\d+),\d+ size (\d+)x").Value : "?";
+            var apps = lines.Where(line => line.Contains("Image #Icon at ") && !line.Contains(" at -")).Select(line => System.Text.RegularExpressions.Regex.Match(line, @"size (\d+)x\d+.*?(\d+x\d+px)")).Where(m => m.Success).Select(m => $"{m.Groups[1].Value}@{m.Groups[2].Value}").Distinct();
             return $"Start button {Of("[StartButton]")}, edge line {Of("#BackgroundStroke")}, buttons start at x {strip}, first icon at x {icon}, " +
-                $"indicators {indicators.Count(line => line.Contains("COLLAPSED"))}/{indicators.Count} collapsed, tray glyphs [{string.Join(", ", glyphs)}], clock {clock}pt, tray {tray}; status 0x{TaskbarTap.Query():X}";
+                $"indicators {indicators.Count(line => line.Contains("COLLAPSED"))}/{indicators.Count} collapsed, tray glyphs [{string.Join(", ", glyphs)}], clock {clock}pt, app icons [{string.Join(", ", apps)}], tray {tray}; status 0x{TaskbarTap.Query():X}";
         }
         void Finish() { timer.Dispose(); ExitOnShell(); }
         timer.Tick += (_, _) =>
