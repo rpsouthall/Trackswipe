@@ -9,7 +9,7 @@ namespace TrackSwipeTap
 
     // The DLL's message-only window inside Explorer, and the messages it accepts.
     // Versioned: TrackSwipe asks an older copy still loaded in Explorer to stand down before loading this one.
-    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.25";
+    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.27";
     /// wParam 1 hides the Start button, 0 gives it back to Explorer. lParam: space to leave before the first app button
     /// while it's hidden, in hundredths of an effective pixel (so a left-aligned taskbar starts as far in as the clock ends).
     inline constexpr UINT StartButton = WM_APP + 1;

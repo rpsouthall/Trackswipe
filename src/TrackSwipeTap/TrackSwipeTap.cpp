@@ -27,12 +27,16 @@
 #include <shellapi.h> // SHGetPropertyStoreForWindow (left out by WIN32_LEAN_AND_MEAN)
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <appmodel.h>
+#include <wincodec.h>
 #include <format>
 #include <limits>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <fstream>
 #include <map>
+#include <regex>
 #include <mutex>
 #include <memory>
 #include <set>
@@ -82,6 +86,16 @@ namespace
     constexpr UINT IconReady = WM_APP + 40;
     /// Posted to the control window when the system's Text size setting changes.
     constexpr UINT TextScaleChanged = WM_APP + 41;
+    /// Posted to the control window when Windows' colours (light or dark mode among them) change.
+    constexpr UINT ColorsChanged = WM_APP + 42;
+
+    /// The taskbar is light (Settings, Personalisation, Colours: "Choose your mode").
+    bool LightTaskbar()
+    {
+        DWORD value = 0, size = sizeof(value);
+        return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"SystemUsesLightTheme",
+            RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS && value != 0;
+    }
     /// The control window's timer that decides, after options change, whether to keep watching Explorer's tree.
     constexpr UINT_PTR WatchTimer = 1;
 
@@ -158,9 +172,121 @@ namespace
         return search.found ? FromProcessOf(search.found) : nullptr;
     }
 
+    /// A Store app's own taskbar artwork for its AppUserModelID ("<family>!<app>") at px pixels, in the variant
+    /// Explorer shows on a light or dark taskbar (altform-lightunplated or altform-unplated); empty if there's none.
+    std::wstring PackageLogo(std::wstring const& appId, int px, bool light)
+    {
+        auto bang = appId.find(L'!');
+        if (bang == std::wstring::npos) return {};
+        auto family = appId.substr(0, bang), app = appId.substr(bang + 1);
+        UINT32 count = 0, length = 0;
+        if (GetPackagesByPackageFamily(family.c_str(), &count, nullptr, &length, nullptr) != ERROR_INSUFFICIENT_BUFFER || !count) return {};
+        std::vector<PWSTR> names(count);
+        std::vector<wchar_t> buffer(length);
+        if (GetPackagesByPackageFamily(family.c_str(), &count, names.data(), &length, buffer.data()) != ERROR_SUCCESS) return {};
+        wchar_t path[1024];
+        UINT32 pathLength = ARRAYSIZE(path);
+        if (GetPackagePathByFullName(names[0], &pathLength, path) != ERROR_SUCCESS) return {};
+        std::wstring folder = path;
+        // The app's Square44x44Logo in its manifest, e.g. Assets\AppList.png.
+        std::ifstream file(folder + L"\\AppxManifest.xml", std::ios::binary);
+        std::string manifest((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::string narrowApp; // app IDs are ASCII
+        for (auto ch : app) narrowApp += static_cast<char>(ch);
+        auto at = manifest.find("Id=\"" + narrowApp + "\"");
+        if (at == std::string::npos) at = 0;
+        at = manifest.find("Square44x44Logo=\"", at);
+        if (at == std::string::npos) return {};
+        at += 17;
+        auto end = manifest.find('"', at);
+        if (end == std::string::npos) return {};
+        std::wstring logo(manifest.begin() + at, manifest.begin() + end);
+        std::replace(logo.begin(), logo.end(), L'/', L'\\');
+        auto slash = logo.find_last_of(L'\\'), dot = logo.find_last_of(L'.');
+        auto dir = folder + L"\\" + (slash == std::wstring::npos ? L"" : logo.substr(0, slash + 1));
+        auto stem = logo.substr(slash == std::wstring::npos ? 0 : slash + 1, dot == std::wstring::npos ? std::wstring::npos : dot - (slash == std::wstring::npos ? 0 : slash + 1));
+        // Pick among <stem>.targetsize-<n>[_altform-...].png: the theme's variant first, then the other unplated one,
+        // then the plain one; among those, the smallest at least px, else the largest. High-contrast ones are skipped.
+        const std::wregex pattern(L"\\.targetsize-(\\d+)(_altform-(lightunplated|unplated))?\\.png", std::regex::icase);
+        std::wstring best;
+        int bestRank = 99, bestSize = 0;
+        WIN32_FIND_DATAW found;
+        auto search = FindFirstFileW((dir + stem + L".targetsize-*.png").c_str(), &found);
+        if (search == INVALID_HANDLE_VALUE) return {};
+        do
+        {
+            std::wstring name = found.cFileName;
+            std::wsmatch match;
+            auto tail = name.substr(stem.size());
+            if (!std::regex_match(tail, match, pattern)) continue;
+            auto size = std::stoi(match[1].str());
+            auto form = match[3].str();
+            for (auto& ch : form) ch = towlower(ch);
+            auto rank = form == (light ? L"lightunplated" : L"unplated") ? 0 : !form.empty() ? 1 : 2;
+            auto better = rank < bestRank
+                || (rank == bestRank && ((size >= px && (bestSize < px || size < bestSize)) || (size < px && bestSize < px && size > bestSize)));
+            if (better) { best = dir + name; bestRank = rank; bestSize = size; }
+        } while (FindNextFileW(search, &found));
+        FindClose(search);
+        return best;
+    }
+
+    /// Decodes an image file to px x px premultiplied BGRA, scaled to fit and centred.
+    std::vector<uint8_t> DecodeImage(std::wstring const& path, int px)
+    {
+        com_ptr<IWICImagingFactory> wic;
+        com_ptr<IWICBitmapDecoder> decoder;
+        com_ptr<IWICBitmapFrameDecode> frame;
+        com_ptr<IWICFormatConverter> converter;
+        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.put())))
+            || FAILED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.put()))
+            || FAILED(decoder->GetFrame(0, frame.put())) || FAILED(wic->CreateFormatConverter(converter.put()))
+            || FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)))
+            return {};
+        UINT width = 0, height = 0;
+        converter->GetSize(&width, &height);
+        if (!width || !height) return {};
+        auto scale = static_cast<double>(px) / std::max(width, height);
+        UINT w = std::max(1u, static_cast<UINT>(std::lround(width * scale))), h = std::max(1u, static_cast<UINT>(std::lround(height * scale)));
+        com_ptr<IWICBitmapSource> source = converter;
+        com_ptr<IWICBitmapScaler> scaler;
+        if (w != width || h != height)
+        {
+            if (FAILED(wic->CreateBitmapScaler(scaler.put())) || FAILED(scaler->Initialize(converter.get(), w, h, WICBitmapInterpolationModeHighQualityCubic))) return {};
+            source = scaler;
+        }
+        std::vector<uint8_t> scaled(static_cast<size_t>(w) * h * 4);
+        if (FAILED(source->CopyPixels(nullptr, w * 4, static_cast<UINT>(scaled.size()), scaled.data()))) return {};
+        std::vector<uint8_t> pixels(static_cast<size_t>(px) * px * 4);
+        auto left = (px - static_cast<int>(w)) / 2, top = (px - static_cast<int>(h)) / 2;
+        for (UINT y = 0; y < h; ++y)
+            memcpy(&pixels[((top + y) * px + left) * 4], &scaled[y * w * 4], w * 4);
+        return pixels;
+    }
+
+    /// The app ID a taskbar button stands for: its own, or its window's.
+    std::wstring AppIdOfKey(std::wstring const& key)
+    {
+        if (key.starts_with(L"Appid: ")) return key.substr(7);
+        if (key.starts_with(L"Window: ")) return AppIdOf(reinterpret_cast<HWND>(static_cast<intptr_t>(wcstoull(key.c_str() + 8, nullptr, 16))));
+        return {};
+    }
+
+    /// size: the pixel size in the low 16 bits; bit 16 set for a light taskbar.
     IconPixels LoadShellIcon(std::wstring const& key, int size)
     {
         IconPixels result{ key, size };
+        auto px = size & 0xffff;
+        auto light = (size & 0x10000) != 0;
+        // A Store app: its own artwork for this theme, as Explorer picks it (the shell's icon is the light-theme one).
+        if (auto logo = PackageLogo(AppIdOfKey(key), px, light); !logo.empty())
+            if (auto pixels = DecodeImage(logo, px); !pixels.empty())
+            {
+                result.width = result.height = px;
+                result.bgra = std::move(pixels);
+                return result;
+            }
+        size = px;
         auto factory = IconSource(key);
         HBITMAP bitmap = nullptr;
         if (!factory || FAILED(factory->GetImage({ size, size }, SIIGBF_ICONONLY, &bitmap)) || !bitmap) return result;
@@ -415,7 +541,7 @@ namespace
             {
                 auto frame = weak.get();
                 if (!frame) continue;
-                out += L"=== taskbar\n";
+                out += std::format(L"=== taskbar (theme {}, requested {})\n", frame.ActualTheme() == ElementTheme::Dark ? L"dark" : L"light", static_cast<int>(frame.RequestedTheme()));
                 DumpElement(TopOf(frame), frame, 0, out);
             }
             wchar_t folder[MAX_PATH];
@@ -1049,7 +1175,7 @@ namespace
                 }
                 image.Width(m_appIconSize);
                 image.Height(m_appIconSize);
-                auto key = std::make_pair(item.key, PixelsOf(image));
+                auto key = std::make_pair(item.key, PixelsOf(image) | (m_lightTaskbar ? 0x10000 : 0));
                 auto cached = m_iconCache.find(key);
                 Media::ImageSource wanted = cached != m_iconCache.end() ? cached->second : nullptr;
                 if (wanted)
@@ -1110,6 +1236,8 @@ namespace
                 {
                     line += std::format(L" font {:g} {}", text.FontSize(), std::wstring_view(text.FontFamily().Source()));
                     if (!text.IsTextScaleFactorEnabled()) line += L" fixed"; // ignores the system's Text size
+                    if (auto brush = text.Foreground().try_as<Media::SolidColorBrush>()) { auto colour = brush.Color(); line += std::format(L" colour #{:02X}{:02X}{:02X}{:02X}", colour.A, colour.R, colour.G, colour.B); }
+                    line += element.ActualTheme() == ElementTheme::Dark ? L" dark" : L" light";
                     try { line += std::format(L" top {:.2f}", element.TransformToVisual(frame).TransformPoint({ 0, 0 }).Y); }
                     catch (...) {}
                     if (auto value = text.Text(); !value.empty() && IsIconFont(text)) line += std::format(L" glyph U+{:04X}", (unsigned)value[0]);
@@ -1153,6 +1281,7 @@ namespace
                 // Text size changes arrive on another thread: hand them to this one.
                 m_uiSettings = Windows::UI::ViewManagement::UISettings();
                 m_uiSettings.TextScaleFactorChanged([control = m_control](auto&&, auto&&) { PostMessageW(control, TextScaleChanged, 0, 0); });
+                m_uiSettings.ColorValuesChanged([control = m_control](auto&&, auto&&) { PostMessageW(control, ColorsChanged, 0, 0); });
             }
             catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
@@ -1181,6 +1310,15 @@ namespace
                         tap->Watch(tap->AnyOption());
                         return 0;
                     case TrackSwipeTap::Retire: tap->m_retired = true; tap->Watch(false); return 1;
+                    case ColorsChanged:
+                        // Light and dark taskbars show different artwork for some apps.
+                        if (auto light = LightTaskbar(); light != tap->m_lightTaskbar)
+                        {
+                            tap->m_lightTaskbar = light;
+                            tap->m_iconCache.clear();
+                            for (auto& item : tap->m_appIcons) tap->ApplyAppIcon(item);
+                        }
+                        return 1;
                     case TextScaleChanged: for (auto& item : tap->m_texts) tap->ApplyText(item); return 1;
                     case IconReady:
                     {
@@ -1210,6 +1348,7 @@ namespace
         double m_appSpacing = 0;  // added between app buttons
         Windows::UI::ViewManagement::UISettings m_uiSettings{ nullptr };
         bool m_settingSource = false; // an app icon's bitmap is being set by TrackSwipe
+        bool m_lightTaskbar = LightTaskbar(); // which artwork Store apps' icons use
         bool m_watching = false;      // XAML is telling this DLL about new elements
         bool m_retired = false;       // a newer TrackSwipe's DLL has taken over
         unsigned m_added = 0;         // elements tracked, for pruning now and then
