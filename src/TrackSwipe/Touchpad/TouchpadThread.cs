@@ -18,6 +18,7 @@ internal sealed class TouchpadThread : IDisposable
     private int _notified;
     private volatile bool _forwardAll;
     private bool _engaged; // touchpad thread only
+    private double _touchStarted; // touchpad thread only: when the current touch's first finger landed, 0 between touches
 
     private volatile int _gestureFingers = 3;
 
@@ -105,7 +106,11 @@ internal sealed class TouchpadThread : IDisposable
     /// </summary>
     private void EnqueueIfRelevant(TouchFrame frame)
     {
-        if (TouchFilter.Deliver(ActiveCount(frame), _gestureFingers, _forwardAll, ref _engaged)) Enqueue(frame);
+        var active = ActiveCount(frame);
+        // When this touch began, which the engine can't see for itself when its first fingers weren't delivered.
+        if (active == 0) _touchStarted = 0;
+        else if (_touchStarted == 0) _touchStarted = frame.Time;
+        if (TouchFilter.Deliver(active, _gestureFingers, _forwardAll, ref _engaged)) Enqueue(frame with { TouchStarted = _touchStarted });
     }
 
     private static int ActiveCount(TouchFrame frame)

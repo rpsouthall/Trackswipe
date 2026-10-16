@@ -40,6 +40,9 @@ internal static class GesturePreferences
     public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl",
         LargeTrayIcons = "LargeTrayIcons", HideRunningIndicators = "HideRunningIndicators";
 
+    /// <summary>A three-finger tap opens (or closes) Start. Off unless turned on.</summary>
+    public const string ThreeFingerTapForStart = "ThreeFingerTapForStart";
+
     public static bool LoadOption(string name)
     {
         try

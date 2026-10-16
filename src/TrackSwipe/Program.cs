@@ -107,8 +107,8 @@ internal static class Program
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int MessageBoxW(IntPtr owner, string text, string caption, uint type);
-    /// <summary>Supports --fingers 3|4|5, --distance &lt;mm&gt;, --smooth, --preview, --diagnose and --diagnose-mission [--switch ±1].</summary>
-    /// <remarks>MissionDiagnostics is null when not requested, 0 for a round trip, or ±1 to really switch that way.</remarks>
+    /// <summary>Supports --fingers 3|4|5, --distance &lt;mm&gt;, --smooth, --preview, --diagnose and --diagnose-mission [--switch Â±1].</summary>
+    /// <remarks>MissionDiagnostics is null when not requested, 0 for a round trip, or Â±1 to really switch that way.</remarks>
     private static (GestureOptions Options, bool Preview, bool Diagnose, int? MissionDiagnostics) ParseArguments(string[] args)
     {
         var options = new GestureOptions { Fingers = GesturePreferences.LoadFingers() };
@@ -157,6 +157,9 @@ internal static class Program
                     break;
                 case "--diagnose-taskbar-options":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_OPTIONS", "1");
+                    break;
+                case "--diagnose-tap":
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP", "1");
                     break;
                 case "--diagnose-taskbar-jump" when long.TryParse(next, out var jumper):
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_JUMP", jumper.ToString());

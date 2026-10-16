@@ -4,9 +4,9 @@ using Microsoft.Win32;
 namespace TrackSwipe.Setup;
 
 /// <summary>
-/// Windows' own three- and four-finger swipes (Settings, Touchpad, "Swipes"), which would fire alongside
-/// TrackSwipe's. TrackSwipe sets the finger count it uses to "Nothing", remembering the previous choice so
-/// switching counts or uninstalling puts it back.
+/// Windows' own three- and four-finger swipes (Settings, Touchpad, "Swipes"), and its three-finger tap, which would fire
+/// alongside TrackSwipe's. TrackSwipe sets the ones it uses to "Nothing", remembering the previous choice so switching or
+/// uninstalling puts it back.
 /// </summary>
 internal static class NativeGestures
 {
@@ -51,7 +51,53 @@ internal static class NativeGestures
         Reload();
     }
 
-    /// <summary>Puts back whatever Windows' swipes were set to before TrackSwipe changed them.</summary>
+    private const string TapValue = "ThreeFingerTapEnabled";
+
+    /// <summary>Whether Windows still does something with a three-finger tap (Search, by default).</summary>
+    public static bool TapActive
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(TouchpadKey);
+            return key?.GetValue(TapValue) is not int value || value != 0;
+        }
+    }
+
+    /// <summary>Sets Windows' three-finger tap to "Nothing" while TrackSwipe's opens Start, remembering the previous choice.</summary>
+    public static void ClaimTap()
+    {
+        try
+        {
+            using var touchpad = Registry.CurrentUser.CreateSubKey(TouchpadKey);
+            using var saved = Registry.CurrentUser.CreateSubKey(SavedKey);
+            if (saved.GetValue(TapValue) is null) saved.SetValue(TapValue, touchpad.GetValue(TapValue) is int current ? current : -1);
+            touchpad.SetValue(TapValue, 0, RegistryValueKind.DWord);
+            Log.Write("Windows' own three-finger tap set to Nothing.");
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+        {
+            Log.Write($"Couldn't change Windows' three-finger tap: {ex.Message}");
+        }
+        Reload();
+    }
+
+    /// <summary>Gives Windows' three-finger tap back as it was.</summary>
+    public static void RestoreTap()
+    {
+        try
+        {
+            using var touchpad = Registry.CurrentUser.CreateSubKey(TouchpadKey);
+            using var saved = Registry.CurrentUser.CreateSubKey(SavedKey);
+            Restore(touchpad, saved, TapValue);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+        {
+            Log.Write($"Couldn't restore Windows' three-finger tap: {ex.Message}");
+        }
+        Reload();
+    }
+
+    /// <summary>Puts back whatever Windows' swipes (and three-finger tap) were set to before TrackSwipe changed them.</summary>
     public static void RestoreAll()
     {
         try
@@ -60,6 +106,7 @@ internal static class NativeGestures
             using var saved = Registry.CurrentUser.CreateSubKey(SavedKey);
             Restore(touchpad, saved, ValueFor(3));
             Restore(touchpad, saved, ValueFor(4));
+            Restore(touchpad, saved, TapValue);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException)
         {

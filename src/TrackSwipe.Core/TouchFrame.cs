@@ -13,6 +13,12 @@ public readonly record struct Contact(int Id, double X, double Y, bool Tip, bool
 /// <summary>Every contact reported for one touchpad scan. <see cref="Time"/> is in seconds.</summary>
 public readonly record struct TouchFrame(double Time, ContactSnapshot Contacts, double PadWidthMm, double PadHeightMm)
 {
+    /// <summary>
+    /// When the first finger of this touch landed, in seconds; 0 if unknown. Set by the touchpad reader, which drops
+    /// reports with fewer fingers than a gesture needs, so the first of a touch's delivered frames can come later.
+    /// </summary>
+    public double TouchStarted { get; init; }
+
     public TouchFrame(double time, IReadOnlyList<Contact> contacts, double padWidthMm, double padHeightMm)
         : this(time, new ContactSnapshot(contacts), padWidthMm, padHeightMm) { }
 

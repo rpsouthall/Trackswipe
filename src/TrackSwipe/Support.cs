@@ -215,6 +215,17 @@ internal static class KeySender
         return taskbar != IntPtr.Zero && NativeMethods.PostMessageW(taskbar, 0x0111 /* WM_COMMAND */, 407 /* toggle desktop */, IntPtr.Zero);
     }
 
+    /// <summary>
+    /// Opens Start, or closes it if it's open, with the taskbar's own command (what the Start button does), falling
+    /// back to the Windows key if there's no taskbar to ask.
+    /// </summary>
+    public static void ToggleStart()
+    {
+        var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
+        if (taskbar == IntPtr.Zero || !NativeMethods.PostMessageW(taskbar, 0x0112 /* WM_SYSCOMMAND */, 0xF130 /* SC_TASKLIST */, IntPtr.Zero))
+            Chord(VK_LWIN);
+    }
+
     /// <summary>Presses the keys in order and releases them in reverse, as one atomic SendInput batch.</summary>
     private static void Chord(params ushort[] keys)
     {

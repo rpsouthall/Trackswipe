@@ -59,10 +59,12 @@ Windows keeps touchpad input away from normal apps while an app running as admin
 | Swipe down in Mission Control | Close it (onto the window under the pointer, if any) |
 | Swipe sideways in Mission Control | Pan to the neighbouring desktop's windows |
 | Three or four fingers down | Show the desktop |
+| Three fingers, tap (if turned on) | Open Start, or close it |
 
 Right-click the tray icon for:
 - **Gestures enabled:** pause and resume.
 - **Gesture fingers:** three or four. Windows' own swipes follow along.
+- **Three-finger tap opens Start** (off unless you turn it on): tap with three fingers to open Start, and again to close it. Windows' own three-finger tap is set to Nothing meanwhile, and put back when you turn this off.
 - **Spring:** Snappy or Smooth.
 - **Preview animation** and an **Input monitor** that shows your touches live.
 - **Start at sign-in** and **Run as administrator**.
