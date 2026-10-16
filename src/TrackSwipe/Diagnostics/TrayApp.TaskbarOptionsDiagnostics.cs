@@ -22,7 +22,13 @@ internal sealed partial class TrayApp
             var lines = File.ReadAllLines(tree);
             string Of(string marker) => lines.FirstOrDefault(line => line.Contains(marker)) is { } line
                 ? line.Contains("COLLAPSED") ? "collapsed" : "shown" : "not found";
-            return $"Start button {Of("[StartButton]")}, edge line {Of("#BackgroundStroke")}; status 0x{TaskbarTap.Query():X}";
+            // Where the app buttons begin: the button strip's left edge, and the first on-screen app icon.
+            var strip = lines.FirstOrDefault(line => line.Contains("#TaskbarFrameRepeater"))?.Trim() is { } s ? System.Text.RegularExpressions.Regex.Match(s, @"at (-?\d+),").Groups[1].Value : "?";
+            var icon = lines.Where(line => line.Contains("Controls.Image #Icon at "))
+                .Select(line => System.Text.RegularExpressions.Regex.Match(line, @"at (-?\d+),(-?\d+)"))
+                .Where(m => m.Success && int.Parse(m.Groups[1].Value) >= 0 && int.Parse(m.Groups[2].Value) >= 0)
+                .Select(m => int.Parse(m.Groups[1].Value)).DefaultIfEmpty(-1).Min();
+            return $"Start button {Of("[StartButton]")}, edge line {Of("#BackgroundStroke")}, buttons start at x {strip}, first icon at x {icon}; status 0x{TaskbarTap.Query():X}";
         }
         void Finish() { timer.Dispose(); ExitOnShell(); }
         timer.Tick += (_, _) =>

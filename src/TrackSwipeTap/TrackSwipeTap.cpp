@@ -110,10 +110,12 @@ namespace
 
         HRESULT STDMETHODCALLTYPE OnElementStateChanged(InstanceHandle, VisualElementState, LPCWSTR) noexcept override { return S_OK; }
 
-        void SetStartHidden(bool hidden)
+        void SetStartHidden(bool hidden, double padding)
         {
             m_startHidden = hidden;
+            m_padding = hidden ? padding : 0;
             for (auto& item : m_buttons) Apply(item, m_startHidden);
+            for (auto& frame : m_frames) Pad(frame);
         }
 
         void SetEdgeHidden(bool hidden)
@@ -217,11 +219,28 @@ namespace
             // Its parts may not exist yet: look once it has loaded too.
             frame.Loaded([this, weak = make_weak(frame)](auto&&, auto&&)
             {
-                try { FindEdge(weak); for (auto& item : m_edges) Apply(item, m_edgeHidden); }
+                try { FindEdge(weak); for (auto& item : m_edges) Apply(item, m_edgeHidden); Pad(weak); }
                 catch (...) {}
             });
             FindEdge(m_frames.back());
             for (auto& item : m_edges) Apply(item, m_edgeHidden);
+            Pad(m_frames.back());
+        }
+
+        /// With the Start button hidden, leaves space before the first app button (a left margin on the button strip);
+        /// otherwise gives the strip back its own layout.
+        void Pad(weak_ref<FrameworkElement> const& weak)
+        {
+            auto frame = weak.get();
+            if (!frame) return;
+            auto repeater = FindByName(frame, L"TaskbarFrameRepeater");
+            if (!repeater) return;
+            if (m_padding > 0)
+            {
+                auto margin = repeater.Margin();
+                if (margin.Left != m_padding) { margin.Left = m_padding; repeater.Margin(margin); }
+            }
+            else repeater.ClearValue(FrameworkElement::MarginProperty());
         }
 
         void FindEdge(weak_ref<FrameworkElement> const& weak)
@@ -284,7 +303,7 @@ namespace
                 {
                     switch (message)
                     {
-                    case TrackSwipeTap::StartButton: tap->SetStartHidden(wParam != 0); return 1;
+                    case TrackSwipeTap::StartButton: tap->SetStartHidden(wParam != 0, lParam / 100.0); return 1;
                     case TrackSwipeTap::EdgeLine: tap->SetEdgeHidden(wParam != 0); return 1;
                     case TrackSwipeTap::Query: return tap->Query();
                     case TrackSwipeTap::Dump: tap->DumpTrees(); return 1;
@@ -302,6 +321,7 @@ namespace
         std::vector<weak_ref<FrameworkElement>> m_frames;
         bool m_startHidden = false;
         bool m_edgeHidden = false;
+        double m_padding = 0; // space before the first app button while Start is hidden
         HWND m_control = nullptr;
     };
 

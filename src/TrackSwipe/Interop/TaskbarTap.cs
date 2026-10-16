@@ -11,7 +11,16 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const string WindowClass = "TrackSwipe.Tap";
+    private const string WindowClass = "TrackSwipe.Tap.3";
+    /// <summary>Earlier versions' windows: still in Explorer until it restarts, so they're asked to stand down first.</summary>
+    private static readonly string[] OlderWindowClasses = { "TrackSwipe.Tap", "TrackSwipe.Tap.2" };
+
+    /// <summary>
+    /// Space before the first app button while Start is hidden, in hundredths of an effective pixel, on a left-aligned
+    /// taskbar: the first icon then sits as far from the left edge as the clock's text does from the right (16: the
+    /// 12 px show-desktop strip and the clock's 4 px inset). A centred taskbar is balanced already.
+    /// </summary>
+    private const int LeftAlignedPadding = 850;
     private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4;
     private static readonly Guid Clsid = new("5c36979c-4b69-4ae1-9b76-9d4b249e5659");
     private const string Resource = "TrackSwipeTap.dll";
@@ -32,13 +41,39 @@ internal static unsafe class TaskbarTap
     {
         var window = Window;
         if (window == IntPtr.Zero) return false;
-        SendMessageTimeoutW(window, StartButtonMessage, hideStart ? 1 : 0, IntPtr.Zero, 0x0002 /* ABORTIFHUNG */, 2000, out _);
+        SendMessageTimeoutW(window, StartButtonMessage, hideStart ? 1 : 0, (IntPtr)(hideStart && LeftAligned ? LeftAlignedPadding : 0), 0x0002 /* ABORTIFHUNG */, 2000, out _);
         SendMessageTimeoutW(window, EdgeLineMessage, hideEdge ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
         return true;
     }
 
-    /// <summary>Puts the taskbar back as Explorer draws it, if the DLL is there to ask.</summary>
-    public static void Restore() => Send(false, false);
+    /// <summary>Puts the taskbar back as Explorer draws it, if the DLL (this version or an earlier one) is there to ask.</summary>
+    public static void Restore()
+    {
+        Send(false, false);
+        StandDownOlder();
+    }
+
+    /// <summary>Tells an earlier version's copy in Explorer to give back what it hid, so two copies never compete.</summary>
+    private static void StandDownOlder()
+    {
+        foreach (var name in OlderWindowClasses)
+        {
+            var window = FindWindowExW((IntPtr)(-3), IntPtr.Zero, name, null);
+            if (window == IntPtr.Zero) continue;
+            SendMessageTimeoutW(window, StartButtonMessage, 0, IntPtr.Zero, 0x0002, 2000, out _);
+            SendMessageTimeoutW(window, EdgeLineMessage, 0, IntPtr.Zero, 0x0002, 2000, out _);
+        }
+    }
+
+    /// <summary>Taskbar icons aligned left (Settings, Taskbar behaviours) rather than centred, Windows' default.</summary>
+    private static bool LeftAligned
+    {
+        get
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced");
+            return key?.GetValue("TaskbarAl") is int alignment && alignment == 0;
+        }
+    }
 
     /// <summary>Status from Explorer's copy (see Protocol.h), or -1 if it isn't loaded.</summary>
     public static long Query()
@@ -60,6 +95,7 @@ internal static unsafe class TaskbarTap
     public static bool Load()
     {
         if (Loaded) return true;
+        StandDownOlder();
         var taskbar = FindWindowExW(IntPtr.Zero, IntPtr.Zero, "Shell_TrayWnd", null);
         if (taskbar == IntPtr.Zero) return false;
         GetWindowThreadProcessId(taskbar, out var pid);
