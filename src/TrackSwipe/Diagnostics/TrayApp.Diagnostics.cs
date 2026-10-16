@@ -10,6 +10,7 @@ internal sealed partial class TrayApp
     /// <summary>Starts the self-test chosen on the command line (Debug or -p:Diagnostics=true builds only).</summary>
     private void StartDiagnostics(bool preview, bool diagnose, int? missionDiagnostics)
     {
+        if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_OPTIONS") == "1") { RunTaskbarOptionsDiagnostics(); return; }
         _compositionThread.Post(() =>
         {
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_INPUT") == "1")

@@ -53,6 +53,19 @@
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
   </ItemGroup>
 
+  <!-- TrackSwipeTap.dll (the optional taskbar tweaks, loaded into Explorer) for this build's architecture, built by
+       src/TrackSwipeTap/build.cmd, which build.ps1 runs first. Explorer is native, so the DLL must match Windows. -->
+  <PropertyGroup>
+    <TapArch Condition="'$(RuntimeIdentifier)' == 'win-x64'">x64</TapArch>
+    <TapArch Condition="'$(RuntimeIdentifier)' == 'win-arm64'">arm64</TapArch>
+    <TapArch Condition="'$(TapArch)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">arm64</TapArch>
+    <TapArch Condition="'$(TapArch)' == ''">x64</TapArch>
+    <TapDll>$(MSBuildThisFileDirectory)..\..\artifacts\tap\$(TapArch)\TrackSwipeTap.dll</TapDll>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(TapDll)')">
+    <EmbeddedResource Include="$(TapDll)" LogicalName="TrackSwipeTap.dll" />
+  </ItemGroup>
+
   <ItemGroup>
     <Using Include="System.Drawing" />
     <Using Include="TrackSwipe.Win32" />

@@ -87,6 +87,13 @@ internal sealed partial class OverlayController : IDisposable
 
     public string SwitcherStatus { get; private set; }
 
+    /// <summary>A taskbar docked at the top slides away as Mission Control opens, and the overview uses its space.</summary>
+    public bool HideTopTaskbarInMissionControl
+    {
+        get => _mission.HideTopTaskbar;
+        set => _mission.HideTopTaskbar = value;
+    }
+
     /// <summary>
     /// Connects to Explorer's desktop switching if that failed earlier for a reason that can pass (Explorer still
     /// starting). Without it, desktop swipes fall back to the shortcut (Windows animates again after our slide) and

@@ -54,6 +54,8 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
     public event Action? DoubleClick;
     public event Action? BalloonClicked;
     public event Action? QuitRequested;
+    /// <summary>Explorer restarted (the taskbar was recreated); the icon is already back.</summary>
+    public event Action? TaskbarRecreated;
 
     public void ShowBalloon(string title, string text)
     {
@@ -102,6 +104,7 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         {
             _added = false;
             Add();
+            TaskbarRecreated?.Invoke();
             return;
         }
         base.WndProc(ref m);

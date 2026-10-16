@@ -1,0 +1,119 @@
+using System.Runtime.InteropServices;
+
+namespace TrackSwipe.Interop;
+
+/// <summary>
+/// The optional taskbar tweaks (hide the Start button, hide the taskbar's edge line), done by TrackSwipeTap.dll
+/// inside Explorer: the Start button is a XAML control, not a window, so nothing outside Explorer can hide it. The DLL
+/// is embedded in this executable and only written out and loaded, through XAML Diagnostics (the interface Visual
+/// Studio's Live Visual Tree uses), once an option is turned on. It stays in Explorer until Explorer restarts, so it's
+/// asked to put the taskbar back when the options go off or TrackSwipe quits. Values mirror src/TrackSwipeTap/Protocol.h.
+/// </summary>
+internal static unsafe class TaskbarTap
+{
+    private const string WindowClass = "TrackSwipe.Tap";
+    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4;
+    private static readonly Guid Clsid = new("5c36979c-4b69-4ae1-9b76-9d4b249e5659");
+    private const string Resource = "TrackSwipeTap.dll";
+
+    /// <summary>Whether this build carries the DLL (release builds do; a build without the C++ tools may not).</summary>
+    public static bool Available => typeof(TaskbarTap).Assembly.GetManifestResourceInfo(Resource) is not null;
+
+    /// <summary>Explorer's copy of the DLL is loaded and listening.</summary>
+    public static bool Loaded => Window != IntPtr.Zero;
+
+    private static IntPtr Window => FindWindowExW((IntPtr)(-3) /* HWND_MESSAGE */, IntPtr.Zero, WindowClass, null);
+
+    /// <summary>
+    /// Sends the options to Explorer's copy. False if it isn't loaded: call <see cref="Load"/>, then try again once
+    /// it has started (it appears a moment later, on the taskbar's thread).
+    /// </summary>
+    public static bool Send(bool hideStart, bool hideEdge)
+    {
+        var window = Window;
+        if (window == IntPtr.Zero) return false;
+        SendMessageTimeoutW(window, StartButtonMessage, hideStart ? 1 : 0, IntPtr.Zero, 0x0002 /* ABORTIFHUNG */, 2000, out _);
+        SendMessageTimeoutW(window, EdgeLineMessage, hideEdge ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
+        return true;
+    }
+
+    /// <summary>Puts the taskbar back as Explorer draws it, if the DLL is there to ask.</summary>
+    public static void Restore() => Send(false, false);
+
+    /// <summary>Status from Explorer's copy (see Protocol.h), or -1 if it isn't loaded.</summary>
+    public static long Query()
+    {
+        var window = Window;
+        if (window == IntPtr.Zero) return -1;
+        SendMessageTimeoutW(window, QueryMessage, 0, IntPtr.Zero, 0x0002, 2000, out var result);
+        return (long)result;
+    }
+
+    /// <summary>Development aid: Explorer's copy writes the taskbar's XAML tree to %LOCALAPPDATA%\TrackSwipe\taskbar-tree.txt.</summary>
+    public static void Dump()
+    {
+        var window = Window;
+        if (window != IntPtr.Zero) SendMessageTimeoutW(window, DumpMessage, 0, IntPtr.Zero, 0x0002, 5000, out _);
+    }
+
+    /// <summary>Writes the DLL out (once per version) and loads it into the Explorer process that owns the taskbar.</summary>
+    public static bool Load()
+    {
+        if (Loaded) return true;
+        var taskbar = FindWindowExW(IntPtr.Zero, IntPtr.Zero, "Shell_TrayWnd", null);
+        if (taskbar == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(taskbar, out var pid);
+        if (Extract() is not { } dll) return false;
+        var xaml = LoadLibraryExW("Windows.UI.Xaml.dll", IntPtr.Zero, 0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+        var initialize = xaml == IntPtr.Zero ? IntPtr.Zero : GetProcAddress(xaml, "InitializeXamlDiagnosticsEx");
+        if (initialize == IntPtr.Zero) { Log.Write("Taskbar options unavailable: XAML Diagnostics isn't on this Windows."); return false; }
+        var hr = 0;
+        fixed (char* path = dll)
+        fixed (char* empty = "")
+        {
+            // XAML only accepts endpoints named VisualDiagConnection<n>, one connection per number: "not found" means
+            // that number is taken (or not offered), so try the next.
+            for (var i = 1; i <= 10000; i++)
+            {
+                fixed (char* endpoint = $"VisualDiagConnection{i}")
+                    hr = ((delegate* unmanaged[Stdcall]<char*, uint, char*, char*, Guid, char*, int>)initialize)(endpoint, pid, empty, path, Clsid, null);
+                if (hr != unchecked((int)0x80070490) /* HRESULT_FROM_WIN32(ERROR_NOT_FOUND) */) break;
+            }
+        }
+        Log.Write($"Taskbar options: loaded into Explorer (process {pid}): 0x{hr:X8}.");
+        return hr >= 0;
+    }
+
+    /// <summary>The DLL on disk, written from this executable if it isn't there yet. Named by content, so an update
+    /// never needs to replace a copy Explorer has open.</summary>
+    private static string? Extract()
+    {
+        try
+        {
+            using var stream = typeof(TaskbarTap).Assembly.GetManifestResourceStream(Resource);
+            if (stream is null) { Log.Write("Taskbar options unavailable: this build doesn't include TrackSwipeTap.dll."); return null; }
+            var bytes = new byte[stream.Length];
+            stream.ReadExactly(bytes);
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes))[..12].ToLowerInvariant();
+            var folder = Setup.Installer.RunningInstalled ? Setup.Installer.InstallDirectory : Path.GetDirectoryName(Log.FilePath)!;
+            Directory.CreateDirectory(folder);
+            var path = Path.Combine(folder, $"TrackSwipeTap-{hash}.dll");
+            if (!File.Exists(path) || new FileInfo(path).Length != bytes.Length) File.WriteAllBytes(path, bytes);
+            // Earlier versions' copies: gone once Explorer has let go of them (it keeps the loaded one open).
+            foreach (var old in Directory.EnumerateFiles(folder, "TrackSwipeTap-*.dll"))
+                if (!string.Equals(old, path, StringComparison.OrdinalIgnoreCase)) try { File.Delete(old); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Write($"Taskbar options: couldn't write TrackSwipeTap.dll: {ex.Message}");
+            return null;
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string? className, string? title);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessageTimeoutW(IntPtr window, int message, nint wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr LoadLibraryExW(string name, IntPtr file, uint flags);
+    [DllImport("kernel32.dll", CharSet = CharSet.Ansi)] private static extern IntPtr GetProcAddress(IntPtr module, string name);
+}

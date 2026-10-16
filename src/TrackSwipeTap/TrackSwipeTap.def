@@ -1,0 +1,4 @@
+LIBRARY TrackSwipeTap
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

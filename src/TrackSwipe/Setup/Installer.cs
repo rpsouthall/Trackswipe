@@ -98,8 +98,17 @@ internal static class Installer
         });
         if (result.Button != InstallButton) return;
         CloseRunning();
+        Interop.TaskbarTap.Restore(); // the Start button and edge line back, if the taskbar options were ever on
         NativeGestures.RestoreAll();
         Startup.Disable();
+        // Explorer keeps the taskbar options' DLL open until it restarts, so its folder can't be removed yet: finish
+        // the job at the next sign-in, when no Explorer has it loaded.
+        var logsFolder = Path.GetDirectoryName(Log.FilePath)!;
+        if (new[] { InstallDirectory, logsFolder }.Any(folder => Directory.Exists(folder) && Directory.EnumerateFiles(folder, "TrackSwipeTap-*.dll").Any()))
+        {
+            using var runOnce = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\RunOnce");
+            runOnce.SetValue("TrackSwipeCleanup", $"\"{Path.Combine(Environment.SystemDirectory, "cmd.exe")}\" /c rmdir /s /q \"{InstallDirectory}\" & rmdir /s /q \"{logsFolder}\"");
+        }
         try { File.Delete(Shortcut); } catch (IOException) { }
         Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);
         Registry.CurrentUser.DeleteSubKeyTree(@"Software\TrackSwipe", throwOnMissingSubKey: false);

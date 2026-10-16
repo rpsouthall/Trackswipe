@@ -66,6 +66,7 @@ Right-click the tray icon for:
 - **Spring:** Snappy or Smooth.
 - **Preview animation** and an **Input monitor** that shows your touches live.
 - **Start at sign-in** and **Run as administrator**.
+- **Taskbar** (all off unless you turn them on): **Hide Start button** (the Windows key still opens Start), **Hide the taskbar's edge line** (the hairline where it meets the desktop), and **Hide a top taskbar in Mission Control** (a taskbar moved to the top of the screen slides away as Mission Control opens, and the overview uses its space, as the menu bar does on a Mac). The first two work inside Explorer: TrackSwipe loads a small helper into it only once one of them is on, and puts the taskbar back when they're turned off or TrackSwipe quits.
 
 ## Uninstall
 
@@ -89,11 +90,12 @@ You need the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and,
 .\build.ps1
 ```
 
-This runs the tests and writes `dist\TrackSwipe-arm64.exe` and `dist\TrackSwipe-x64.exe`. For a quick debug run, use `dotnet run --project src/TrackSwipe` (Debug builds skip setup and include the `--diagnose*` self-tests used for development).
+This runs the tests, builds the small C++ helper the taskbar options load into Explorer (`src/TrackSwipeTap`, embedded in each executable), and writes `dist\TrackSwipe-arm64.exe` and `dist\TrackSwipe-x64.exe`. For a quick debug run, use `dotnet run --project src/TrackSwipe` (Debug builds skip setup and include the `--diagnose*` self-tests used for development).
 
 ```
 src/TrackSwipe        the app: touchpad input, overlay, Mission Control, tray, setup
 src/TrackSwipe.Core   the gesture engine and layout maths (no Windows APIs)
+src/TrackSwipeTap     C++ helper loaded into Explorer for the taskbar options (adapted from HideStart)
 tests/                unit tests
 assets/               icon and screenshots
 ```

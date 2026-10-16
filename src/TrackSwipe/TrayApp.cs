@@ -26,6 +26,9 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayIcon _tray;
     private readonly IntPtr _iconHandle;
     private readonly TrayMenuItem _enabledItem, _snappyItem, _smoothItem, _startupItem, _adminItem;
+    private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideTopTaskbarItem;
+    private UiTimer? _taskbarTimer;
+    private int _taskbarAttempts;
     private readonly TrayMenuItem _gestureTitle, _threeFingerItem, _fourFingerItem;
     private volatile string _device = "No precision touchpad input seen yet";
     private InputMonitorForm? _monitor;
@@ -113,6 +116,14 @@ internal sealed partial class TrayApp : IDisposable
         _startupItem = new TrayMenuItem("Start at sign-in", ToggleStartup) { Checked = Setup.Startup.Enabled };
         _adminItem = new TrayMenuItem("Run as administrator", () => RequestRestart(_elevated ? RestartMode.Normal : RestartMode.Elevated))
             { Checked = _elevated };
+        // Personal taskbar preferences, all off unless turned on.
+        var tapAvailable = Interop.TaskbarTap.Available;
+        _hideStartItem = new TrayMenuItem("Hide Start button", () => ToggleOption(GesturePreferences.HideStartButton, _hideStartItem!))
+            { Checked = GesturePreferences.LoadOption(GesturePreferences.HideStartButton), Enabled = tapAvailable };
+        _hideEdgeItem = new TrayMenuItem("Hide the taskbar's edge line", () => ToggleOption(GesturePreferences.HideTaskbarEdge, _hideEdgeItem!))
+            { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTaskbarEdge), Enabled = tapAvailable };
+        _hideTopTaskbarItem = new TrayMenuItem("Hide a top taskbar in Mission Control", () => ToggleOption(GesturePreferences.HideTopTaskbarInMissionControl, _hideTopTaskbarItem!))
+            { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTopTaskbarInMissionControl) };
 
         var menu = new[]
         {
@@ -124,6 +135,7 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Preview animation", RunPreview),
             new TrayMenuItem("Input monitor...", ShowMonitor),
             new TrayMenuItem("Touchpad settings...", OpenTouchpadSettings),
+            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideTopTaskbarItem),
             TrayMenuItem.Separator,
             _startupItem,
             _adminItem,
@@ -137,6 +149,10 @@ internal sealed partial class TrayApp : IDisposable
         _tray.DoubleClick += ShowMonitor;
         _tray.BalloonClicked += () => _balloonAction?.Invoke();
         _tray.QuitRequested += MessageLoop.Quit;
+        _tray.TaskbarRecreated += () => ScheduleTaskbarOptions(1500); // a new Explorer: the DLL went with the old one
+        var hideTopTaskbar = _hideTopTaskbarItem.Checked;
+        _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = hideTopTaskbar);
+        ScheduleTaskbarOptions(0);
 
         Log.Write($"Started {AppVersion}{(_elevated ? " as administrator" : "")} on Windows {WindowsBuild.Describe()}: {options.Fingers} fingers, full swipe {options.FullSwipeMm} mm, spring {options.Spring}. Instant desktop switching {_overlay.SwitcherStatus}.");
         if (Setup.NativeGestures.Active(options.Fingers)) Setup.NativeGestures.Claim(options.Fingers);
@@ -190,8 +206,44 @@ internal sealed partial class TrayApp : IDisposable
         _shellPump.Dispose();
         _monitor?.Dispose();
         _adminAppWatch?.Dispose();
+        _taskbarTimer?.Dispose();
+        if (_hideStartItem.Checked || _hideEdgeItem.Checked) Interop.TaskbarTap.Restore(); // the taskbar as Windows draws it
         _tray.Dispose();
         NativeMethods.DestroyIcon(_iconHandle);
+    }
+
+    private void ToggleOption(string name, TrayMenuItem item)
+    {
+        item.Checked = !item.Checked;
+        GesturePreferences.SaveOption(name, item.Checked);
+        Log.Write($"{item.Text} {(item.Checked ? "on" : "off")}.");
+        if (name == GesturePreferences.HideTopTaskbarInMissionControl)
+            _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = item.Checked);
+        else ScheduleTaskbarOptions(0);
+    }
+
+    /// <summary>
+    /// Brings the taskbar in line with the options: tells Explorer's copy of the DLL, loading it first if an option
+    /// needs it. It starts listening a moment after loading, so this retries briefly. Nothing is loaded while all are off.
+    /// </summary>
+    private void ScheduleTaskbarOptions(int delayMs)
+    {
+        _taskbarAttempts = 0;
+        _taskbarTimer ??= new UiTimer();
+        _taskbarTimer.Stop();
+        _taskbarTimer.Interval = Math.Max(1, delayMs);
+        _taskbarTimer.Tick -= ApplyTaskbarOptions;
+        _taskbarTimer.Tick += ApplyTaskbarOptions;
+        _taskbarTimer.Start();
+    }
+
+    private void ApplyTaskbarOptions(object? sender, EventArgs e)
+    {
+        bool start = _hideStartItem.Checked, edge = _hideEdgeItem.Checked;
+        _taskbarTimer!.Interval = 250;
+        if (Interop.TaskbarTap.Send(start, edge) || (!start && !edge)) { _taskbarTimer.Stop(); return; }
+        if (_taskbarAttempts++ == 0 && !Interop.TaskbarTap.Load()) { _taskbarTimer.Stop(); return; }
+        if (_taskbarAttempts > 40) { Log.Write("Taskbar options: Explorer didn't pick them up."); _taskbarTimer.Stop(); }
     }
 
     private void CleanupComposition()

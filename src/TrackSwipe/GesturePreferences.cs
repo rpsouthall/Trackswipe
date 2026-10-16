@@ -35,4 +35,33 @@ internal static class GesturePreferences
             Log.Write($"Could not save gesture preference: {ex.Message}");
         }
     }
+
+    // Taskbar options in the tray menu: personal preferences, so all off unless turned on.
+    public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl";
+
+    public static bool LoadOption(string name)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(KeyPath);
+            return key?.GetValue(name) is int value && value != 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    public static void SaveOption(string name, bool on)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(KeyPath);
+            key.SetValue(name, on ? 1 : 0, RegistryValueKind.DWord);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            Log.Write($"Could not save {name}: {ex.Message}");
+        }
+    }
 }

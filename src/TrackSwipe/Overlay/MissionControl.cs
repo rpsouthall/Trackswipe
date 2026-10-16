@@ -412,6 +412,11 @@ internal sealed partial class MissionControl : IDisposable
         {
             var shown = Rectangle.Round(OverviewWindowBounds(plan, part)); // where it is on screen now (compact or expanded bar)
             return $"[{part.From.Width}x{part.From.Height} -> {shown.Width}x{shown.Height} at {shown.X},{shown.Y}]";
+        })) +
+        string.Concat(plan.Parts.Where(part => part.Slot == "taskbar").Select(part =>
+        {
+            var open = FrameFor(plan, part, 1, 0, 0);
+            return $"; taskbar open at y {open.Bounds.Y:0}..{open.Bounds.Bottom:0}, opacity {open.Opacity:0.##}";
         }))));
 
     public void Dispose()
@@ -770,11 +775,35 @@ internal sealed partial class MissionControl : IDisposable
         foreach (var sprite in _reusable.Values) sprite.Place(Rectangle.Empty);
     }
 
+    /// <summary>
+    /// A taskbar at the top of a monitor slides away as the overview opens and its space goes to the overview, as the
+    /// menu bar does on a Mac. Off by default; set from the tray menu.
+    /// </summary>
+    public bool HideTopTaskbar
+    {
+        get => _hideTopTaskbar;
+        set
+        {
+            if (_hideTopTaskbar == value) return;
+            _hideTopTaskbar = value;
+            if (_state == State.Hidden) ReleaseCache(); // a prepared overview was laid out the other way
+        }
+    }
+    private bool _hideTopTaskbar;
+
+    /// <summary>Whether this monitor's taskbar is docked at its top and Mission Control should hide it.</summary>
+    private bool HidesTaskbar(ThumbnailSurface surface) => _hideTopTaskbar && surface.WorkArea.Top > surface.Monitor.Top;
+
+    /// <summary>The area the overview lays out in, in screen coordinates: the work area, or the full height when a top taskbar is hidden.</summary>
+    private Rectangle LayoutArea(ThumbnailSurface surface) => HidesTaskbar(surface)
+        ? Rectangle.FromLTRB(surface.WorkArea.Left, surface.Monitor.Top, surface.WorkArea.Right, surface.WorkArea.Bottom)
+        : surface.WorkArea;
+
     private void BuildPlan(Plan plan, DesktopScene scene, Queue<Action>? later)
     {
         var surface = plan.Surface;
         var screen = new Rectangle(Point.Empty, surface.Monitor.Size);
-        var work = surface.WorkArea;
+        var work = LayoutArea(surface);
         work.Offset(-surface.Monitor.X, -surface.Monitor.Y);
         var s = surface.Scale;
         var margin = (int)(40 * s);
@@ -875,7 +904,14 @@ internal sealed partial class MissionControl : IDisposable
         foreach (var taskbar in scene.Taskbars)
         {
             if (!taskbar.Bounds.IntersectsWith(surface.Monitor) || Acquire(surface, taskbar, "taskbar") is not { } sprite) continue;
-            plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, 255) { Slot = "taskbar" });
+            if (HidesTaskbar(surface) && taskbar.Bounds.Top <= surface.Monitor.Top + 2)
+            {
+                // Slides up off the top of the screen and fades as the overview opens; back again as it closes.
+                var away = sprite.Home;
+                away.Offset(0, -sprite.Home.Bottom);
+                plan.Parts.Add(new Part(surface, sprite, sprite.Home, away, 255, 0) { Slot = "taskbar" });
+            }
+            else plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, 255) { Slot = "taskbar" });
         }
 
         void Step(Action build)
@@ -926,7 +962,7 @@ internal sealed partial class MissionControl : IDisposable
         var compactArea = area;
         if (surface.IsPrimary)
         {
-            var compactTop = surface.WorkArea.Top - surface.Monitor.Y + (int)(80 * surface.Scale);
+            var compactTop = LayoutArea(surface).Top - surface.Monitor.Y + (int)(80 * surface.Scale);
             compactArea = Rectangle.FromLTRB(area.Left, compactTop, area.Right, area.Bottom);
         }
         var compactLayout = compactArea == area ? layout : ExposeLayout.Arrange(

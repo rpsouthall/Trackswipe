@@ -10,6 +10,10 @@ if (Test-Path $installer) { $env:PATH = "$installer;$env:PATH" }
 dotnet test tests\TrackSwipe.Tests -c Release --nologo -v q
 if ($LASTEXITCODE) { throw 'Tests failed.' }
 
+# The taskbar options' DLL, embedded in each executable.
+cmd /c src\TrackSwipeTap\build.cmd
+if ($LASTEXITCODE) { throw 'Building TrackSwipeTap.dll failed.' }
+
 New-Item -ItemType Directory -Force dist | Out-Null
 foreach ($arch in 'arm64', 'x64') {
     $out = "artifacts\$arch"
