@@ -22,6 +22,7 @@
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <format>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -84,6 +85,8 @@ namespace
         weak_ref<T> element;
         bool watched = false;
         bool moved = false; // TrackSwipe has given it a render offset
+        bool widened = false; // TrackSwipe has lifted its MaxWidth, saved here
+        Windows::Foundation::IInspectable maxWidth{ nullptr };
     };
 
     struct Tap : implements<Tap, IObjectWithSite, IVisualTreeServiceCallback2>
@@ -512,8 +515,43 @@ namespace
             }
             if (m_textSize > 0) { if (text.FontSize() != m_textSize) text.FontSize(m_textSize); }
             else if (item.watched) text.ClearValue(Controls::TextBlock::FontSizeProperty());
+            auto label = text.Name() == L"LabelControl";
             // App buttons lay their titles out 0.67 lower than the clock (measured at 14 px): lift them onto its line.
-            Offset(item, 0, m_textSize > 0 ? m_textOffset - (text.Name() == L"LabelControl" ? 0.67 : 0) : 0);
+            Offset(item, 0, m_textSize > 0 ? m_textOffset - (label ? 0.67 : 0) : 0);
+            if (label) Widen(item, m_textSize > 0);
+        }
+
+        /// App titles are capped at 136 px (sized for 12 px text), which cuts larger titles short: lift the cap so
+        /// each button hugs its title, and keep it lifted. Explorer's own value is put back afterwards.
+        void Widen(Watched<Controls::TextBlock>& item, bool on)
+        {
+            auto text = item.element.get();
+            if (!text) return;
+            auto property = FrameworkElement::MaxWidthProperty();
+            if (on)
+            {
+                if (!item.widened)
+                {
+                    item.maxWidth = text.ReadLocalValue(property);
+                    item.widened = true;
+                    text.RegisterPropertyChangedCallback(property, [this](DependencyObject const& sender, DependencyProperty const&)
+                    {
+                        try
+                        {
+                            if (auto t = sender.try_as<FrameworkElement>(); t && m_textSize > 0 && t.MaxWidth() < 1e300) t.MaxWidth(std::numeric_limits<double>::infinity());
+                        }
+                        catch (...) {}
+                    });
+                }
+                if (text.MaxWidth() < 1e300) text.MaxWidth(std::numeric_limits<double>::infinity());
+            }
+            else if (item.widened)
+            {
+                item.widened = false; // the callback stays registered, but only acts while the text is enlarged
+                if (item.maxWidth && item.maxWidth != DependencyProperty::UnsetValue()) text.SetValue(property, item.maxWidth);
+                else text.ClearValue(property);
+                item.maxWidth = nullptr;
+            }
         }
 
         /// More space before the clock (a left margin on its slot), so the battery sits evenly between it and volume.
@@ -571,6 +609,8 @@ namespace
                 catch (...) {}
                 line += std::format(L" size {:.0f}x{:.0f}", element.ActualWidth(), element.ActualHeight());
                 if (element.Visibility() == Visibility::Collapsed) line += L" COLLAPSED";
+                if (auto max = element.MaxWidth(); max < 1e6) line += std::format(L" maxw {:g}", max);
+                if (auto width = element.Width(); width == width) line += std::format(L" w {:g}", width); // set (not NaN)
                 if (auto text = element.try_as<Controls::TextBlock>())
                 {
                     line += std::format(L" font {:g} {}", text.FontSize(), std::wstring_view(text.FontFamily().Source()));

@@ -21,7 +21,7 @@ Windows switches desktops with a canned animation that plays *after* you swipe. 
 - **Mission Control.** Swipe up to spread out every window on the desktop, minimized ones included, with live previews of all your desktops along the top.
   - Click a window to bring it forward, or swipe down with the pointer over one.
   - **Drag a window onto a desktop** in the bar to move it there. Drop it on empty space in the bar to give it a new desktop beside the current one (on whichever side you dropped it), or on **+** to add one at the end.
-  - Click a desktop to switch to it, drag desktops to reorder them, add one with **+**, close one with its **Ã—**.
+  - Click a desktop to switch to it, drag desktops to reorder them, add one with **+**, close one with its **Ãƒâ€”**.
   - Swipe sideways to look at the neighbouring desktops' windows.
 - **Works with Windows, not around it.** The switch itself is Windows' own (instantly, with its animation suppressed), so window focus, taskbar and virtual desktop state stay exactly as Windows expects.
 - **Light.** A single native executable of about 6.5 MB. About 10 MB of memory after start-up and 20 to 30 MB in use (Windows Task Manager's Memory column), and no CPU use while idle: ordinary pointer movement is filtered out the moment it arrives.
@@ -70,7 +70,7 @@ Right-click the tray icon for:
   - **Hide Start button** (the Windows key still opens Start). On a left-aligned taskbar the app buttons then start as far from the edge as the clock ends from the other.
   - **Hide the taskbar's edge line** (the hairline where it meets the desktop).
   - **Hide the open-app indicators** (the short lines under open apps' buttons; with labels shown, the label and highlight say as much).
-  - **Larger tray icons and text** (the network, volume, battery and overflow icons drawn half as large again and evenly spaced, with the clock, battery percentage and app titles enlarged to match, all on one centre line and baseline, closer to a Mac's menu bar).
+  - **Larger tray icons and text** (the network, volume, battery and overflow icons drawn half as large again and evenly spaced, with the clock, battery percentage and app titles enlarged to match, all on one centre line and baseline, closer to a Mac's menu bar. App buttons widen to fit their whole title instead of cutting it short).
   - **Hide a top taskbar in Mission Control** (a taskbar moved to the top of the screen slides away as Mission Control opens, and the overview uses its space, as the menu bar does on a Mac).
 
   All but the last work inside Explorer: TrackSwipe loads a small helper into it only once one of them is on, changes only how those parts look, and puts the taskbar back when they're turned off or TrackSwipe quits.
