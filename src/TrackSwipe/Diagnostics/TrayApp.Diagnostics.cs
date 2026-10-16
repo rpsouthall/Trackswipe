@@ -31,6 +31,8 @@ internal sealed partial class TrayApp
                 _overlay.RunDesktopBarDiagnostics(ExitOnShell);
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DRAG_DEMO")?.Split(':') is [var demoWindow, var demoDesktop])
                 _overlay.RunWindowDragDemo(new IntPtr(long.Parse(demoWindow)), int.Parse(demoDesktop), ExitOnShell);
+            if (long.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_JUMP"), out var jumpWindow))
+                _overlay.RunTaskbarJumpDiagnostics(new IntPtr(jumpWindow), ExitOnShell);
             if (long.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_WINDOW_DRAG"), out var draggedWindow))
                 _overlay.RunWindowDragDiagnostics(new IntPtr(draggedWindow), ExitOnShell);
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_BAR_HOVER") == "1")

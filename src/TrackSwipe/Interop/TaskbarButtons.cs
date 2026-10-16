@@ -4,13 +4,15 @@ namespace TrackSwipe.Interop;
 
 /// <summary>
 /// Where each window's taskbar button is, so a window can shrink into it the way Windows minimizes it. The buttons
-/// come from UI Automation (Explorer exposes each one with "Appid: ..." as its automation ID); a window is matched
-/// by its app ID (its own, or its package's), then by program name against the button's name. Called through raw
-/// COM vtables, off the UI thread.
+/// come from UI Automation (Explorer exposes each one with "Appid: ..." as its automation ID, or "Window: 0x..." when
+/// buttons are never combined); a window is matched by its own button if it has one, otherwise by its app ID (its
+/// own, or its package's), then by program name against the button's name. Called through raw COM vtables, off the
+/// UI thread.
 /// </summary>
 internal static unsafe class TaskbarButtons
 {
-    private sealed record Button(string AppId, string Name, Rectangle Bounds);
+    /// <summary>A button for an app (AppId) or, on a taskbar that never combines buttons, for one window (Window).</summary>
+    private sealed record Button(string AppId, IntPtr Window, string Name, Rectangle Bounds);
 
     // One shared lookup for everything that needs buttons (show desktop, taskbar jumps). Explorer has to walk its
     // whole taskbar to answer, so it only runs again when the set of app windows changes (opening or closing an app
@@ -57,6 +59,8 @@ internal static unsafe class TaskbarButtons
 
     private static Button? Match(IntPtr window, List<Button> buttons)
     {
+        // A button of its own (a taskbar that never combines buttons) is exact; no guessing needed.
+        foreach (var button in buttons) if (button.Window == window) return button;
         // Prefer a button on the same monitor as the window (secondary taskbars can show their own buttons).
         var monitor = MonitorFromWindow(window, 2 /* MONITOR_DEFAULTTONEAREST */);
         Button? Pick(Func<Button, bool> test)
@@ -141,12 +145,20 @@ internal static unsafe class TaskbarButtons
                 if (((delegate* unmanaged[Stdcall]<IntPtr, int, IntPtr*, int>)Slot(array, 4))(array, i, &item) < 0 || item == IntPtr.Zero) continue;
                 try
                 {
+                    // "Appid: <app>" for a button per app; "Window: 0x<handle>" for a button per window, as a taskbar set
+                    // to never combine buttons shows them.
                     var id = ReadString(item, 29); // get_CurrentAutomationId
-                    if (id is null || !id.StartsWith("Appid: ", StringComparison.Ordinal)) continue;
+                    string appId; IntPtr window;
+                    if (id is null) continue;
+                    if (id.StartsWith("Appid: ", StringComparison.Ordinal)) (appId, window) = (id[7..], IntPtr.Zero);
+                    else if (id.StartsWith("Window: 0x", StringComparison.Ordinal) &&
+                             long.TryParse(id.AsSpan(10), System.Globalization.NumberStyles.HexNumber, null, out var handle) && handle != 0)
+                        (appId, window) = ("", (IntPtr)handle);
+                    else continue;
                     RECT rect;
                     if (((delegate* unmanaged[Stdcall]<IntPtr, RECT*, int>)Slot(item, 43))(item, &rect) < 0) continue; // get_CurrentBoundingRectangle
                     if (rect.Right <= rect.Left) continue;
-                    buttons.Add(new Button(id[7..], ReadString(item, 23) ?? "", Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom))); // get_CurrentName
+                    buttons.Add(new Button(appId, window, ReadString(item, 23) ?? "", Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom))); // get_CurrentName
                 }
                 finally { Marshal.Release(item); }
             }

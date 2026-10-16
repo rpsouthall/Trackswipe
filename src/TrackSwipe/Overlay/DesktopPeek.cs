@@ -190,20 +190,14 @@ internal sealed class DesktopPeek
         return (new RectangleF(x - width / 2, y - height / 2, width, height), (byte)Math.Round(255 * Math.Clamp(opacity, 0, 1)));
     }
 
-    /// <summary>The window's taskbar button (icon-sized, in its monitor's coordinates), or the middle of the taskbar.</summary>
+    /// <summary>The app icon on the window's taskbar button (in its monitor's coordinates), or the middle of the taskbar.</summary>
     private RectangleF EndFor(Part part)
     {
         var monitor = part.Surface.Monitor;
-        var icon = Math.Max(24, (monitor.Bottom - part.Surface.WorkArea.Bottom) * 0.5f);
         // Still heading for a stand-in if the lookup that may find this window's button hasn't finished yet.
         part.Provisional = TaskbarButtons.Looking;
         if (TaskbarButtons.Latest is { } known && known.TryGetValue(part.Window, out var button))
-        {
-            float x = button.X - monitor.X + button.Width / 2f, y = button.Y - monitor.Y + button.Height / 2f;
-            var size = Math.Min(button.Width, button.Height) * 0.6f;
-            return new RectangleF(x - size / 2, y - size / 2, size, size);
-        }
-        float cx = monitor.Width / 2f, cy = (part.Surface.WorkArea.Bottom - monitor.Y + monitor.Height) / 2f;
-        return new RectangleF(cx - icon / 2, cy - icon / 2, icon, icon);
+            return TaskbarTarget.Icon(button, monitor.Location);
+        return TaskbarTarget.Fallback(monitor, part.Surface.WorkArea);
     }
 }

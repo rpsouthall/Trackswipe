@@ -28,6 +28,7 @@
     <Compile Include="..\..\src\TrackSwipe\Overlay\ThumbnailSizing.cs" Link="Overlay\ThumbnailSizing.cs" />
     <Compile Include="..\..\src\TrackSwipe\Overlay\GpuCaptureLayout.cs" Link="Overlay\GpuCaptureLayout.cs" />
     <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopBarLayout.cs" Link="Overlay\DesktopBarLayout.cs" />
+    <Compile Include="..\..\src\TrackSwipe\Overlay\TaskbarTarget.cs" Link="Overlay\TaskbarTarget.cs" />
     <Compile Include="..\..\src\TrackSwipe\Overlay\DesktopReorder.cs" Link="Overlay\DesktopReorder.cs" />
     <Compile Include="..\..\src\TrackSwipe\Overlay\RestoreFrameHistory.cs" Link="Overlay\RestoreFrameHistory.cs" />
     <Compile Include="..\..\src\TrackSwipe\Overlay\RestoreCoverLayout.cs" Link="Overlay\RestoreCoverLayout.cs" />

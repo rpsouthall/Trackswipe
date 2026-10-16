@@ -155,6 +155,10 @@ internal static class Program
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DRAG_DEMO", $"{demoWindow}:{demoDesktop}");
                     i += 2;
                     break;
+                case "--diagnose-taskbar-jump" when long.TryParse(next, out var jumper):
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_JUMP", jumper.ToString());
+                    i++;
+                    break;
                 case "--diagnose-window-drag" when long.TryParse(next, out var dragged):
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_WINDOW_DRAG", dragged.ToString());
                     i++;
