@@ -83,6 +83,7 @@ namespace
     {
         weak_ref<T> element;
         bool watched = false;
+        bool moved = false; // TrackSwipe has given it a render offset
     };
 
     struct Tap : implements<Tap, IObjectWithSite, IVisualTreeServiceCallback2>
@@ -131,7 +132,8 @@ namespace
                 auto isFrame = type == L"Taskbar.TaskbarFrame";
                 auto isTrayIcon = IsIconViewType(type);
                 auto isIndicator = element.Name && std::wstring_view(element.Name) == L"RunningIndicator";
-                if (!isFrame && !isTrayIcon && !isIndicator && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
+                auto isLabel = element.Name && std::wstring_view(element.Name) == L"LabelControl"; // an app button's title
+                if (!isFrame && !isTrayIcon && !isIndicator && !isLabel && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
                 EnsureControlWindow();
                 Windows::Foundation::IInspectable object;
                 if (FAILED(m_diagnostics->GetIInspectableFromHandle(element.Handle, reinterpret_cast<::IInspectable**>(put_abi(object))))) return S_OK;
@@ -140,6 +142,7 @@ namespace
                 if (isFrame) AddFrame(found);
                 else if (isTrayIcon) AddTrayIcon(found);
                 else if (isIndicator) AddIndicator(found);
+                else if (isLabel) { if (auto text = found.try_as<Controls::TextBlock>()) TrackText(text); }
                 else ConsiderButton(found);
             }
             catch (...) {}
@@ -181,6 +184,22 @@ namespace
                     if (auto tray = FindByName(TopOf(f), L"SystemTrayFrameGrid")) ScaleTray(tray);
             for (auto& item : m_glyphs) ApplyGlyph(item);
             for (auto& item : m_slots) ApplySlot(item);
+            for (auto& item : m_clockSlots) ApplyClockSlot(item);
+        }
+
+        /// Tray text and app buttons' titles, so all the taskbar's text matches the clock.
+        void SetTrayText(double size, double offset)
+        {
+            m_textSize = size;
+            m_textOffset = size > 0 ? offset : 0;
+            for (auto& frame : m_frames)
+                if (auto f = frame.get())
+                {
+                    auto top = TopOf(f);
+                    if (auto tray = FindByName(top, L"SystemTrayFrameGrid")) ScaleTray(tray);
+                    FindLabels(top);
+                }
+            for (auto& item : m_texts) ApplyText(item);
         }
 
         /// MAKELRESULT(Start buttons tracked, flags): bit 0 Start hidden, bit 1 edge hidden, bits 2+ edge lines tracked.
@@ -339,7 +358,9 @@ namespace
         // ---- Tray icons ---------------------------------------------------------------------------------
         // The chevron, network, volume and battery icons are characters in Windows' icon font, each in its own
         // IconView slot in a row that sizes itself. A bigger font size enlarges a glyph (it stays sharp); a margin on
-        // its slot spaces the row out. The clock and battery percentage are ordinary text and keep their size.
+        // its slot spaces the row out. The clock, battery percentage and any other tray text are ordinary text, sized
+        // separately so they stay in proportion with the icons. Render offsets (which move nothing else) put each
+        // on the same centre line.
 
         static bool IsIconFont(Controls::TextBlock const& text)
         {
@@ -367,14 +388,29 @@ namespace
             // Its glyphs come with its template: look once it has loaded.
             icon.Loaded([this, weak = make_weak(icon)](auto&&, auto&&)
             {
-                try { if (auto i = weak.get(); i && m_iconSize > 0) ScaleTray(i); }
+                try { if (auto i = weak.get(); i && (m_iconSize > 0 || m_textSize > 0)) ScaleTray(i); }
                 catch (...) {}
             });
         }
 
-        /// Starts tracking every icon glyph under root (the whole taskbar, or one new icon), and its slot.
+        /// Starts tracking every icon glyph and piece of text under root (the tray, or one new icon), and glyphs' slots.
         void ScaleTray(DependencyObject const& root, int depth = 0)
         {
+            if (auto text = root.try_as<Controls::TextBlock>(); text && !IsIconFont(text))
+            {
+                // The InnerTextBlocks are layers of icons (empty ones fall back to a text font); the rest, such as the
+                // clock and battery percentage, are text, tracked even while empty or hidden so they're ready to show.
+                if (text.Name() == L"InnerTextBlock") return;
+                TrackText(text);
+                if (text.Name() == L"TimeInnerTextBlock")
+                    if (auto slot = SlotOf(text))
+                    {
+                        auto known = false;
+                        for (auto& item : m_clockSlots) if (item.element.get() == slot) { known = true; ApplyClockSlot(item); }
+                        if (!known) { m_clockSlots.push_back(Watched<FrameworkElement>{ make_weak(slot) }); ApplyClockSlot(m_clockSlots.back()); }
+                    }
+                return;
+            }
             if (auto text = root.try_as<Controls::TextBlock>(); text && IsIconFont(text))
             {
                 auto tracked = false;
@@ -398,6 +434,8 @@ namespace
             {
                 std::erase_if(m_glyphs, [](auto& item) { return !item.element.get(); });
                 std::erase_if(m_slots, [](auto& item) { return !item.element.get(); });
+                std::erase_if(m_texts, [](auto& item) { return !item.element.get(); });
+                std::erase_if(m_clockSlots, [](auto& item) { return !item.element.get(); });
             }
         }
 
@@ -420,6 +458,91 @@ namespace
             }
             if (m_iconSize > 0) { if (text.FontSize() != m_iconSize) text.FontSize(m_iconSize); }
             else if (item.watched) text.ClearValue(Controls::TextBlock::FontSizeProperty());
+            Offset(item, 0, m_iconSize > 0 ? m_iconSize * CentreCorrection(text) : 0);
+        }
+
+        /// Extra space before the clock (a left margin on its slot): the battery's slot has little padding on its
+        /// right, so at 18 px it stood 15 px from the clock, against 20 between the icons (measured on screen).
+        double ClockSpace() const { return m_iconSpace * 0.6; }
+
+        /// How far (as a fraction of its size) a glyph is moved down so its ink centres on the same line as the
+        /// others and the text: the overflow chevron draws below the middle of its box (measured on screen at 18 px:
+        /// ink centred 0.5 px low).
+        static double CentreCorrection(Controls::TextBlock const& text)
+        {
+            for (DependencyObject node = text; node; node = Media::VisualTreeHelper::GetParent(node))
+            {
+                auto type = get_class_name(node);
+                if (type == L"SystemTray.ChevronIconView") return -0.028;
+                if (IsIconViewType(type)) break;
+            }
+            return 0;
+        }
+
+        void TrackText(Controls::TextBlock const& text)
+        {
+            for (auto& item : m_texts) if (item.element.get() == text) { ApplyText(item); return; }
+            m_texts.push_back(Watched<Controls::TextBlock>{ make_weak(text) });
+            ApplyText(m_texts.back());
+        }
+
+        void FindLabels(DependencyObject const& root, int depth = 0)
+        {
+            if (auto text = root.try_as<Controls::TextBlock>(); text && text.Name() == L"LabelControl") { TrackText(text); return; }
+            if (depth > 60) return;
+            auto count = Media::VisualTreeHelper::GetChildrenCount(root);
+            for (int i = 0; i < count; ++i) FindLabels(Media::VisualTreeHelper::GetChild(root, i), depth + 1);
+        }
+
+        void ApplyText(Watched<Controls::TextBlock>& item)
+        {
+            auto text = item.element.get();
+            if (!text) return;
+            if (!item.watched && m_textSize > 0)
+            {
+                item.watched = true;
+                text.RegisterPropertyChangedCallback(Controls::TextBlock::FontSizeProperty(), [this](DependencyObject const& sender, DependencyProperty const&)
+                {
+                    try
+                    {
+                        if (auto t = sender.try_as<Controls::TextBlock>(); t && m_textSize > 0 && t.FontSize() != m_textSize) t.FontSize(m_textSize);
+                    }
+                    catch (...) {}
+                });
+            }
+            if (m_textSize > 0) { if (text.FontSize() != m_textSize) text.FontSize(m_textSize); }
+            else if (item.watched) text.ClearValue(Controls::TextBlock::FontSizeProperty());
+            // App buttons lay their titles out 0.67 lower than the clock (measured at 14 px): lift them onto its line.
+            Offset(item, 0, m_textSize > 0 ? m_textOffset - (text.Name() == L"LabelControl" ? 0.67 : 0) : 0);
+        }
+
+        /// More space before the clock (a left margin on its slot), so the battery sits evenly between it and volume.
+        void ApplyClockSlot(Watched<FrameworkElement>& item)
+        {
+            auto slot = item.element.get();
+            if (!slot) return;
+            if (m_iconSize > 0 && ClockSpace() > 0) { item.watched = true; slot.Margin({ ClockSpace(), 0, 0, 0 }); }
+            else if (item.watched) { item.watched = false; slot.ClearValue(FrameworkElement::MarginProperty()); }
+        }
+
+        /// Moves an element by (x, y) without changing the layout, or gives back its own render transform at 0.
+        static void Offset(Watched<Controls::TextBlock>& item, double x, double y)
+        {
+            auto text = item.element.get();
+            if (!text) return;
+            if (x != 0 || y != 0)
+            {
+                Media::TranslateTransform move;
+                move.X(x);
+                move.Y(y);
+                text.RenderTransform(move);
+                item.moved = true;
+            }
+            else if (item.moved)
+            {
+                text.ClearValue(UIElement::RenderTransformProperty());
+                item.moved = false;
+            }
         }
 
         void ApplySlot(Watched<FrameworkElement>& item)
@@ -451,6 +574,8 @@ namespace
                 if (auto text = element.try_as<Controls::TextBlock>())
                 {
                     line += std::format(L" font {:g} {}", text.FontSize(), std::wstring_view(text.FontFamily().Source()));
+                    try { line += std::format(L" top {:.2f}", element.TransformToVisual(frame).TransformPoint({ 0, 0 }).Y); }
+                    catch (...) {}
                     if (auto value = text.Text(); !value.empty() && IsIconFont(text)) line += std::format(L" glyph U+{:04X}", (unsigned)value[0]);
                 }
             }
@@ -475,7 +600,7 @@ namespace
             if (!m_control) return;
             SetWindowLongPtrW(m_control, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -492,6 +617,7 @@ namespace
                     case TrackSwipeTap::Query: return tap->Query();
                     case TrackSwipeTap::Dump: tap->DumpTrees(); return 1;
                     case TrackSwipeTap::TrayIcons: tap->SetTrayIcons(wParam / 100.0, lParam / 100.0); return 1;
+                    case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::Indicators: tap->SetIndicatorsHidden(wParam != 0); return 1;
                     }
                 }
@@ -514,6 +640,10 @@ namespace
         std::vector<Watched<FrameworkElement>> m_slots;     // their IconViews
         double m_iconSize = 0;  // tray glyph size, 0 for Explorer's own
         double m_iconSpace = 0; // added beside each tray icon
+        std::vector<Watched<Controls::TextBlock>> m_texts; // tray text: the clock, battery percentage
+        std::vector<Watched<FrameworkElement>> m_clockSlots; // the clock's slot
+        double m_textSize = 0;   // tray text size, 0 for Explorer's own
+        double m_textOffset = 0; // tray text moved down by
         HWND m_control = nullptr;
     };
 

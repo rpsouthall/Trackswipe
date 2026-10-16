@@ -32,9 +32,10 @@ internal sealed partial class TrayApp
             var indicators = lines.Where(line => line.Contains("#RunningIndicator") && !line.Contains(" at -")).ToList();
             var glyphs = lines.Where(line => line.Contains(" glyph U+")).Select(line => System.Text.RegularExpressions.Regex.Match(line, @"size (\d+)x(\d+) font ([\d.]+)"))
                 .Where(m => m.Success).Select(m => $"{m.Groups[3].Value}pt {m.Groups[1].Value}x{m.Groups[2].Value}").Distinct();
+            var clock = lines.FirstOrDefault(line => line.Contains("#TimeInnerTextBlock")) is { } c ? System.Text.RegularExpressions.Regex.Match(c, @"font ([\d.]+)").Groups[1].Value : "?";
             var tray = lines.FirstOrDefault(line => line.Contains("#SystemTrayFrameGrid"))?.Trim() is { } g ? System.Text.RegularExpressions.Regex.Match(g, @"at (\d+),\d+ size (\d+)x").Value : "?";
             return $"Start button {Of("[StartButton]")}, edge line {Of("#BackgroundStroke")}, buttons start at x {strip}, first icon at x {icon}, " +
-                $"indicators {indicators.Count(line => line.Contains("COLLAPSED"))}/{indicators.Count} collapsed, tray glyphs [{string.Join(", ", glyphs)}], tray {tray}; status 0x{TaskbarTap.Query():X}";
+                $"indicators {indicators.Count(line => line.Contains("COLLAPSED"))}/{indicators.Count} collapsed, tray glyphs [{string.Join(", ", glyphs)}], clock {clock}pt, tray {tray}; status 0x{TaskbarTap.Query():X}";
         }
         void Finish() { timer.Dispose(); ExitOnShell(); }
         timer.Tick += (_, _) =>

@@ -124,7 +124,7 @@ internal sealed partial class TrayApp : IDisposable
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTaskbarEdge), Enabled = tapAvailable };
         _hideIndicatorsItem = new TrayMenuItem("Hide the open-app indicators", () => ToggleOption(GesturePreferences.HideRunningIndicators, _hideIndicatorsItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideRunningIndicators), Enabled = tapAvailable };
-        _largeTrayIconsItem = new TrayMenuItem("Larger tray icons", () => ToggleOption(GesturePreferences.LargeTrayIcons, _largeTrayIconsItem!))
+        _largeTrayIconsItem = new TrayMenuItem("Larger tray icons and text", () => ToggleOption(GesturePreferences.LargeTrayIcons, _largeTrayIconsItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.LargeTrayIcons), Enabled = tapAvailable };
         _hideTopTaskbarItem = new TrayMenuItem("Hide a top taskbar in Mission Control", () => ToggleOption(GesturePreferences.HideTopTaskbarInMissionControl, _hideTopTaskbarItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTopTaskbarInMissionControl) };
