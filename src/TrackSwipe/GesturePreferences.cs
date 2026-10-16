@@ -37,7 +37,8 @@ internal static class GesturePreferences
     }
 
     // Taskbar options in the tray menu: personal preferences, so all off unless turned on.
-    public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl";
+    public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl",
+        LargeTrayIcons = "LargeTrayIcons", HideRunningIndicators = "HideRunningIndicators";
 
     public static bool LoadOption(string name)
     {

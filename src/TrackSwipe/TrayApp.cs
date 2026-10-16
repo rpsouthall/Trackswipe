@@ -26,7 +26,7 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayIcon _tray;
     private readonly IntPtr _iconHandle;
     private readonly TrayMenuItem _enabledItem, _snappyItem, _smoothItem, _startupItem, _adminItem;
-    private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideTopTaskbarItem;
+    private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem;
     private UiTimer? _taskbarTimer;
     private int _taskbarAttempts;
     private readonly TrayMenuItem _gestureTitle, _threeFingerItem, _fourFingerItem;
@@ -122,6 +122,10 @@ internal sealed partial class TrayApp : IDisposable
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideStartButton), Enabled = tapAvailable };
         _hideEdgeItem = new TrayMenuItem("Hide the taskbar's edge line", () => ToggleOption(GesturePreferences.HideTaskbarEdge, _hideEdgeItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTaskbarEdge), Enabled = tapAvailable };
+        _hideIndicatorsItem = new TrayMenuItem("Hide the open-app indicators", () => ToggleOption(GesturePreferences.HideRunningIndicators, _hideIndicatorsItem!))
+            { Checked = GesturePreferences.LoadOption(GesturePreferences.HideRunningIndicators), Enabled = tapAvailable };
+        _largeTrayIconsItem = new TrayMenuItem("Larger tray icons", () => ToggleOption(GesturePreferences.LargeTrayIcons, _largeTrayIconsItem!))
+            { Checked = GesturePreferences.LoadOption(GesturePreferences.LargeTrayIcons), Enabled = tapAvailable };
         _hideTopTaskbarItem = new TrayMenuItem("Hide a top taskbar in Mission Control", () => ToggleOption(GesturePreferences.HideTopTaskbarInMissionControl, _hideTopTaskbarItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTopTaskbarInMissionControl) };
 
@@ -135,7 +139,7 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Preview animation", RunPreview),
             new TrayMenuItem("Input monitor...", ShowMonitor),
             new TrayMenuItem("Touchpad settings...", OpenTouchpadSettings),
-            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideTopTaskbarItem),
+            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem),
             TrayMenuItem.Separator,
             _startupItem,
             _adminItem,
@@ -207,7 +211,8 @@ internal sealed partial class TrayApp : IDisposable
         _monitor?.Dispose();
         _adminAppWatch?.Dispose();
         _taskbarTimer?.Dispose();
-        if (_hideStartItem.Checked || _hideEdgeItem.Checked) Interop.TaskbarTap.Restore(); // the taskbar as Windows draws it
+        if (_hideStartItem.Checked || _hideEdgeItem.Checked || _hideIndicatorsItem.Checked || _largeTrayIconsItem.Checked)
+            Interop.TaskbarTap.Restore(); // the taskbar as Windows draws it
         _tray.Dispose();
         NativeMethods.DestroyIcon(_iconHandle);
     }
@@ -239,9 +244,9 @@ internal sealed partial class TrayApp : IDisposable
 
     private void ApplyTaskbarOptions(object? sender, EventArgs e)
     {
-        bool start = _hideStartItem.Checked, edge = _hideEdgeItem.Checked;
+        bool start = _hideStartItem.Checked, edge = _hideEdgeItem.Checked, indicators = _hideIndicatorsItem.Checked, icons = _largeTrayIconsItem.Checked;
         _taskbarTimer!.Interval = 250;
-        if (Interop.TaskbarTap.Send(start, edge) || (!start && !edge)) { _taskbarTimer.Stop(); return; }
+        if (Interop.TaskbarTap.Send(start, edge, icons, indicators) || (!start && !edge && !indicators && !icons)) { _taskbarTimer.Stop(); return; }
         if (_taskbarAttempts++ == 0 && !Interop.TaskbarTap.Load()) { _taskbarTimer.Stop(); return; }
         if (_taskbarAttempts > 40) { Log.Write("Taskbar options: Explorer didn't pick them up."); _taskbarTimer.Stop(); }
     }

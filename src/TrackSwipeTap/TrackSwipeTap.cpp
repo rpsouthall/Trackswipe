@@ -1,8 +1,10 @@
 // TrackSwipeTap.dll: loaded into explorer.exe through XAML Diagnostics (InitializeXamlDiagnosticsEx) when one of
 // TrackSwipe's taskbar options is on. It watches the taskbar's XAML tree and can
 //   - collapse the Start button (automation ID "StartButton") and keep it collapsed;
-//   - collapse the taskbar's edge line (BackgroundStroke), the hairline where it meets the desktop.
-// A message-only window ("TrackSwipe.Tap") on the taskbar's UI thread takes commands from TrackSwipe.exe.
+//   - collapse the taskbar's edge line (BackgroundStroke), the hairline where it meets the desktop;
+//   - collapse the running-app indicators under taskbar buttons;
+//   - enlarge the system tray's icons (glyphs from Windows' icon font) and space them out, keeping them that way.
+// A message-only window (Protocol.h's WindowClass) on the taskbar's UI thread takes commands from TrackSwipe.exe.
 // Adapted from HideStart.
 //
 // This code runs inside Explorer: every entry point catches everything, so a failure leaves the taskbar as it was.
@@ -44,18 +46,43 @@ namespace
         return nullptr;
     }
 
+    /// Appends a line to %LOCALAPPDATA%\TrackSwipe\taskbar-helper.log: only for failures, so it stays empty normally.
+    void Note(std::wstring const& text)
+    {
+        wchar_t folder[MAX_PATH];
+        if (!GetEnvironmentVariableW(L"LOCALAPPDATA", folder, MAX_PATH)) return;
+        auto file = CreateFileW((std::wstring(folder) + L"\\TrackSwipe\\taskbar-helper.log").c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, 0, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return;
+        SYSTEMTIME now; GetLocalTime(&now);
+        auto line = std::format(L"{:02}:{:02}:{:02} {}: {}\r\n", now.wHour, now.wMinute, now.wSecond, TrackSwipeTap::WindowClass, text);
+        auto size = WideCharToMultiByte(CP_UTF8, 0, line.c_str(), (int)line.size(), nullptr, 0, nullptr, nullptr);
+        std::string utf8(size, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, line.c_str(), (int)line.size(), utf8.data(), size, nullptr, nullptr);
+        DWORD written; WriteFile(file, utf8.data(), (DWORD)utf8.size(), &written, nullptr);
+        CloseHandle(file);
+    }
+
     DependencyObject TopOf(DependencyObject node)
     {
         while (auto parent = Media::VisualTreeHelper::GetParent(node)) node = parent;
         return node;
     }
 
+    enum class Part { Start, Edge, Indicator };
+
     /// An element kept collapsed while its option is on, even if Explorer makes it visible again.
     struct Collapsible
     {
         weak_ref<FrameworkElement> element;
-        bool edge = false;    // the edge line (else the Start button)
+        Part part = Part::Start;
         bool watched = false; // its visibility callback is registered
+    };
+
+    /// An element whose property TrackSwipe sets, with a callback that keeps it set once registered.
+    template <typename T> struct Watched
+    {
+        weak_ref<T> element;
+        bool watched = false;
     };
 
     struct Tap : implements<Tap, IObjectWithSite, IVisualTreeServiceCallback2>
@@ -73,8 +100,13 @@ namespace
                 // waiting for this call. Advise from another thread; the callbacks still arrive on the UI thread.
                 std::thread([self = get_strong()]
                 {
-                    try { self->m_diagnostics.as<IVisualTreeService3>()->AdviseVisualTreeChange(self.get()); }
-                    catch (...) {}
+                    try
+                    {
+                        auto hr = self->m_diagnostics.as<IVisualTreeService3>()->AdviseVisualTreeChange(self.get());
+                        if (FAILED(hr)) Note(std::format(L"watching the taskbar failed: 0x{:08X}", (unsigned)hr));
+                    }
+                    catch (hresult_error const& e) { Note(std::format(L"watching the taskbar failed: 0x{:08X}", (unsigned)e.code().value)); }
+                    catch (...) { Note(L"watching the taskbar failed"); }
                 }).detach();
                 return S_OK;
             }
@@ -93,15 +125,21 @@ namespace
             {
                 if (mutation != Add || !element.Type) return S_OK;
                 std::wstring_view type(element.Type);
-                // Cheap filter first: the Start button is one of the taskbar's toggle buttons; the frame is a taskbar's root.
+                // Cheap filter first: the Start button is one of the taskbar's toggle buttons; the frame is a taskbar's
+                // root; a tray icon (new, or rebuilt when its state changes) is an IconView; each app button has a
+                // RunningIndicator.
                 auto isFrame = type == L"Taskbar.TaskbarFrame";
-                if (!isFrame && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
+                auto isTrayIcon = IsIconViewType(type);
+                auto isIndicator = element.Name && std::wstring_view(element.Name) == L"RunningIndicator";
+                if (!isFrame && !isTrayIcon && !isIndicator && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
                 EnsureControlWindow();
                 Windows::Foundation::IInspectable object;
                 if (FAILED(m_diagnostics->GetIInspectableFromHandle(element.Handle, reinterpret_cast<::IInspectable**>(put_abi(object))))) return S_OK;
                 auto found = object.try_as<FrameworkElement>();
                 if (!found) return S_OK;
                 if (isFrame) AddFrame(found);
+                else if (isTrayIcon) AddTrayIcon(found);
+                else if (isIndicator) AddIndicator(found);
                 else ConsiderButton(found);
             }
             catch (...) {}
@@ -123,6 +161,26 @@ namespace
             m_edgeHidden = hidden;
             for (auto& frame : m_frames) FindEdge(frame);
             for (auto& item : m_edges) Apply(item, m_edgeHidden);
+        }
+
+        void SetIndicatorsHidden(bool hidden)
+        {
+            m_indicatorsHidden = hidden;
+            for (auto& frame : m_frames)
+                if (auto f = frame.get()) FindIndicators(TopOf(f));
+            std::erase_if(m_indicators, [](auto& item) { return !item.element.get(); });
+            for (auto& item : m_indicators) Apply(item, m_indicatorsHidden);
+        }
+
+        void SetTrayIcons(double size, double space)
+        {
+            m_iconSize = size;
+            m_iconSpace = size > 0 ? space : 0;
+            for (auto& frame : m_frames)
+                if (auto f = frame.get())
+                    if (auto tray = FindByName(TopOf(f), L"SystemTrayFrameGrid")) ScaleTray(tray);
+            for (auto& item : m_glyphs) ApplyGlyph(item);
+            for (auto& item : m_slots) ApplySlot(item);
         }
 
         /// MAKELRESULT(Start buttons tracked, flags): bit 0 Start hidden, bit 1 edge hidden, bits 2+ edge lines tracked.
@@ -158,6 +216,11 @@ namespace
         }
 
     private:
+        bool Hidden(Part part) const
+        {
+            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : m_startHidden;
+        }
+
         /// Collapses or restores one tracked element, watching it the first time so Explorer can't bring it back.
         void Apply(Collapsible& item, bool hidden)
         {
@@ -166,11 +229,11 @@ namespace
             if (!item.watched)
             {
                 item.watched = true;
-                element.RegisterPropertyChangedCallback(UIElement::VisibilityProperty(), [this, edge = item.edge](DependencyObject const& sender, DependencyProperty const&)
+                element.RegisterPropertyChangedCallback(UIElement::VisibilityProperty(), [this, part = item.part](DependencyObject const& sender, DependencyProperty const&)
                 {
                     try
                     {
-                        if (auto e = sender.try_as<UIElement>(); e && (edge ? m_edgeHidden : m_startHidden) && e.Visibility() != Visibility::Collapsed)
+                        if (auto e = sender.try_as<UIElement>(); e && Hidden(part) && e.Visibility() != Visibility::Collapsed)
                             e.Visibility(Visibility::Collapsed);
                     }
                     catch (...) {}
@@ -180,10 +243,10 @@ namespace
             else element.ClearValue(UIElement::VisibilityProperty()); // back to whatever Explorer chooses
         }
 
-        static void Track(std::vector<Collapsible>& list, FrameworkElement const& element, bool edge)
+        static void Track(std::vector<Collapsible>& list, FrameworkElement const& element, Part part)
         {
             for (auto& item : list) if (item.element.get() == element) return;
-            list.push_back(Collapsible{ make_weak(element), edge });
+            list.push_back(Collapsible{ make_weak(element), part });
         }
 
         // ---- Start button -------------------------------------------------------------------------------
@@ -206,7 +269,7 @@ namespace
 
         void TrackButton(FrameworkElement const& element)
         {
-            Track(m_buttons, element, false);
+            Track(m_buttons, element, Part::Start);
             for (auto& item : m_buttons) if (item.element.get() == element) Apply(item, m_startHidden);
         }
 
@@ -248,7 +311,123 @@ namespace
             auto frame = weak.get();
             if (!frame) return;
             auto background = FindByName(frame, L"BackgroundControl");
-            if (auto stroke = background ? FindByName(background, L"BackgroundStroke") : nullptr) Track(m_edges, stroke, true);
+            if (auto stroke = background ? FindByName(background, L"BackgroundStroke") : nullptr) Track(m_edges, stroke, Part::Edge);
+        }
+
+        // ---- Running indicators -------------------------------------------------------------------------
+        // The short line under an open app's button (longer and coloured for the active one). With labels shown, an
+        // app's label and highlighted button already say as much.
+
+        void AddIndicator(FrameworkElement const& indicator)
+        {
+            Track(m_indicators, indicator, Part::Indicator);
+            for (auto& item : m_indicators) if (item.element.get() == indicator) Apply(item, m_indicatorsHidden);
+        }
+
+        void FindIndicators(DependencyObject const& root, int depth = 0)
+        {
+            if (auto element = root.try_as<FrameworkElement>(); element && element.Name() == L"RunningIndicator")
+            {
+                Track(m_indicators, element, Part::Indicator);
+                return;
+            }
+            if (depth > 60) return;
+            auto count = Media::VisualTreeHelper::GetChildrenCount(root);
+            for (int i = 0; i < count; ++i) FindIndicators(Media::VisualTreeHelper::GetChild(root, i), depth + 1);
+        }
+
+        // ---- Tray icons ---------------------------------------------------------------------------------
+        // The chevron, network, volume and battery icons are characters in Windows' icon font, each in its own
+        // IconView slot in a row that sizes itself. A bigger font size enlarges a glyph (it stays sharp); a margin on
+        // its slot spaces the row out. The clock and battery percentage are ordinary text and keep their size.
+
+        static bool IsIconFont(Controls::TextBlock const& text)
+        {
+            std::wstring_view family = text.FontFamily().Source();
+            return family.find(L"Icons") != std::wstring_view::npos || family.find(L"MDL2") != std::wstring_view::npos;
+        }
+
+        /// A tray icon's slot: IconView, or a variant such as the overflow chevron's ChevronIconView.
+        static bool IsIconViewType(std::wstring_view type)
+        {
+            return type.starts_with(L"SystemTray.") && type.ends_with(L"IconView");
+        }
+
+        static bool IsIconView(DependencyObject const& node) { return IsIconViewType(get_class_name(node)); }
+
+        static FrameworkElement SlotOf(DependencyObject node)
+        {
+            for (auto depth = 0; node && depth < 12; ++depth, node = Media::VisualTreeHelper::GetParent(node))
+                if (IsIconView(node)) return node.as<FrameworkElement>();
+            return nullptr;
+        }
+
+        void AddTrayIcon(FrameworkElement const& icon)
+        {
+            // Its glyphs come with its template: look once it has loaded.
+            icon.Loaded([this, weak = make_weak(icon)](auto&&, auto&&)
+            {
+                try { if (auto i = weak.get(); i && m_iconSize > 0) ScaleTray(i); }
+                catch (...) {}
+            });
+        }
+
+        /// Starts tracking every icon glyph under root (the whole taskbar, or one new icon), and its slot.
+        void ScaleTray(DependencyObject const& root, int depth = 0)
+        {
+            if (auto text = root.try_as<Controls::TextBlock>(); text && IsIconFont(text))
+            {
+                auto tracked = false;
+                for (auto& item : m_glyphs) if (item.element.get() == text) { tracked = true; ApplyGlyph(item); }
+                if (!tracked) { m_glyphs.push_back(Watched<Controls::TextBlock>{ make_weak(text) }); ApplyGlyph(m_glyphs.back()); }
+                // Only slots that show a glyph: the show-desktop strip has empty ones and keeps its width.
+                if (!text.Text().empty())
+                    if (auto slot = SlotOf(text))
+                    {
+                        auto known = false;
+                        for (auto& item : m_slots) if (item.element.get() == slot) { known = true; ApplySlot(item); }
+                        if (!known) { m_slots.push_back(Watched<FrameworkElement>{ make_weak(slot) }); ApplySlot(m_slots.back()); }
+                    }
+                return;
+            }
+            if (depth > 60) return;
+            auto count = Media::VisualTreeHelper::GetChildrenCount(root);
+            for (int i = 0; i < count; ++i) ScaleTray(Media::VisualTreeHelper::GetChild(root, i), depth + 1);
+            // Prune forgotten elements now and then.
+            if (depth == 0)
+            {
+                std::erase_if(m_glyphs, [](auto& item) { return !item.element.get(); });
+                std::erase_if(m_slots, [](auto& item) { return !item.element.get(); });
+            }
+        }
+
+        void ApplyGlyph(Watched<Controls::TextBlock>& item)
+        {
+            auto text = item.element.get();
+            if (!text) return;
+            if (!item.watched && m_iconSize > 0)
+            {
+                item.watched = true;
+                // Explorer sets some glyphs' size again as their state changes: put ours back.
+                text.RegisterPropertyChangedCallback(Controls::TextBlock::FontSizeProperty(), [this](DependencyObject const& sender, DependencyProperty const&)
+                {
+                    try
+                    {
+                        if (auto t = sender.try_as<Controls::TextBlock>(); t && m_iconSize > 0 && t.FontSize() != m_iconSize) t.FontSize(m_iconSize);
+                    }
+                    catch (...) {}
+                });
+            }
+            if (m_iconSize > 0) { if (text.FontSize() != m_iconSize) text.FontSize(m_iconSize); }
+            else if (item.watched) text.ClearValue(Controls::TextBlock::FontSizeProperty());
+        }
+
+        void ApplySlot(Watched<FrameworkElement>& item)
+        {
+            auto slot = item.element.get();
+            if (!slot) return;
+            if (m_iconSpace > 0) { item.watched = true; slot.Margin({ m_iconSpace / 2, 0, m_iconSpace / 2, 0 }); }
+            else if (item.watched) { item.watched = false; slot.ClearValue(FrameworkElement::MarginProperty()); }
         }
 
         // ---- Diagnostics --------------------------------------------------------------------------------
@@ -269,6 +448,11 @@ namespace
                 catch (...) {}
                 line += std::format(L" size {:.0f}x{:.0f}", element.ActualWidth(), element.ActualHeight());
                 if (element.Visibility() == Visibility::Collapsed) line += L" COLLAPSED";
+                if (auto text = element.try_as<Controls::TextBlock>())
+                {
+                    line += std::format(L" font {:g} {}", text.FontSize(), std::wstring_view(text.FontFamily().Source()));
+                    if (auto value = text.Text(); !value.empty() && IsIconFont(text)) line += std::format(L" glyph U+{:04X}", (unsigned)value[0]);
+                }
             }
             out += line + L"\n";
             if (depth > 60) return;
@@ -291,7 +475,7 @@ namespace
             if (!m_control) return;
             SetWindowLongPtrW(m_control, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -307,6 +491,8 @@ namespace
                     case TrackSwipeTap::EdgeLine: tap->SetEdgeHidden(wParam != 0); return 1;
                     case TrackSwipeTap::Query: return tap->Query();
                     case TrackSwipeTap::Dump: tap->DumpTrees(); return 1;
+                    case TrackSwipeTap::TrayIcons: tap->SetTrayIcons(wParam / 100.0, lParam / 100.0); return 1;
+                    case TrackSwipeTap::Indicators: tap->SetIndicatorsHidden(wParam != 0); return 1;
                     }
                 }
             }
@@ -318,10 +504,16 @@ namespace
         com_ptr<IXamlDiagnostics> m_diagnostics;
         std::vector<Collapsible> m_buttons;
         std::vector<Collapsible> m_edges;
+        std::vector<Collapsible> m_indicators;
         std::vector<weak_ref<FrameworkElement>> m_frames;
         bool m_startHidden = false;
         bool m_edgeHidden = false;
+        bool m_indicatorsHidden = false;
         double m_padding = 0; // space before the first app button while Start is hidden
+        std::vector<Watched<Controls::TextBlock>> m_glyphs; // tray icon glyphs
+        std::vector<Watched<FrameworkElement>> m_slots;     // their IconViews
+        double m_iconSize = 0;  // tray glyph size, 0 for Explorer's own
+        double m_iconSpace = 0; // added beside each tray icon
         HWND m_control = nullptr;
     };
 

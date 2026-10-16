@@ -66,7 +66,14 @@ Right-click the tray icon for:
 - **Spring:** Snappy or Smooth.
 - **Preview animation** and an **Input monitor** that shows your touches live.
 - **Start at sign-in** and **Run as administrator**.
-- **Taskbar** (all off unless you turn them on): **Hide Start button** (the Windows key still opens Start), **Hide the taskbar's edge line** (the hairline where it meets the desktop), and **Hide a top taskbar in Mission Control** (a taskbar moved to the top of the screen slides away as Mission Control opens, and the overview uses its space, as the menu bar does on a Mac). The first two work inside Explorer: TrackSwipe loads a small helper into it only once one of them is on, and puts the taskbar back when they're turned off or TrackSwipe quits.
+- **Taskbar** (all off unless you turn them on):
+  - **Hide Start button** (the Windows key still opens Start). On a left-aligned taskbar the app buttons then start as far from the edge as the clock ends from the other.
+  - **Hide the taskbar's edge line** (the hairline where it meets the desktop).
+  - **Hide the open-app indicators** (the short lines under open apps' buttons; with labels shown, the label and highlight say as much).
+  - **Larger tray icons** (the network, volume, battery and overflow icons drawn half as large again and spaced out, closer to a Mac's menu bar; the clock stays where it is).
+  - **Hide a top taskbar in Mission Control** (a taskbar moved to the top of the screen slides away as Mission Control opens, and the overview uses its space, as the menu bar does on a Mac).
+
+  All but the last work inside Explorer: TrackSwipe loads a small helper into it only once one of them is on, changes only how those parts look, and puts the taskbar back when they're turned off or TrackSwipe quits.
 
 ## Uninstall
 

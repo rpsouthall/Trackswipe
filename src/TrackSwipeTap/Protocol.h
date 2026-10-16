@@ -9,7 +9,7 @@ namespace TrackSwipeTap
 
     // The DLL's message-only window inside Explorer, and the messages it accepts.
     // Versioned: TrackSwipe asks an older copy still loaded in Explorer to stand down before loading this one.
-    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.3";
+    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.8";
     /// wParam 1 hides the Start button, 0 gives it back to Explorer. lParam: space to leave before the first app button
     /// while it's hidden, in hundredths of an effective pixel (so a left-aligned taskbar starts as far in as the clock ends).
     inline constexpr UINT StartButton = WM_APP + 1;
@@ -19,4 +19,9 @@ namespace TrackSwipeTap
     inline constexpr UINT Query = WM_APP + 3;
     /// Development aid: writes the taskbar's XAML tree to %LOCALAPPDATA%\TrackSwipe\taskbar-tree.txt.
     inline constexpr UINT Dump = WM_APP + 4;
+    /// Larger system tray icons (the overflow chevron, network, volume, battery): wParam is their glyph size and lParam
+    /// the space added beside each, both in hundredths of an effective pixel. wParam 0 gives them back to Explorer.
+    inline constexpr UINT TrayIcons = WM_APP + 5;
+    /// wParam 1 hides the running-app indicators under taskbar buttons, 0 gives them back.
+    inline constexpr UINT Indicators = WM_APP + 6;
 }
