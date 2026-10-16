@@ -781,7 +781,12 @@ namespace
                 bitmap = writeable;
             }
             m_iconCache.insert_or_assign(key, bitmap); // kept even when empty, so a missing icon isn't looked up again
-            for (auto& item : m_appIcons) if (item.key == pixels.key) ApplyAppIcon(item);
+            for (auto& item : m_appIcons)
+            {
+                if (auto image = item.image.get())
+                    if (auto current = ButtonKeyOf(image); !current.empty()) item.key = current;
+                if (item.key == pixels.key) ApplyAppIcon(item);
+            }
         }
 
     private:
@@ -799,6 +804,15 @@ namespace
             Windows::Foundation::IInspectable margin{ nullptr };
         };
 
+        /// Sets an icon's bitmap without its change callback taking it for Explorer's.
+        void SetSource(Controls::Image const& image, Media::ImageSource const& source)
+        {
+            m_settingSource = true;
+            try { image.Source(source); }
+            catch (...) {}
+            m_settingSource = false;
+        }
+
         static FrameworkElement ButtonOf(DependencyObject node)
         {
             for (auto depth = 0; node && depth < 8; ++depth, node = Media::VisualTreeHelper::GetParent(node))
@@ -810,8 +824,22 @@ namespace
         void SpaceButton(AppIcon& item)
         {
             auto button = item.button.get();
-            if (!button) item.button = make_weak(button = ButtonOf(item.image.get()));
-            if (!button) return;
+            if (!button)
+            {
+                item.button = make_weak(button = ButtonOf(item.image.get()));
+                if (!button) return;
+                // Handed to another app (its automation ID changes): show that app's icon.
+                button.RegisterPropertyChangedCallback(Automation::AutomationProperties::AutomationIdProperty(), [this](DependencyObject const& sender, DependencyProperty const&)
+                {
+                    try
+                    {
+                        if (m_appIconSize <= 0) return;
+                        for (auto& other : m_appIcons)
+                            if (auto b = other.button.get(); b && b == sender) { ApplyAppIcon(other); return; }
+                    }
+                    catch (...) {}
+                });
+            }
             if (m_appSpacing > 0)
             {
                 if (!item.spaced) { item.margin = button.ReadLocalValue(FrameworkElement::MarginProperty()); item.spaced = true; }
@@ -874,6 +902,8 @@ namespace
         {
             auto image = item.image.get();
             if (!image) return;
+            // Explorer reuses buttons for other apps, so which app this is is read every time.
+            if (auto key = ButtonKeyOf(image); !key.empty()) item.key = key;
             if (!item.watched)
             {
                 item.watched = true;
@@ -884,19 +914,17 @@ namespace
                     try
                     {
                         auto i = sender.try_as<Controls::Image>();
-                        if (!i) return;
+                        if (!i || m_settingSource) return; // ours, being set
                         for (auto& item : m_appIcons)
                         {
                             if (item.image.get() != i) continue;
-                            auto source = i.Source();
-                            if (source && source == item.ours) return; // ours, just set
-                            item.original = source;
+                            item.original = i.Source();
                             item.ours = nullptr;
-                            if (m_appIconSize > 0)
-                            {
-                                m_iconCache.erase(std::make_pair(item.key, PixelsOf(i)));
-                                ApplyAppIcon(item);
-                            }
+                            // Buttons are reused for other apps: only a new bitmap for the same app means its icon
+                            // changed, and the shell's should be fetched again.
+                            auto key = ButtonKeyOf(i);
+                            if (!key.empty() && key == item.key) m_iconCache.erase(std::make_pair(item.key, PixelsOf(i)));
+                            if (m_appIconSize > 0) ApplyAppIcon(item);
                             return;
                         }
                     }
@@ -915,16 +943,24 @@ namespace
                 image.Width(m_appIconSize);
                 image.Height(m_appIconSize);
                 auto key = std::make_pair(item.key, PixelsOf(image));
-                if (auto cached = m_iconCache.find(key); cached != m_iconCache.end())
+                auto cached = m_iconCache.find(key);
+                Media::ImageSource wanted = cached != m_iconCache.end() ? cached->second : nullptr;
+                if (wanted)
                 {
-                    if (cached->second && image.Source() != cached->second)
+                    if (image.Source() != wanted)
                     {
                         if (!item.ours) item.original = image.Source();
-                        item.ours = cached->second;
-                        image.Source(cached->second);
+                        item.ours = wanted;
+                        SetSource(image, wanted);
                     }
                 }
-                else if (m_control && m_iconPending.insert(key).second)
+                else if (item.ours)
+                {
+                    // Showing an icon fetched for the app this button had before: back to Explorer's own for now.
+                    item.ours = nullptr;
+                    SetSource(image, item.original);
+                }
+                if (cached == m_iconCache.end() && m_control && m_iconPending.insert(key).second)
                 {
                     std::thread([control = m_control, key]
                     {
@@ -947,14 +983,14 @@ namespace
                 };
                 restore(FrameworkElement::WidthProperty(), item.width);
                 restore(FrameworkElement::HeightProperty(), item.height);
-                if (item.ours && image.Source() == item.ours && item.original) image.Source(item.original);
+                if (item.ours && image.Source() == item.ours && item.original) SetSource(image, item.original);
                 item.ours = nullptr;
             }
         }
 
         // ---- Diagnostics --------------------------------------------------------------------------------
 
-        static void DumpElement(DependencyObject const& node, UIElement const& frame, int depth, std::wstring& out)
+        void DumpElement(DependencyObject const& node, UIElement const& frame, int depth, std::wstring& out)
         {
             std::wstring line(depth * 2, L' ');
             line += get_class_name(node);
@@ -985,6 +1021,8 @@ namespace
                     {
                         line += std::format(L" source {}", std::wstring_view(get_class_name(source)));
                         if (auto bitmap = source.try_as<Media::Imaging::BitmapSource>()) line += std::format(L" {}x{}px", bitmap.PixelWidth(), bitmap.PixelHeight());
+                        for (auto const& [key, cached] : m_iconCache)
+                            if (cached && cached == source) { line += std::format(L" for [{}]", key.first); break; }
                         if (auto decoded = source.try_as<Media::Imaging::BitmapImage>())
                         {
                             line += std::format(L" decode {}x{}", decoded.DecodePixelWidth(), decoded.DecodePixelHeight());
@@ -1067,6 +1105,7 @@ namespace
         double m_appIconSize = 0; // app button icons' size, 0 for Explorer's own
         double m_appSpacing = 0;  // added between app buttons
         Windows::UI::ViewManagement::UISettings m_uiSettings{ nullptr };
+        bool m_settingSource = false; // an app icon's bitmap is being set by TrackSwipe
         std::map<std::pair<std::wstring, int>, Media::ImageSource> m_iconCache; // shell icons by button and pixel size
         std::set<std::pair<std::wstring, int>> m_iconPending;
         double m_padding = 0; // space before the first app button while Start is hidden

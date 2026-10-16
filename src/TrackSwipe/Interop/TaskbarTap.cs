@@ -11,8 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 21;
-    private const string WindowClass = "TrackSwipe.Tap.21"; // "TrackSwipe.Tap.{Version}"
+    private const int Version = 22;
+    private const string WindowClass = "TrackSwipe.Tap.22"; // "TrackSwipe.Tap.{Version}"
     /// <summary>Earlier versions' windows (the first unnumbered): still in Explorer until it restarts, so they're asked to stand down first.</summary>
     private static readonly string[] OlderWindowClasses = Enumerable.Range(1, Version - 1).Select(v => v == 1 ? "TrackSwipe.Tap" : $"TrackSwipe.Tap.{v}").ToArray();
 
