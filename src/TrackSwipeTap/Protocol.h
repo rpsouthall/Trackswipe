@@ -9,7 +9,7 @@ namespace TrackSwipeTap
 
     // The DLL's message-only window inside Explorer, and the messages it accepts.
     // Versioned: TrackSwipe asks an older copy still loaded in Explorer to stand down before loading this one.
-    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.18";
+    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.21";
     /// wParam 1 hides the Start button, 0 gives it back to Explorer. lParam: space to leave before the first app button
     /// while it's hidden, in hundredths of an effective pixel (so a left-aligned taskbar starts as far in as the clock ends).
     inline constexpr UINT StartButton = WM_APP + 1;
@@ -24,10 +24,13 @@ namespace TrackSwipeTap
     inline constexpr UINT TrayIcons = WM_APP + 5;
     /// wParam 1 hides the running-app indicators under taskbar buttons, 0 gives them back.
     inline constexpr UINT Indicators = WM_APP + 6;
-    /// Tray text (the clock, battery percentage) and app buttons' titles, to go with larger icons: wParam its size and lParam how far to move it
-    /// down (negative: up), both in hundredths of an effective pixel. wParam 0 gives it back to Explorer.
+    /// Tray text (the clock, battery percentage) and app buttons' titles, to go with larger icons: wParam its size (or
+    /// FollowWindows) and lParam how far to move it down (negative: up), both in hundredths of an effective pixel.
+    /// wParam 0 gives it back to Explorer.
     inline constexpr UINT TrayText = WM_APP + 7;
-    /// App buttons' icons: wParam their size in hundredths of an effective pixel (sharp, from the shell's own icons),
-    /// 0 gives them back to Explorer.
+    /// TrayText's wParam for text that keeps Windows' size (and so follows the system's Text size setting), only aligned.
+    inline constexpr WPARAM FollowWindows = 1;
+    /// App buttons' icons: wParam their size and lParam the space added between buttons, both in hundredths of an
+    /// effective pixel (icons drawn sharp from the shell's own). wParam 0 gives them back to Explorer.
     inline constexpr UINT AppIcons = WM_APP + 8;
 }

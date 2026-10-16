@@ -23,6 +23,7 @@
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.Storage.Streams.h>
+#include <winrt/Windows.UI.ViewManagement.h>
 #include <shellapi.h> // SHGetPropertyStoreForWindow (left out by WIN32_LEAN_AND_MEAN)
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -75,6 +76,8 @@ namespace
 
     /// Posted to the control window when a shell icon has loaded: lParam is an IconPixels it takes over.
     constexpr UINT IconReady = WM_APP + 40;
+    /// Posted to the control window when the system's Text size setting changes.
+    constexpr UINT TextScaleChanged = WM_APP + 41;
 
     struct IconPixels
     {
@@ -201,6 +204,7 @@ namespace
         weak_ref<T> element;
         bool watched = false;
         bool moved = false; // TrackSwipe has given it a render offset
+        bool grouped = false; // a tray slot that shares its button with others
         bool widened = false; // TrackSwipe has lifted its MaxWidth, saved here
         Windows::Foundation::IInspectable maxWidth{ nullptr };
     };
@@ -497,6 +501,13 @@ namespace
 
         static bool IsIconView(DependencyObject const& node) { return IsIconViewType(get_class_name(node)); }
 
+        static bool InQuickSettings(DependencyObject node)
+        {
+            for (auto depth = 0; node && depth < 12; ++depth, node = Media::VisualTreeHelper::GetParent(node))
+                if (auto e = node.try_as<FrameworkElement>(); e && e.Name() == L"ControlCenterButton") return true;
+            return false;
+        }
+
         static FrameworkElement SlotOf(DependencyObject node)
         {
             for (auto depth = 0; node && depth < 12; ++depth, node = Media::VisualTreeHelper::GetParent(node))
@@ -543,7 +554,12 @@ namespace
                     {
                         auto known = false;
                         for (auto& item : m_slots) if (item.element.get() == slot) { known = true; ApplySlot(item); }
-                        if (!known) { m_slots.push_back(Watched<FrameworkElement>{ make_weak(slot) }); ApplySlot(m_slots.back()); }
+                        if (!known)
+                        {
+                            m_slots.push_back(Watched<FrameworkElement>{ make_weak(slot) });
+                            m_slots.back().grouped = InQuickSettings(slot);
+                            ApplySlot(m_slots.back());
+                        }
                     }
                 return;
             }
@@ -584,7 +600,7 @@ namespace
 
         /// Extra space before the clock (a left margin on its slot): the battery's slot has little padding on its
         /// right, so at 18 px it stood 15 px from the clock, against 20 between the icons (measured on screen).
-        double ClockSpace() const { return m_iconSpace * 0.6; }
+        double ClockSpace() const { return m_iconSpace * 0.85; }
 
         /// How far (as a fraction of its size) a glyph is moved down so its ink centres on the same line as the
         /// others and the text: the overflow chevron draws below the middle of its box (measured on screen at 18 px:
@@ -619,24 +635,46 @@ namespace
         {
             auto text = item.element.get();
             if (!text) return;
-            if (!item.watched && m_textSize > 0)
+            if (!item.watched && TextSized())
             {
                 item.watched = true;
                 text.RegisterPropertyChangedCallback(Controls::TextBlock::FontSizeProperty(), [this](DependencyObject const& sender, DependencyProperty const&)
                 {
                     try
                     {
-                        if (auto t = sender.try_as<Controls::TextBlock>(); t && m_textSize > 0 && t.FontSize() != m_textSize) t.FontSize(m_textSize);
+                        if (auto t = sender.try_as<Controls::TextBlock>(); t && TextSized() && t.FontSize() != m_textSize) t.FontSize(m_textSize);
                     }
                     catch (...) {}
                 });
             }
-            if (m_textSize > 0) { if (text.FontSize() != m_textSize) text.FontSize(m_textSize); }
+            if (TextSized()) { if (text.FontSize() != m_textSize) text.FontSize(m_textSize); }
             else if (item.watched) text.ClearValue(Controls::TextBlock::FontSizeProperty());
             auto label = text.Name() == L"LabelControl";
-            // App buttons lay their titles out 0.67 lower than the clock (measured at 14 px): lift them onto its line.
-            Offset(item, 0, m_textSize > 0 ? m_textOffset - (label ? 0.67 : 0) : 0);
-            if (label) Widen(item, m_textSize > 0);
+            // App buttons lay their titles out a little lower than the clock: lift them onto its line.
+            Offset(item, 0, m_textSize > 0 ? m_textOffset - (label ? LabelLift : 0) : 0);
+            if (label) Widen(item, WidenTitle(text));
+        }
+
+        /// How far app titles are lifted onto the clock's line (measured on screen).
+        static constexpr double LabelLift = 0.67;
+
+        /// Tray text and titles are given a size of their own, rather than following Windows' (and with it, the
+        /// system's Text size setting).
+        bool TextSized() const { return m_textSize > TrackSwipeTap::FollowWindows / 100.0; }
+
+        /// The system's Text size setting (Settings, Accessibility), as a factor: 1 at 100%.
+        double TextScale() const
+        {
+            try { return m_uiSettings ? m_uiSettings.TextScaleFactor() : 1.0; }
+            catch (...) { return 1.0; }
+        }
+
+        /// Windows caps app titles at 136 px, sized for its own 12 px text at 100%: once a title is drawn larger (a
+        /// size here above 12, or a Text size above 100% that the title follows), the cap comes off so it isn't cut short.
+        bool WidenTitle(Controls::TextBlock const& text) const
+        {
+            if (m_textSize <= 0) return false;
+            return TextSized() ? m_textSize > 12 : text.IsTextScaleFactorEnabled() && TextScale() > 1.0;
         }
 
         /// App titles are capped at 136 px (sized for 12 px text), which cuts larger titles short: lift the cap so
@@ -656,7 +694,7 @@ namespace
                     {
                         try
                         {
-                            if (auto t = sender.try_as<FrameworkElement>(); t && m_textSize > 0 && t.MaxWidth() < 1e300) t.MaxWidth(std::numeric_limits<double>::infinity());
+                            if (auto t = sender.try_as<Controls::TextBlock>(); t && WidenTitle(t) && t.MaxWidth() < 1e300) t.MaxWidth(std::numeric_limits<double>::infinity());
                         }
                         catch (...) {}
                     });
@@ -705,7 +743,10 @@ namespace
         {
             auto slot = item.element.get();
             if (!slot) return;
-            if (m_iconSpace > 0) { item.watched = true; slot.Margin({ m_iconSpace / 2, 0, m_iconSpace / 2, 0 }); }
+            // Icons that share one button (network, volume and battery, in Quick Settings' button) sit closer
+            // together than separate ones: half the space.
+            auto space = item.grouped ? m_iconSpace / 2 : m_iconSpace;
+            if (m_iconSpace > 0) { item.watched = true; slot.Margin({ space / 2, 0, space / 2, 0 }); }
             else if (item.watched) { item.watched = false; slot.ClearValue(FrameworkElement::MarginProperty()); }
         }
 
@@ -716,9 +757,10 @@ namespace
         // none, Explorer's is shown enlarged. Explorer's bitmap and size are put back afterwards.
 
     public:
-        void SetAppIcons(double size)
+        void SetAppIcons(double size, double spacing)
         {
             m_appIconSize = size;
+            m_appSpacing = size > 0 ? spacing : 0;
             for (auto& frame : m_frames)
                 if (auto f = frame.get()) FindAppIcons(TopOf(f));
             std::erase_if(m_appIcons, [](auto& item) { return !item.image.get(); });
@@ -752,7 +794,36 @@ namespace
             Media::ImageSource original{ nullptr }; // Explorer's latest bitmap
             Media::ImageSource ours{ nullptr };     // the shell's, while shown
             bool watched = false;
+            weak_ref<FrameworkElement> button; // its app button, spaced from its neighbours
+            bool spaced = false;               // TrackSwipe has set the button's margin; Explorer's saved here
+            Windows::Foundation::IInspectable margin{ nullptr };
         };
+
+        static FrameworkElement ButtonOf(DependencyObject node)
+        {
+            for (auto depth = 0; node && depth < 8; ++depth, node = Media::VisualTreeHelper::GetParent(node))
+                if (get_class_name(node) == L"Taskbar.TaskListButton") return node.as<FrameworkElement>();
+            return nullptr;
+        }
+
+        /// Space between app buttons: a margin either side, so each keeps its square highlight with a gap around it.
+        void SpaceButton(AppIcon& item)
+        {
+            auto button = item.button.get();
+            if (!button) item.button = make_weak(button = ButtonOf(item.image.get()));
+            if (!button) return;
+            if (m_appSpacing > 0)
+            {
+                if (!item.spaced) { item.margin = button.ReadLocalValue(FrameworkElement::MarginProperty()); item.spaced = true; }
+                button.Margin({ m_appSpacing / 2, 0, m_appSpacing / 2, 0 });
+            }
+            else if (item.spaced)
+            {
+                item.spaced = false;
+                if (item.margin && item.margin != DependencyProperty::UnsetValue()) button.SetValue(FrameworkElement::MarginProperty(), item.margin);
+                else button.ClearValue(FrameworkElement::MarginProperty());
+            }
+        }
 
         static std::wstring ButtonKeyOf(DependencyObject node)
         {
@@ -832,6 +903,7 @@ namespace
                     catch (...) {}
                 });
             }
+            SpaceButton(item);
             if (m_appIconSize > 0)
             {
                 if (!item.sized)
@@ -903,6 +975,7 @@ namespace
                 if (auto text = element.try_as<Controls::TextBlock>())
                 {
                     line += std::format(L" font {:g} {}", text.FontSize(), std::wstring_view(text.FontFamily().Source()));
+                    if (!text.IsTextScaleFactorEnabled()) line += L" fixed"; // ignores the system's Text size
                     try { line += std::format(L" top {:.2f}", element.TransformToVisual(frame).TransformPoint({ 0, 0 }).Y); }
                     catch (...) {}
                     if (auto value = text.Text(); !value.empty() && IsIconFont(text)) line += std::format(L" glyph U+{:04X}", (unsigned)value[0]);
@@ -939,6 +1012,13 @@ namespace
             m_control = CreateWindowExW(0, TrackSwipeTap::WindowClass, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, g_module, nullptr);
             if (!m_control) return;
             SetWindowLongPtrW(m_control, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+            try
+            {
+                // Text size changes arrive on another thread: hand them to this one.
+                m_uiSettings = Windows::UI::ViewManagement::UISettings();
+                m_uiSettings.TextScaleFactorChanged([control = m_control](auto&&, auto&&) { PostMessageW(control, TextScaleChanged, 0, 0); });
+            }
+            catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
             for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
@@ -958,7 +1038,8 @@ namespace
                     case TrackSwipeTap::Dump: tap->DumpTrees(); return 1;
                     case TrackSwipeTap::TrayIcons: tap->SetTrayIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
-                    case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0); return 1;
+                    case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0, lParam / 100.0); return 1;
+                    case TextScaleChanged: for (auto& item : tap->m_texts) tap->ApplyText(item); return 1;
                     case IconReady:
                     {
                         std::unique_ptr<IconPixels> pixels(reinterpret_cast<IconPixels*>(lParam));
@@ -984,6 +1065,8 @@ namespace
         bool m_indicatorsHidden = false;
         std::vector<AppIcon> m_appIcons;
         double m_appIconSize = 0; // app button icons' size, 0 for Explorer's own
+        double m_appSpacing = 0;  // added between app buttons
+        Windows::UI::ViewManagement::UISettings m_uiSettings{ nullptr };
         std::map<std::pair<std::wstring, int>, Media::ImageSource> m_iconCache; // shell icons by button and pixel size
         std::set<std::pair<std::wstring, int>> m_iconPending;
         double m_padding = 0; // space before the first app button while Start is hidden
