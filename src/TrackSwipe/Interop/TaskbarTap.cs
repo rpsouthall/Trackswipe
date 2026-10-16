@@ -11,8 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 22;
-    private const string WindowClass = "TrackSwipe.Tap.22"; // "TrackSwipe.Tap.{Version}"
+    private const int Version = 25;
+    private const string WindowClass = "TrackSwipe.Tap.25"; // "TrackSwipe.Tap.{Version}"
     /// <summary>Earlier versions' windows (the first unnumbered): still in Explorer until it restarts, so they're asked to stand down first.</summary>
     private static readonly string[] OlderWindowClasses = Enumerable.Range(1, Version - 1).Select(v => v == 1 ? "TrackSwipe.Tap" : $"TrackSwipe.Tap.{v}").ToArray();
 
@@ -43,7 +43,7 @@ internal static unsafe class TaskbarTap
     /// first icon changes by half of each (icons grow from their centre; the first button's margin adds to the space).
     /// </summary>
     private const int AppIconSize = 2000, AppIconSpacing = 600;
-    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4, TrayIconsMessage = 0x8000 + 5, IndicatorsMessage = 0x8000 + 6, TrayTextMessage = 0x8000 + 7, AppIconsMessage = 0x8000 + 8;
+    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4, TrayIconsMessage = 0x8000 + 5, IndicatorsMessage = 0x8000 + 6, TrayTextMessage = 0x8000 + 7, AppIconsMessage = 0x8000 + 8, RetireMessage = 0x8000 + 9;
     private static readonly Guid Clsid = new("5c36979c-4b69-4ae1-9b76-9d4b249e5659");
     private const string Resource = "TrackSwipeTap.dll";
 
@@ -89,6 +89,8 @@ internal static unsafe class TaskbarTap
             // Every option any version has had; a version that doesn't know one ignores it.
             foreach (var message in new[] { StartButtonMessage, EdgeLineMessage, TrayIconsMessage, IndicatorsMessage, TrayTextMessage, AppIconsMessage })
                 SendMessageTimeoutW(window, message, 0, IntPtr.Zero, 0x0002, 2000, out _);
+            // Then stop it watching Explorer at all (versions from 1.3.3 on understand this).
+            SendMessageTimeoutW(window, RetireMessage, 0, IntPtr.Zero, 0x0002, 2000, out _);
         }
     }
 

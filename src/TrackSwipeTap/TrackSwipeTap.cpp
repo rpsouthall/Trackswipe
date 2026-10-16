@@ -29,7 +29,11 @@
 #include <shobjidl.h>
 #include <format>
 #include <limits>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <set>
 #include <string>
@@ -78,6 +82,8 @@ namespace
     constexpr UINT IconReady = WM_APP + 40;
     /// Posted to the control window when the system's Text size setting changes.
     constexpr UINT TextScaleChanged = WM_APP + 41;
+    /// The control window's timer that decides, after options change, whether to keep watching Explorer's tree.
+    constexpr UINT_PTR WatchTimer = 1;
 
     struct IconPixels
     {
@@ -182,6 +188,44 @@ namespace
         return result;
     }
 
+    /// Loads shell icons one at a time on a single background thread, which sleeps while there's nothing to load
+    /// (rather than a thread per icon, which signing in with many windows open would start dozens of at once).
+    void LoadIconLater(HWND control, std::wstring key, int size)
+    {
+        static std::mutex lock;
+        static std::condition_variable wake;
+        static std::deque<std::tuple<HWND, std::wstring, int>> queue;
+        static bool started = false;
+        {
+            std::lock_guard guard(lock);
+            queue.emplace_back(control, std::move(key), size);
+            if (!started)
+            {
+                started = true;
+                std::thread([]
+                {
+                    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+                    for (;;)
+                    {
+                        std::tuple<HWND, std::wstring, int> job;
+                        {
+                            std::unique_lock wait(lock);
+                            wake.wait(wait, [] { return !queue.empty(); });
+                            job = std::move(queue.front());
+                            queue.pop_front();
+                        }
+                        auto& [window, name, pixels] = job;
+                        auto result = std::make_unique<IconPixels>();
+                        try { *result = LoadShellIcon(name, pixels); }
+                        catch (...) { result->key = name; result->size = pixels; }
+                        if (PostMessageW(window, IconReady, 0, reinterpret_cast<LPARAM>(result.get()))) result.release();
+                    }
+                }).detach();
+            }
+        }
+        wake.notify_one();
+    }
+
     DependencyObject TopOf(DependencyObject node)
     {
         while (auto parent = Media::VisualTreeHelper::GetParent(node)) node = parent;
@@ -220,21 +264,42 @@ namespace
                 m_diagnostics = nullptr;
                 if (!site) return S_OK;
                 m_diagnostics = m_site.as<IXamlDiagnostics>();
-                // Advising from this thread hangs: XAML replays the existing tree on the UI thread, which is
-                // waiting for this call. Advise from another thread; the callbacks still arrive on the UI thread.
-                std::thread([self = get_strong()]
-                {
-                    try
-                    {
-                        auto hr = self->m_diagnostics.as<IVisualTreeService3>()->AdviseVisualTreeChange(self.get());
-                        if (FAILED(hr)) Note(std::format(L"watching the taskbar failed: 0x{:08X}", (unsigned)hr));
-                    }
-                    catch (hresult_error const& e) { Note(std::format(L"watching the taskbar failed: 0x{:08X}", (unsigned)e.code().value)); }
-                    catch (...) { Note(L"watching the taskbar failed"); }
-                }).detach();
+                Watch(true);
                 return S_OK;
             }
             catch (...) { return to_hresult(); }
+        }
+
+        /// Starts or stops XAML telling this DLL about every element Explorer adds. While every option is off (or a
+        /// newer TrackSwipe has taken over) it's stopped, so the DLL does nothing at all in Explorer.
+        void Watch(bool on)
+        {
+            if (on == m_watching || (on && m_retired) || !m_diagnostics) return;
+            m_watching = on;
+            // Advising from the UI thread hangs: XAML replays the existing tree on it, and it's waiting for this call.
+            // So both are done from another thread; the callbacks still arrive on the UI thread.
+            std::thread([self = get_strong(), on]
+            {
+                try
+                {
+                    auto service = self->m_diagnostics.as<IVisualTreeService3>();
+                    auto hr = on ? service->AdviseVisualTreeChange(self.get()) : service->UnadviseVisualTreeChange(self.get());
+                    if (FAILED(hr)) Note(std::format(L"{} watching the taskbar failed: 0x{:08X}", on ? L"starting" : L"stopping", (unsigned)hr));
+                }
+                catch (hresult_error const& e) { Note(std::format(L"watching the taskbar failed: 0x{:08X}", (unsigned)e.code().value)); }
+                catch (...) { Note(L"watching the taskbar failed"); }
+            }).detach();
+        }
+
+        bool AnyOption() const
+        {
+            return m_startHidden || m_edgeHidden || m_indicatorsHidden || m_iconSize > 0 || m_textSize > 0 || m_appIconSize > 0;
+        }
+
+        /// After options change (they arrive one message at a time), decide a moment later whether to keep watching.
+        void OptionsChanged()
+        {
+            if (m_control) SetTimer(m_control, WatchTimer, 2000, nullptr);
         }
 
         HRESULT STDMETHODCALLTYPE GetSite(REFIID riid, void** site) noexcept override
@@ -258,6 +323,7 @@ namespace
                 auto isLabel = element.Name && std::wstring_view(element.Name) == L"LabelControl"; // an app button's title
                 auto isAppIcon = type == L"Windows.UI.Xaml.Controls.Image" && element.Name && std::wstring_view(element.Name) == L"Icon";
                 if (!isFrame && !isTrayIcon && !isIndicator && !isLabel && !isAppIcon && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
+                if (++m_added % 64 == 0) Prune();
                 EnsureControlWindow();
                 Windows::Foundation::IInspectable object;
                 if (FAILED(m_diagnostics->GetIInspectableFromHandle(element.Handle, reinterpret_cast<::IInspectable**>(put_abi(object))))) return S_OK;
@@ -278,6 +344,7 @@ namespace
 
         void SetStartHidden(bool hidden, double padding)
         {
+            OptionsChanged();
             m_startHidden = hidden;
             m_padding = hidden ? padding : 0;
             for (auto& item : m_buttons) Apply(item, m_startHidden);
@@ -286,6 +353,7 @@ namespace
 
         void SetEdgeHidden(bool hidden)
         {
+            OptionsChanged();
             m_edgeHidden = hidden;
             for (auto& frame : m_frames) FindEdge(frame);
             for (auto& item : m_edges) Apply(item, m_edgeHidden);
@@ -293,6 +361,7 @@ namespace
 
         void SetIndicatorsHidden(bool hidden)
         {
+            OptionsChanged();
             m_indicatorsHidden = hidden;
             for (auto& frame : m_frames)
                 if (auto f = frame.get()) FindIndicators(TopOf(f));
@@ -302,6 +371,7 @@ namespace
 
         void SetTrayIcons(double size, double space)
         {
+            OptionsChanged();
             m_iconSize = size;
             m_iconSpace = size > 0 ? space : 0;
             for (auto& frame : m_frames)
@@ -315,6 +385,7 @@ namespace
         /// Tray text and app buttons' titles, so all the taskbar's text matches the clock.
         void SetTrayText(double size, double offset)
         {
+            OptionsChanged();
             m_textSize = size;
             m_textOffset = size > 0 ? offset : 0;
             for (auto& frame : m_frames)
@@ -404,6 +475,7 @@ namespace
         {
             if (IsStartButton(element)) { TrackButton(element); return; }
             // The automation ID may only be set once the button is loaded: look again then.
+            if (!FirstHook(element)) return;
             element.Loaded([this, weak = make_weak(element)](auto&&, auto&&)
             {
                 try { if (auto button = weak.get(); button && IsStartButton(button)) TrackButton(button); }
@@ -518,6 +590,7 @@ namespace
         void AddTrayIcon(FrameworkElement const& icon)
         {
             // Its glyphs come with its template: look once it has loaded.
+            if (!FirstHook(icon)) return;
             icon.Loaded([this, weak = make_weak(icon)](auto&&, auto&&)
             {
                 try { if (auto i = weak.get(); i && (m_iconSize > 0 || m_textSize > 0)) ScaleTray(i); }
@@ -759,6 +832,7 @@ namespace
     public:
         void SetAppIcons(double size, double spacing)
         {
+            OptionsChanged();
             m_appIconSize = size;
             m_appSpacing = size > 0 ? spacing : 0;
             for (auto& frame : m_frames)
@@ -787,6 +861,7 @@ namespace
                     if (auto current = ButtonKeyOf(image); !current.empty()) item.key = current;
                 if (item.key == pixels.key) ApplyAppIcon(item);
             }
+            TrimIconCache();
         }
 
     private:
@@ -811,6 +886,39 @@ namespace
             try { image.Source(source); }
             catch (...) {}
             m_settingSource = false;
+        }
+
+        /// Whether element hasn't had a Loaded handler from this DLL yet (watching again replays the whole tree).
+        bool FirstHook(FrameworkElement const& element)
+        {
+            for (auto& weak : m_hooked) if (weak.get() == element) return false;
+            m_hooked.push_back(make_weak(element));
+            return true;
+        }
+
+        /// Forgets elements Explorer has discarded.
+        void Prune()
+        {
+            auto dead = [](auto const& item) { return !item.element.get(); };
+            std::erase_if(m_buttons, dead);
+            std::erase_if(m_edges, dead);
+            std::erase_if(m_indicators, dead);
+            std::erase_if(m_glyphs, dead);
+            std::erase_if(m_slots, dead);
+            std::erase_if(m_texts, dead);
+            std::erase_if(m_clockSlots, dead);
+            std::erase_if(m_appIcons, [](auto const& item) { return !item.image.get(); });
+            std::erase_if(m_frames, [](auto const& weak) { return !weak.get(); });
+            std::erase_if(m_hooked, [](auto const& weak) { return !weak.get(); });
+            TrimIconCache();
+        }
+
+        /// Keeps only the icons of apps that have a button now, so the cache doesn't grow with every window ever opened.
+        void TrimIconCache()
+        {
+            std::set<std::wstring> live;
+            for (auto& item : m_appIcons) if (item.image.get()) live.insert(item.key);
+            std::erase_if(m_iconCache, [&](auto const& entry) { return !live.contains(entry.first.first); });
         }
 
         static FrameworkElement ButtonOf(DependencyObject node)
@@ -864,11 +972,12 @@ namespace
         void AddAppIcon(Controls::Image const& image)
         {
             // Its button may not be its ancestor yet: look once it has loaded too.
-            image.Loaded([this, weak = make_weak(image)](auto&&, auto&&)
-            {
-                try { if (auto i = weak.get(); i && m_appIconSize > 0) TrackAppIcon(i); }
-                catch (...) {}
-            });
+            if (FirstHook(image))
+                image.Loaded([this, weak = make_weak(image)](auto&&, auto&&)
+                {
+                    try { if (auto i = weak.get(); i && m_appIconSize > 0) TrackAppIcon(i); }
+                    catch (...) {}
+                });
             if (m_appIconSize > 0) TrackAppIcon(image);
         }
 
@@ -920,10 +1029,8 @@ namespace
                             if (item.image.get() != i) continue;
                             item.original = i.Source();
                             item.ours = nullptr;
-                            // Buttons are reused for other apps: only a new bitmap for the same app means its icon
-                            // changed, and the shell's should be fetched again.
-                            auto key = ButtonKeyOf(i);
-                            if (!key.empty() && key == item.key) m_iconCache.erase(std::make_pair(item.key, PixelsOf(i)));
+                            // A new bitmap from Explorer (a reused button, or a redraw): show the shell's icon for
+                            // whichever app the button holds now. It's cached, so this fetches nothing again.
                             if (m_appIconSize > 0) ApplyAppIcon(item);
                             return;
                         }
@@ -961,17 +1068,8 @@ namespace
                     SetSource(image, item.original);
                 }
                 if (cached == m_iconCache.end() && m_control && m_iconPending.insert(key).second)
-                {
-                    std::thread([control = m_control, key]
-                    {
-                        auto com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
-                        auto pixels = std::make_unique<IconPixels>();
-                        try { *pixels = LoadShellIcon(key.first, key.second); }
-                        catch (...) { pixels->key = key.first; pixels->size = key.second; }
-                        if (com) CoUninitialize();
-                        if (PostMessageW(control, IconReady, 0, reinterpret_cast<LPARAM>(pixels.get()))) pixels.release();
-                    }).detach();
-                }
+                    LoadIconLater(m_control, key.first, key.second);
+
             }
             else if (item.sized)
             {
@@ -1058,7 +1156,7 @@ namespace
             }
             catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -1077,6 +1175,12 @@ namespace
                     case TrackSwipeTap::TrayIcons: tap->SetTrayIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0, lParam / 100.0); return 1;
+                    case WM_TIMER:
+                        if (wParam != WatchTimer) break;
+                        KillTimer(window, WatchTimer);
+                        tap->Watch(tap->AnyOption());
+                        return 0;
+                    case TrackSwipeTap::Retire: tap->m_retired = true; tap->Watch(false); return 1;
                     case TextScaleChanged: for (auto& item : tap->m_texts) tap->ApplyText(item); return 1;
                     case IconReady:
                     {
@@ -1106,6 +1210,10 @@ namespace
         double m_appSpacing = 0;  // added between app buttons
         Windows::UI::ViewManagement::UISettings m_uiSettings{ nullptr };
         bool m_settingSource = false; // an app icon's bitmap is being set by TrackSwipe
+        bool m_watching = false;      // XAML is telling this DLL about new elements
+        bool m_retired = false;       // a newer TrackSwipe's DLL has taken over
+        unsigned m_added = 0;         // elements tracked, for pruning now and then
+        std::vector<weak_ref<FrameworkElement>> m_hooked; // elements given a Loaded handler
         std::map<std::pair<std::wstring, int>, Media::ImageSource> m_iconCache; // shell icons by button and pixel size
         std::set<std::pair<std::wstring, int>> m_iconPending;
         double m_padding = 0; // space before the first app button while Start is hidden
