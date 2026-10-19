@@ -16,6 +16,12 @@ public sealed class GestureEngine
     private const double VelocityWindow = 0.1;
     /// <summary>How far (mm) fingers may come back after a flick's fast part and still count as rolling off the pad.</summary>
     private const double FlickRollBackMm = 1.5;
+    /// <summary>
+    /// How long after the first finger lifts the decision still uses the moment it lifted. Movement in between is the
+    /// fingers leaving the pad (fingertips roll back a few millimetres as they go), not the gesture; a lift that takes
+    /// longer is fingers carrying on with fewer, and counts as before.
+    /// </summary>
+    private const double LiftWindow = 0.15;
 
     private readonly Dictionary<int, (double X, double Y)> _previous = new();
     private readonly VelocityTracker _velocity = new(VelocityWindow);
@@ -24,12 +30,16 @@ public sealed class GestureEngine
     private SettleMotion? _settleMotion;
     private SettleMotion? _interruptedMotion;
     private double _interruptedStarted, _interruptedPosition;
-    /// <summary>When a caught swipe was moved on to its target desktop: how far the gesture's origin moved (±1).</summary>
+    /// <summary>When a caught swipe was moved on to its target desktop: how far the gesture's origin moved (Ãƒâ€šÃ‚Â±1).</summary>
     private double _interruptedShift;
     private double _travelX, _travelY;
     private double _lastFrameTime = double.NegativeInfinity;
     private double _lastTickTime;
     private double _target;
+    /// <summary>When the first finger of a tracked gesture lifted (NaN while all are down), and the progress then.</summary>
+    private double _liftAt = double.NaN, _liftProgress;
+    /// <summary>When this touch caught a swipe and moved it on to its desktop: which way (Ã‚Â±1, else 0), and the progress then.</summary>
+    private double _caughtShift, _caughtFrom;
 
     public GestureEngine(GestureOptions? options = null) => Options = options ?? new GestureOptions();
 
@@ -128,6 +138,8 @@ public sealed class GestureEngine
                 break;
 
             case GesturePhase.Tracking:
+                if (count < fingers && double.IsNaN(_liftAt)) { _liftAt = frame.Time; _liftProgress = Progress; }
+                else if (count >= fingers) _liftAt = double.NaN;
                 _travelX += dx;
                 _travelY += dy;
                 UpdateProgress(frame.Time);
@@ -153,6 +165,9 @@ public sealed class GestureEngine
                     _interruptedShift = _target;
                 DisplayProgress = _interruptedPosition - _interruptedShift;
                 Progress = Unshape(DisplayProgress);
+                _caughtShift = _interruptedShift;
+                _caughtFrom = Progress;
+                _liftAt = double.NaN;
                 SetTravel(Progress);
                 _velocity.Clear();
                 _flick.Clear();
@@ -221,6 +236,8 @@ public sealed class GestureEngine
         Axis = GestureAxis.None;
         _settleMotion = null;
         _interruptedMotion = null;
+        _liftAt = double.NaN;
+        _caughtShift = 0;
         Progress = DisplayProgress = Velocity = 0;
         _presentation.Reset();
         _previous.Clear();
@@ -273,6 +290,8 @@ public sealed class GestureEngine
     {
         Axis = axis;
         Phase = GesturePhase.Tracking;
+        _liftAt = double.NaN;
+        _caughtShift = 0;
         _velocity.Clear();
         _flick.Clear();
         _presentation.Reset();
@@ -284,8 +303,12 @@ public sealed class GestureEngine
     private void UpdateProgress(double time)
     {
         Progress = Axis == GestureAxis.Horizontal ? -_travelX / Options.FullSwipeMm : -_travelY / Options.FullSwipeVerticalMm;
-        _velocity.Add(time, Progress);
-        _flick.Add(time, Progress);
+        // The panel follows the fingers to the end, but what decides the gesture stops at the first lift (LiftWindow).
+        if (double.IsNaN(_liftAt) || time - _liftAt > LiftWindow)
+        {
+            _velocity.Add(time, Progress);
+            _flick.Add(time, Progress);
+        }
         _presentation.Add(time, Progress);
         Velocity = _velocity.Estimate(time);
         DisplayProgress = Shape(Progress);
@@ -294,18 +317,30 @@ public sealed class GestureEngine
     private void Release(double time)
     {
         _interruptedMotion = null;
-        var p = Progress;
+        // Judged as of the first finger lifting, if the rest followed quickly: not by the fingers leaving the pad.
+        var lifting = !double.IsNaN(_liftAt) && time - _liftAt <= LiftWindow;
+        var decidedAt = lifting ? _liftAt : time;
+        var p = lifting ? _liftProgress : Progress;
         // A flick is judged by how fast the fingers went just before lifting (unless they then turned back), not by the
         // average over the slowing, pause and roll-off that follow it, which made quick flicks spring back.
         var fullSwipe = Axis == GestureAxis.Horizontal ? Options.FullSwipeMm : Options.FullSwipeVerticalMm;
-        var average = _velocity.Estimate(time);
-        var v = _flick.Peak(time, FlickRollBackMm / fullSwipe) is { } peak && Math.Abs(peak) > Math.Abs(average) ? peak : average;
-        var flick = Options.FlickVelocity;
+        var average = _velocity.Estimate(decidedAt);
+        var v = _flick.Peak(decidedAt, FlickRollBackMm / fullSwipe) is { } peak && Math.Abs(peak) > Math.Abs(average) ? peak : average;
+        var flick = Axis == GestureAxis.Horizontal ? Options.FlickVelocity : Options.VerticalFlickVelocity;
         var threshold = Axis == GestureAxis.Horizontal ? Options.CommitProgress : Options.VerticalCommitProgress;
 
         var positive = CanGoPositive && ((p >= threshold && v > -flick) || (v >= flick && p >= Options.MinFlickProgress));
         var negative = CanGoNegative && ((p <= -threshold && v < flick) || (v <= -flick && p <= -Options.MinFlickProgress));
         _target = positive ? 1 : negative ? -1 : 0;
+        // A flick that caught a swipe on its way, and moved it on to its desktop, carries on to the next one in the same
+        // direction: each swipe of a quick series is one desktop, though the touch began behind the new origin.
+        if (_target == 0 && _caughtShift != 0)
+        {
+            var direction = Math.Sign(_caughtShift);
+            if (Math.Sign(v) == direction && Math.Abs(v) >= flick && (p - _caughtFrom) * direction >= Options.MinFlickProgress &&
+                (direction > 0 ? CanGoPositive : CanGoNegative))
+                _target = direction;
+        }
 
         // Hand the release velocity to the spring, as seen through the rubber band.
         const double h = 1e-3;

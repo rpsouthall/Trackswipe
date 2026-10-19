@@ -20,8 +20,11 @@ public sealed class GestureOptions
     /// <summary>Progress past which a slow release commits.</summary>
     public double CommitProgress { get; set; } = 0.5;
 
-    /// <summary>Release velocity (progress per second) that counts as a flick.</summary>
-    public double FlickVelocity { get; set; } = 1.5;
+    /// <summary>Release velocity (progress per second) that counts as a sideways flick: 1.1 is about 60 mm/s.</summary>
+    public double FlickVelocity { get; set; } = 1.1;
+
+    /// <summary>As <see cref="FlickVelocity"/>, up and down (Mission Control, show desktop): firmer, so a drift doesn't fire them.</summary>
+    public double VerticalFlickVelocity { get; set; } = 1.5;
 
     /// <summary>Minimum progress for a flick to commit, so a twitch doesn't switch desktops.</summary>
     public double MinFlickProgress { get; set; } = 0.05;

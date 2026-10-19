@@ -25,14 +25,23 @@ public sealed class FlickHistory
     }
 
     /// <summary>
+    /// Longest the fingers may come back before lifting and still count as rolling off the pad rather than turning.
+    /// </summary>
+    public const double RollOffTime = 0.05;
+
+    /// <summary>
     /// The fastest movement (progress per second, signed) over any <see cref="Span"/> ending within <see cref="Window"/>
-    /// of <paramref name="now"/>, or null if there's none, or if the fingers have since come back from it by more than
-    /// <paramref name="rollBack"/> (a deliberate turn, not fingers rolling off the pad).
+    /// of <paramref name="now"/>, or null if there's none, or if the fingers have since turned back from it: come back by
+    /// more than <paramref name="rollBack"/> for longer than <see cref="RollOffTime"/>. Fingertips leaving the pad after a
+    /// quick flick typically snap back 2 to 4 mm in a few milliseconds; a deliberate turn takes longer. (A snap back that
+    /// undoes nearly all of a flick still doesn't switch: the engine wants some net travel for a flick too.)
     /// </summary>
     public double? Peak(double now, double rollBack)
     {
-        double best = 0;
-        var bestEnd = -1;
+        // The fastest stretch each way. The one that counts is in the direction the fingers went overall: a quick snap
+        // back as they leave the pad can be faster than the flick itself, but it's the flick that was meant.
+        double forward = 0, backward = 0;
+        int forwardEnd = -1, backwardEnd = -1;
         for (var end = 1; end < _samples.Count; end++)
         {
             if (now - _samples[end].Time > Window) continue;
@@ -40,13 +49,25 @@ public sealed class FlickHistory
             while (start >= 0 && _samples[end].Time - _samples[start].Time < Span) start--;
             if (start < 0) continue;
             var velocity = (_samples[end].Value - _samples[start].Value) / (_samples[end].Time - _samples[start].Time);
-            if (Math.Abs(velocity) > Math.Abs(best)) { best = velocity; bestEnd = end; }
+            if (velocity > forward) { forward = velocity; forwardEnd = end; }
+            if (velocity < backward) { backward = velocity; backwardEnd = end; }
         }
-        if (bestEnd < 0 || best == 0) return null;
+        if (forwardEnd < 0 && backwardEnd < 0) return null;
+        var net = _samples.Count > 0 ? _samples[^1].Value - _samples[0].Value : 0;
+        var useForward = backwardEnd < 0 || (forwardEnd >= 0 && (net > 0 || (net == 0 && forward >= -backward)));
+        var best = useForward ? forward : backward;
+        var bestEnd = useForward ? forwardEnd : backwardEnd;
+        if (best == 0) return null;
 
         var direction = Math.Sign(best);
         var furthest = double.NegativeInfinity;
         for (var i = bestEnd; i < _samples.Count; i++) furthest = Math.Max(furthest, _samples[i].Value * direction);
-        return furthest - _samples[^1].Value * direction > rollBack ? null : best;
+        var back = furthest - _samples[^1].Value * direction;
+        if (back <= rollBack) return best;
+        // When the fingers started coming back: the last moment they were still (within the allowance) at their furthest.
+        var turnedAt = _samples[bestEnd].Time;
+        for (var i = bestEnd; i < _samples.Count; i++)
+            if (_samples[i].Value * direction >= furthest - rollBack) turnedAt = _samples[i].Time;
+        return now - turnedAt > RollOffTime ? null : best;
     }
 }
