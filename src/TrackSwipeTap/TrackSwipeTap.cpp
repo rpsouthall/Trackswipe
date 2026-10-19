@@ -96,8 +96,7 @@ namespace
         return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"SystemUsesLightTheme",
             RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS && value != 0;
     }
-    /// The control window's timer that decides, after options change, whether to keep watching Explorer's tree.
-    constexpr UINT_PTR WatchTimer = 1;
+
 
     struct IconPixels
     {
@@ -390,42 +389,36 @@ namespace
                 m_diagnostics = nullptr;
                 if (!site) return S_OK;
                 m_diagnostics = m_site.as<IXamlDiagnostics>();
-                Watch(true);
+                StartWatching();
                 return S_OK;
             }
             catch (...) { return to_hresult(); }
         }
 
-        /// Starts or stops XAML telling this DLL about every element Explorer adds. While every option is off (or a
-        /// newer TrackSwipe has taken over) it's stopped, so the DLL does nothing at all in Explorer.
-        void Watch(bool on)
+        /// Has XAML tell this DLL about every element Explorer adds, for as long as Explorer runs. It's never stopped:
+        /// once a copy stops, XAML refuses to start any again in that Explorer (E_UNEXPECTED), so a copy with nothing to
+        /// do (every option off, or a newer one in charge) ignores the reports instead, at a string comparison each.
+        void StartWatching()
         {
-            if (on == m_watching || (on && m_retired) || !m_diagnostics) return;
-            m_watching = on;
+            if (!m_diagnostics) return;
             // Advising from the UI thread hangs: XAML replays the existing tree on it, and it's waiting for this call.
-            // So both are done from another thread; the callbacks still arrive on the UI thread.
-            std::thread([self = get_strong(), on]
+            // So it's done from another thread; the callbacks still arrive on the UI thread. Retried a few times, as
+            // XAML can refuse while Explorer is busy (loading, say).
+            std::thread([self = get_strong()]
             {
-                try
+                for (auto attempt = 1; attempt <= 5; ++attempt)
                 {
-                    auto service = self->m_diagnostics.as<IVisualTreeService3>();
-                    auto hr = on ? service->AdviseVisualTreeChange(self.get()) : service->UnadviseVisualTreeChange(self.get());
-                    if (FAILED(hr)) Note(std::format(L"{} watching the taskbar failed: 0x{:08X}", on ? L"starting" : L"stopping", (unsigned)hr));
+                    try
+                    {
+                        auto hr = self->m_diagnostics.as<IVisualTreeService3>()->AdviseVisualTreeChange(self.get());
+                        if (SUCCEEDED(hr)) return;
+                        Note(std::format(L"watching the taskbar failed (attempt {}): 0x{:08X}", attempt, (unsigned)hr));
+                    }
+                    catch (hresult_error const& e) { Note(std::format(L"watching the taskbar failed (attempt {}): 0x{:08X}", attempt, (unsigned)e.code().value)); }
+                    catch (...) { Note(L"watching the taskbar failed"); }
+                    Sleep(1000);
                 }
-                catch (hresult_error const& e) { Note(std::format(L"watching the taskbar failed: 0x{:08X}", (unsigned)e.code().value)); }
-                catch (...) { Note(L"watching the taskbar failed"); }
             }).detach();
-        }
-
-        bool AnyOption() const
-        {
-            return m_startHidden || m_edgeHidden || m_indicatorsHidden || m_iconSize > 0 || m_textSize > 0 || m_appIconSize > 0;
-        }
-
-        /// After options change (they arrive one message at a time), decide a moment later whether to keep watching.
-        void OptionsChanged()
-        {
-            if (m_control) SetTimer(m_control, WatchTimer, 2000, nullptr);
         }
 
         HRESULT STDMETHODCALLTYPE GetSite(REFIID riid, void** site) noexcept override
@@ -438,7 +431,7 @@ namespace
         {
             try
             {
-                if (mutation != Add || !element.Type) return S_OK;
+                if (mutation != Add || !element.Type || m_retired) return S_OK;
                 std::wstring_view type(element.Type);
                 // Cheap filter first: the Start button is one of the taskbar's toggle buttons; the frame is a taskbar's
                 // root; a tray icon (new, or rebuilt when its state changes) is an IconView; each app button has a
@@ -470,7 +463,6 @@ namespace
 
         void SetStartHidden(bool hidden, double padding)
         {
-            OptionsChanged();
             m_startHidden = hidden;
             m_padding = hidden ? padding : 0;
             for (auto& item : m_buttons) Apply(item, m_startHidden);
@@ -479,7 +471,6 @@ namespace
 
         void SetEdgeHidden(bool hidden)
         {
-            OptionsChanged();
             m_edgeHidden = hidden;
             for (auto& frame : m_frames) FindEdge(frame);
             for (auto& item : m_edges) Apply(item, m_edgeHidden);
@@ -487,7 +478,6 @@ namespace
 
         void SetIndicatorsHidden(bool hidden)
         {
-            OptionsChanged();
             m_indicatorsHidden = hidden;
             for (auto& frame : m_frames)
                 if (auto f = frame.get()) FindIndicators(TopOf(f));
@@ -497,7 +487,6 @@ namespace
 
         void SetTrayIcons(double size, double space)
         {
-            OptionsChanged();
             m_iconSize = size;
             m_iconSpace = size > 0 ? space : 0;
             for (auto& frame : m_frames)
@@ -511,7 +500,6 @@ namespace
         /// Tray text and app buttons' titles, so all the taskbar's text matches the clock.
         void SetTrayText(double size, double offset)
         {
-            OptionsChanged();
             m_textSize = size;
             m_textOffset = size > 0 ? offset : 0;
             for (auto& frame : m_frames)
@@ -958,7 +946,6 @@ namespace
     public:
         void SetAppIcons(double size, double spacing)
         {
-            OptionsChanged();
             m_appIconSize = size;
             m_appSpacing = size > 0 ? spacing : 0;
             for (auto& frame : m_frames)
@@ -980,7 +967,7 @@ namespace
                 writeable.Invalidate();
                 bitmap = writeable;
             }
-            m_iconCache.insert_or_assign(key, bitmap); // kept even when empty, so a missing icon isn't looked up again
+            m_iconCache.insert_or_assign(key, CachedIcon{ bitmap, ++m_iconClock }); // kept even when empty, so a missing icon isn't looked up again
             for (auto& item : m_appIcons)
             {
                 if (auto image = item.image.get())
@@ -1039,12 +1026,20 @@ namespace
             TrimIconCache();
         }
 
-        /// Keeps only the icons of apps that have a button now, so the cache doesn't grow with every window ever opened.
+        /// Most icons kept. Apps on other desktops keep theirs (so switching back shows them at once rather than
+        /// reloading), up to this many; past it, the least recently shown that no button has now go first.
+        static constexpr size_t MaxCachedIcons = 64;
+
+        /// Bounds the cache, so it doesn't grow with every window ever opened.
         void TrimIconCache()
         {
+            if (m_iconCache.size() <= MaxCachedIcons) return;
             std::set<std::wstring> live;
             for (auto& item : m_appIcons) if (item.image.get()) live.insert(item.key);
-            std::erase_if(m_iconCache, [&](auto const& entry) { return !live.contains(entry.first.first); });
+            std::vector<std::pair<unsigned long long, std::pair<std::wstring, int>>> idle;
+            for (auto const& [key, cached] : m_iconCache) if (!live.contains(key.first)) idle.emplace_back(cached.used, key);
+            std::sort(idle.begin(), idle.end());
+            for (size_t i = 0; i < idle.size() && m_iconCache.size() > MaxCachedIcons; ++i) m_iconCache.erase(idle[i].second);
         }
 
         static FrameworkElement ButtonOf(DependencyObject node)
@@ -1177,7 +1172,8 @@ namespace
                 image.Height(m_appIconSize);
                 auto key = std::make_pair(item.key, PixelsOf(image) | (m_lightTaskbar ? 0x10000 : 0));
                 auto cached = m_iconCache.find(key);
-                Media::ImageSource wanted = cached != m_iconCache.end() ? cached->second : nullptr;
+                Media::ImageSource wanted = cached != m_iconCache.end() ? cached->second.bitmap : nullptr;
+                if (cached != m_iconCache.end()) cached->second.used = ++m_iconClock;
                 if (wanted)
                 {
                     if (image.Source() != wanted)
@@ -1248,7 +1244,7 @@ namespace
                         line += std::format(L" source {}", std::wstring_view(get_class_name(source)));
                         if (auto bitmap = source.try_as<Media::Imaging::BitmapSource>()) line += std::format(L" {}x{}px", bitmap.PixelWidth(), bitmap.PixelHeight());
                         for (auto const& [key, cached] : m_iconCache)
-                            if (cached && cached == source) { line += std::format(L" for [{}]", key.first); break; }
+                            if (cached.bitmap && cached.bitmap == source) { line += std::format(L" for [{}]", key.first); break; }
                         if (auto decoded = source.try_as<Media::Imaging::BitmapImage>())
                         {
                             line += std::format(L" decode {}x{}", decoded.DecodePixelWidth(), decoded.DecodePixelHeight());
@@ -1304,12 +1300,7 @@ namespace
                     case TrackSwipeTap::TrayIcons: tap->SetTrayIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0, lParam / 100.0); return 1;
-                    case WM_TIMER:
-                        if (wParam != WatchTimer) break;
-                        KillTimer(window, WatchTimer);
-                        tap->Watch(tap->AnyOption());
-                        return 0;
-                    case TrackSwipeTap::Retire: tap->m_retired = true; tap->Watch(false); return 1;
+                    case TrackSwipeTap::Retire: tap->m_retired = true; return 1;
                     case ColorsChanged:
                         // Light and dark taskbars show different artwork for some apps.
                         if (auto light = LightTaskbar(); light != tap->m_lightTaskbar)
@@ -1349,11 +1340,16 @@ namespace
         Windows::UI::ViewManagement::UISettings m_uiSettings{ nullptr };
         bool m_settingSource = false; // an app icon's bitmap is being set by TrackSwipe
         bool m_lightTaskbar = LightTaskbar(); // which artwork Store apps' icons use
-        bool m_watching = false;      // XAML is telling this DLL about new elements
-        bool m_retired = false;       // a newer TrackSwipe's DLL has taken over
+        bool m_retired = false;       // a newer TrackSwipe's DLL has taken over: reports are ignored
         unsigned m_added = 0;         // elements tracked, for pruning now and then
         std::vector<weak_ref<FrameworkElement>> m_hooked; // elements given a Loaded handler
-        std::map<std::pair<std::wstring, int>, Media::ImageSource> m_iconCache; // shell icons by button and pixel size
+        struct CachedIcon
+        {
+            Media::ImageSource bitmap{ nullptr }; // null: there's no icon to be had
+            unsigned long long used = 0;          // when last shown (m_iconClock)
+        };
+        std::map<std::pair<std::wstring, int>, CachedIcon> m_iconCache; // shell icons by button and pixel size
+        unsigned long long m_iconClock = 0;
         std::set<std::pair<std::wstring, int>> m_iconPending;
         double m_padding = 0; // space before the first app button while Start is hidden
         std::vector<Watched<Controls::TextBlock>> m_glyphs; // tray icon glyphs

@@ -11,10 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 27;
-    private const string WindowClass = "TrackSwipe.Tap.27"; // "TrackSwipe.Tap.{Version}"
-    /// <summary>Earlier versions' windows (the first unnumbered): still in Explorer until it restarts, so they're asked to stand down first.</summary>
-    private static readonly string[] OlderWindowClasses = Enumerable.Range(1, Version - 1).Select(v => v == 1 ? "TrackSwipe.Tap" : $"TrackSwipe.Tap.{v}").ToArray();
+    private const int Version = 29;
+    private const string WindowClass = "TrackSwipe.Tap.29"; // "TrackSwipe.Tap.{Version}"
 
     /// <summary>
     /// Space before the first app button while Start is hidden, in hundredths of an effective pixel, on a left-aligned
@@ -63,6 +61,7 @@ internal static unsafe class TaskbarTap
     {
         var window = Window;
         if (window == IntPtr.Zero) return false;
+        if (!_stoodDown) StandDownOlder(); // this copy is up: the older ones can give their options back now
         SendMessageTimeoutW(window, StartButtonMessage, hideStart ? 1 : 0, (IntPtr)(hideStart && LeftAligned ? LeftAlignedPadding + (largeTrayIcons ? (AppIconSize - 1600 - AppIconSpacing) / 2 : 0) : 0), 0x0002 /* ABORTIFHUNG */, 2000, out _);
         SendMessageTimeoutW(window, EdgeLineMessage, hideEdge ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, TrayIconsMessage, largeTrayIcons ? TrayIconSize : 0, largeTrayIcons ? TrayIconSpace : 0, 0x0002, 2000, out _);
@@ -82,17 +81,24 @@ internal static unsafe class TaskbarTap
     /// <summary>Tells an earlier version's copy in Explorer to give back what it hid, so two copies never compete.</summary>
     private static void StandDownOlder()
     {
-        foreach (var name in OlderWindowClasses)
+        for (var version = 1; version < Version; version++)
         {
-            var window = FindWindowExW((IntPtr)(-3), IntPtr.Zero, name, null);
+            var window = FindWindowExW((IntPtr)(-3), IntPtr.Zero, version == 1 ? "TrackSwipe.Tap" : $"TrackSwipe.Tap.{version}", null);
             if (window == IntPtr.Zero) continue;
             // Every option any version has had; a version that doesn't know one ignores it.
             foreach (var message in new[] { StartButtonMessage, EdgeLineMessage, TrayIconsMessage, IndicatorsMessage, TrayTextMessage, AppIconsMessage })
                 SendMessageTimeoutW(window, message, 0, IntPtr.Zero, 0x0002, 2000, out _);
-            // Then stop it watching Explorer at all (versions from 1.3.3 on understand this).
-            SendMessageTimeoutW(window, RetireMessage, 0, IntPtr.Zero, 0x0002, 2000, out _);
+            // Then have it ignore Explorer from now on. Only from version 29: versions 25 to 28 (TrackSwipe 1.3.3 to
+            // 1.4.1) stop watching Explorer's tree when retired, and once one does, XAML lets no copy start watching
+            // again in that Explorer. (With their options off, they do that themselves two seconds later; by then the
+            // new copy is watching, which this is only called after.)
+            if (version >= 29) SendMessageTimeoutW(window, RetireMessage, 0, IntPtr.Zero, 0x0002, 2000, out _);
         }
+        _stoodDown = true;
     }
+
+    /// <summary>Older copies have been asked to stand down, once this version's copy was up.</summary>
+    private static bool _stoodDown;
 
     /// <summary>Taskbar icons aligned left (Settings, Taskbar behaviours) rather than centred, Windows' default.</summary>
     private static bool LeftAligned
@@ -124,7 +130,6 @@ internal static unsafe class TaskbarTap
     public static bool Load()
     {
         if (Loaded) return true;
-        StandDownOlder();
         var taskbar = FindWindowExW(IntPtr.Zero, IntPtr.Zero, "Shell_TrayWnd", null);
         if (taskbar == IntPtr.Zero) return false;
         GetWindowThreadProcessId(taskbar, out var pid);

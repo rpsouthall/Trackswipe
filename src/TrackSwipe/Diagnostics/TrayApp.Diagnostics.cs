@@ -126,7 +126,7 @@ internal sealed partial class TrayApp
     private static extern uint GetGuiResources(IntPtr process, uint flags);
 
     /// <summary>
-    /// For --diagnose-slide Â±1: a synthetic swipe sideways through the real engine and display clock that
+    /// For --diagnose-slide ±1: a synthetic swipe sideways through the real engine and display clock that
     /// commits, really switching desktops (+1 the next one, -1 the previous one), then quits.
     /// </summary>
     private void RunSlideDiagnostics(int direction, bool roundTrip = false)
