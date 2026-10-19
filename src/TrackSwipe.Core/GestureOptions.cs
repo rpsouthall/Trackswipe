@@ -26,6 +26,9 @@ public sealed class GestureOptions
     /// <summary>As <see cref="FlickVelocity"/>, up and down (Mission Control, show desktop): firmer, so a drift doesn't fire them.</summary>
     public double VerticalFlickVelocity { get; set; } = 1.5;
 
+    /// <summary>Least sideways travel (progress) that heads for a desktop: less is a twitch. 0.05 is about 2.75 mm.</summary>
+    public double MinSwipeProgress { get; set; } = 0.05;
+
     /// <summary>Minimum progress for a flick to commit, so a twitch doesn't switch desktops.</summary>
     public double MinFlickProgress { get; set; } = 0.05;
 

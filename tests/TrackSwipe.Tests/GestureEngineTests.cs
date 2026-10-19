@@ -86,13 +86,13 @@ public class GestureEngineTests
     }
 
     [Fact]
-    public void Short_slow_swipe_cancels()
+    public void A_short_slow_swipe_still_goes_to_the_next_desktop()
     {
+        // As on a Mac: heading somewhere is enough; only catching the swipe (turning back) stops it.
         var h = new GestureHarness().Move(-10, 0, 0.6).Hold(0.2).Lift();
 
-        Assert.Empty(h.Actions);
+        Assert.Equal(new[] { SwipeAction.NextDesktop }, h.Actions);
         Assert.Equal(1, h.TrackingStarts);
-        Assert.Equal(0, h.Engine.DisplayProgress);
     }
 
     [Fact]
@@ -124,12 +124,26 @@ public class GestureEngineTests
     }
 
     [Theory]
-    [InlineData(2.5, 0.2)]  // a small, slow nudge
-    [InlineData(6, 0.4)]    // a short, deliberate, slow drag
-    public void A_short_slow_drag_still_cancels(double mm, double seconds)
+    [InlineData(2, 0.2)]   // a small, slow nudge
+    [InlineData(1.5, 0.05)] // a twitch
+    public void A_twitch_does_not_switch(double mm, double seconds)
     {
         var h = new GestureHarness().Move(-mm, 0, seconds).Hold(0.05).Lift();
         Assert.Empty(h.Actions);
+    }
+
+    [Fact]
+    public void A_slow_swipe_caught_by_turning_back_returns()
+    {
+        var h = new GestureHarness().Move(-30, 0, 0.4).Move(12, 0, 0.3).Lift();
+        Assert.Empty(h.Actions);
+    }
+
+    [Fact]
+    public void Easing_off_a_little_before_lifting_is_not_catching_it()
+    {
+        var h = new GestureHarness().Move(-30, 0, 0.4).Move(2, 0, 0.1).Lift();
+        Assert.Equal(new[] { SwipeAction.NextDesktop }, h.Actions);
     }
 
     [Fact]

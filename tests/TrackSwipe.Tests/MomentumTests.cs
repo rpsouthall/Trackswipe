@@ -1,4 +1,4 @@
-﻿using TrackSwipe.Core;
+using TrackSwipe.Core;
 
 namespace TrackSwipe.Tests;
 
@@ -73,6 +73,18 @@ public class MomentumTests
         h.Fingers = 3;
         h.Hold(0.2).Lift();
         Assert.Empty(h.Actions);
+    }
+
+    [Fact]
+    public void Catching_a_swipe_on_its_way_and_pulling_back_returns_to_where_it_began()
+    {
+        // The first swipe is caught mid-slide (and completed, so its desktop is the origin now); pulling back goes back.
+        var h = ThreeFingers();
+        h.Engine.AdvanceRequested = (_, _) => true;
+        h.Move(-10, 0, 0.07).LiftBriefly(0.05);
+        h.Fingers = 3;
+        h.Move(10, 0, 0.1).Lift();
+        Assert.Equal(new[] { SwipeAction.PreviousDesktop }, h.Actions);
     }
 
     [Fact]

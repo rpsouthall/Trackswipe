@@ -30,7 +30,7 @@ public sealed class GestureEngine
     private SettleMotion? _settleMotion;
     private SettleMotion? _interruptedMotion;
     private double _interruptedStarted, _interruptedPosition;
-    /// <summary>When a caught swipe was moved on to its target desktop: how far the gesture's origin moved (Ãƒâ€šÃ‚Â±1).</summary>
+    /// <summary>When a caught swipe was moved on to its target desktop: how far the gesture's origin moved (±1).</summary>
     private double _interruptedShift;
     private double _travelX, _travelY;
     private double _lastFrameTime = double.NegativeInfinity;
@@ -38,8 +38,19 @@ public sealed class GestureEngine
     private double _target;
     /// <summary>When the first finger of a tracked gesture lifted (NaN while all are down), and the progress then.</summary>
     private double _liftAt = double.NaN, _liftProgress;
-    /// <summary>When this touch caught a swipe and moved it on to its desktop: which way (Ã‚Â±1, else 0), and the progress then.</summary>
-    private double _caughtShift, _caughtFrom;
+    /// <summary>
+    /// When this touch caught a swipe on its way: whether it moved that swipe on to its desktop (+1 or -1, else 0), the
+    /// progress it caught it at (which this touch's travel is measured from; 0 for a fresh touch), and where that swipe
+    /// was going.
+    /// </summary>
+    private double _caughtShift, _caughtFrom, _caughtTarget;
+    /// <summary>
+    /// Furthest this touch has travelled each way (progress, from <see cref="_caughtFrom"/>), and the last time it was
+    /// still within <see cref="TurnAllowanceMm"/> of each: how a swipe that was caught (turned back) is told apart.
+    /// </summary>
+    private double _furthestAhead, _furthestBehind, _nearAheadAt, _nearBehindAt;
+    /// <summary>How far fingers may come back from their furthest and still be heading on (a sideways swipe).</summary>
+    private const double TurnAllowanceMm = 3;
 
     public GestureEngine(GestureOptions? options = null) => Options = options ?? new GestureOptions();
 
@@ -167,6 +178,8 @@ public sealed class GestureEngine
                 Progress = Unshape(DisplayProgress);
                 _caughtShift = _interruptedShift;
                 _caughtFrom = Progress;
+                _caughtTarget = _target - _interruptedShift;
+                ResetTravel(frame.Time);
                 _liftAt = double.NaN;
                 SetTravel(Progress);
                 _velocity.Clear();
@@ -237,7 +250,7 @@ public sealed class GestureEngine
         _settleMotion = null;
         _interruptedMotion = null;
         _liftAt = double.NaN;
-        _caughtShift = 0;
+        _caughtShift = _caughtFrom = _caughtTarget = 0;
         Progress = DisplayProgress = Velocity = 0;
         _presentation.Reset();
         _previous.Clear();
@@ -291,7 +304,8 @@ public sealed class GestureEngine
         Axis = axis;
         Phase = GesturePhase.Tracking;
         _liftAt = double.NaN;
-        _caughtShift = 0;
+        _caughtShift = _caughtFrom = _caughtTarget = 0;
+        ResetTravel(time);
         _velocity.Clear();
         _flick.Clear();
         _presentation.Reset();
@@ -308,6 +322,12 @@ public sealed class GestureEngine
         {
             _velocity.Add(time, Progress);
             _flick.Add(time, Progress);
+            var travel = Progress - _caughtFrom;
+            var allowance = TurnAllowanceMm / (Axis == GestureAxis.Horizontal ? Options.FullSwipeMm : Options.FullSwipeVerticalMm);
+            _furthestAhead = Math.Max(_furthestAhead, travel);
+            _furthestBehind = Math.Min(_furthestBehind, travel);
+            if (travel >= _furthestAhead - allowance) _nearAheadAt = time;
+            if (travel <= _furthestBehind + allowance) _nearBehindAt = time;
         }
         _presentation.Add(time, Progress);
         Velocity = _velocity.Estimate(time);
@@ -329,17 +349,26 @@ public sealed class GestureEngine
         var flick = Axis == GestureAxis.Horizontal ? Options.FlickVelocity : Options.VerticalFlickVelocity;
         var threshold = Axis == GestureAxis.Horizontal ? Options.CommitProgress : Options.VerticalCommitProgress;
 
-        var positive = CanGoPositive && ((p >= threshold && v > -flick) || (v >= flick && p >= Options.MinFlickProgress));
-        var negative = CanGoNegative && ((p <= -threshold && v < flick) || (v <= -flick && p <= -Options.MinFlickProgress));
-        _target = positive ? 1 : negative ? -1 : 0;
-        // A flick that caught a swipe on its way, and moved it on to its desktop, carries on to the next one in the same
-        // direction: each swipe of a quick series is one desktop, though the touch began behind the new origin.
-        if (_target == 0 && _caughtShift != 0)
+        if (Axis == GestureAxis.Horizontal)
         {
-            var direction = Math.Sign(_caughtShift);
-            if (Math.Sign(v) == direction && Math.Abs(v) >= flick && (p - _caughtFrom) * direction >= Options.MinFlickProgress &&
-                (direction > 0 ? CanGoPositive : CanGoNegative))
-                _target = direction;
+            // As macOS does: a sideways swipe that heads somewhere goes there, however slow or short (past a twitch).
+            // Only catching it, turning back before lifting, stops it; nothing is worked out from speeds and distances.
+            var travel = p - _caughtFrom;
+            var heading = Math.Abs(travel) >= Options.MinSwipeProgress ? Math.Sign(travel) : 0;
+            if (heading != 0 && TurnedBack(heading, travel, decidedAt)) heading = 0;
+            double target;
+            if (heading == 0) target = _caughtTarget; // caught (or barely moved): wherever it was already going
+            else if (_caughtShift != 0) target = heading; // a quick series: one more desktop, or back to the last
+            else target = heading > 0 ? Math.Ceiling(_caughtFrom + 1e-9) : Math.Floor(_caughtFrom - 1e-9); // the next stop that way
+            target = Math.Clamp(target, -1, 1);
+            if ((target > 0 && !CanGoPositive) || (target < 0 && !CanGoNegative)) target = 0;
+            _target = target;
+        }
+        else
+        {
+            var positive = CanGoPositive && ((p >= threshold && v > -flick) || (v >= flick && p >= Options.MinFlickProgress));
+            var negative = CanGoNegative && ((p <= -threshold && v < flick) || (v <= -flick && p <= -Options.MinFlickProgress));
+            _target = positive ? 1 : negative ? -1 : 0;
         }
 
         // Hand the release velocity to the spring, as seen through the rubber band.
@@ -374,6 +403,25 @@ public sealed class GestureEngine
         _lastTickTime = _presentation.HasPresented ? Math.Max(time, _presentation.PresentedAt) : time;
         Phase = GesturePhase.Settling;
         SettlingStarted?.Invoke(_settleMotion);
+    }
+
+    /// <summary>
+    /// Whether the fingers turned back from where they were heading before the decision: came back from their furthest
+    /// by more than <see cref="TurnAllowanceMm"/> and a fifth of the way, for longer than fingers rolling off the pad take.
+    /// </summary>
+    private bool TurnedBack(int heading, double travel, double at)
+    {
+        var furthest = heading > 0 ? _furthestAhead : -_furthestBehind;
+        var back = furthest - travel * heading;
+        var allowance = TurnAllowanceMm / Options.FullSwipeMm;
+        var stillNearAt = heading > 0 ? _nearAheadAt : _nearBehindAt;
+        return back > Math.Max(allowance, furthest * 0.2) && at - stillNearAt > FlickHistory.RollOffTime;
+    }
+
+    private void ResetTravel(double time)
+    {
+        _furthestAhead = _furthestBehind = 0;
+        _nearAheadAt = _nearBehindAt = time;
     }
 
     private void Finish(SwipeAction? action)
