@@ -601,8 +601,17 @@ public sealed partial class DockWindow : Window
         // Across it: a single cell. Which of these is the window's width vs. height depends on
         // whether the dock is laid out vertically. Cells are summed rather than multiplied out:
         // they are not all the same size (a separator takes a narrow slot).
+        // The gear and its divider are optional; collapsed, the strip's spacing skips them too.
+        bool gear = _manager.Config.ShowSettingsButton;
+        var gearVisibility = gear ? Visibility.Visible : Visibility.Collapsed;
+        if (SettingsButton.Visibility != gearVisibility)
+        {
+            SettingsButton.Visibility = gearVisibility;
+            Divider.Visibility = gearVisibility;
+        }
+
         double coreMain = empty ? _addNewWidth : ItemsExtent() + (n - 1) * CellSpacing;
-        double contentMain = coreMain + CellSpacing + DividerWidth + CellSpacing + CellSize;
+        double contentMain = gear ? coreMain + CellSpacing + DividerWidth + CellSpacing + CellSize : coreMain;
         double dipW = vertical ? CellSize + 2 * StripPadX : contentMain + 2 * StripPadX;
         double dipH = vertical ? contentMain + 2 * StripPadY : CellSize + 2 * StripPadY;
 
@@ -633,6 +642,14 @@ public sealed partial class DockWindow : Window
         }
         else if (_profile.FreeX is int fx && _profile.FreeY is int fy)
         {
+            // Kept centred, a floating dock grows and shrinks around its own middle. That takes
+            // the size it was last laid out at, so only while it still sits where it was laid out:
+            // a drag that just ended has moved it, and FreeX is then simply where it was dropped.
+            if (_profile.KeepCentered && _shownRect.Width > 0 && _shownRect.Width != w && fx == _shownRect.X)
+            {
+                fx = _shownRect.X + (_shownRect.Width - w) / 2;
+                _profile.FreeX = fx;
+            }
             x = Math.Clamp(fx, work.X, work.X + work.Width - w);
             y = Math.Clamp(fy, work.Y, work.Y + work.Height - h);
         }
@@ -673,14 +690,15 @@ public sealed partial class DockWindow : Window
         return total;
     }
 
-    // Along-edge coordinates derived from the stored placement, clamped to the work area.
+    // Along-edge coordinates: the middle of the edge when kept centred (or never placed), otherwise
+    // derived from the stored placement, clamped to the work area.
     private int AlongX(RectInt32 work, int w) =>
-        _profile.FreeX is int fx
+        !_profile.KeepCentered && _profile.FreeX is int fx
             ? Math.Clamp(fx, work.X, work.X + Math.Max(0, work.Width - w))
             : work.X + (work.Width - w) / 2;
 
     private int AlongY(RectInt32 work, int h) =>
-        _profile.FreeY is int fy
+        !_profile.KeepCentered && _profile.FreeY is int fy
             ? Math.Clamp(fy, work.Y, work.Y + Math.Max(0, work.Height - h))
             : work.Y + (work.Height - h) / 2;
 
@@ -971,11 +989,15 @@ public sealed partial class DockWindow : Window
         // Where the gear sits on the strip. One entry naming the end it will move to, rather than
         // a checkable pair: a single checkable entry makes WinUI indent every other item in the
         // menu by a check column (see the folder entry in Item_ContextRequested).
+        // Only while there is a gear to move.
         bool gearLeading = _manager.Config.SettingsPosition == SettingsPosition.Leading;
-        menu.Items.Add(MenuItem(
-            Loc.Get(gearLeading ? "Menu.SettingsToEnd" : "Menu.SettingsToStart"),
-            () => _manager.SetSettingsPosition(
-                gearLeading ? SettingsPosition.Trailing : SettingsPosition.Leading)));
+        if (_manager.Config.ShowSettingsButton)
+        {
+            menu.Items.Add(MenuItem(
+                Loc.Get(gearLeading ? "Menu.SettingsToEnd" : "Menu.SettingsToStart"),
+                () => _manager.SetSettingsPosition(
+                    gearLeading ? SettingsPosition.Trailing : SettingsPosition.Leading)));
+        }
 
         menu.Items.Add(new MenuFlyoutSeparator());
 
@@ -1124,6 +1146,13 @@ public sealed partial class DockWindow : Window
         SaveConfig();
         UpdateSizeAndPosition();
         ApplyAutoHide();
+    }
+
+    public void SetKeepCentered(bool on)
+    {
+        _profile.KeepCentered = on;
+        SaveConfig();
+        UpdateSizeAndPosition();
     }
 
     public void SetDodgeWindows(bool on)

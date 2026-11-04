@@ -59,6 +59,14 @@ public sealed class DockProfile
     public bool DodgeWindows { get; set; } = true;
 
     /// <summary>
+    /// Keep the dock centred as it grows and shrinks (apps opening and closing, items added), as
+    /// the macOS Dock does: a snapped dock stays in the middle of its edge, and a floating one
+    /// around its own middle. Off, a snapped dock keeps the spot along the edge it was dropped at,
+    /// and a dock grows from its leading end. On by default.
+    /// </summary>
+    public bool KeepCentered { get; set; } = true;
+
+    /// <summary>
     /// Keep the dock above other windows while it is <b>floating</b> (not snapped). When snapped
     /// the dock is always topmost regardless, so the auto-hide reveal works over other windows.
     /// </summary>

@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "Position du bouton des paramètres",
   "Settings.SettingsPositionDesc": "Icône des paramètres au début ou à la fin du dock.",
+  "Settings.ShowSettingsButton": "Bouton Paramètres",
+  "Settings.ShowSettingsButtonDesc": "Afficher l'engrenage sur le Dock. Sinon, clic droit sur le Dock pour les paramètres.",
   "SettingsPosition.Leading": "Début du dock",
   "SettingsPosition.Trailing": "Fin du dock",
   "Settings.ShowItemLabels": "Afficher les noms des éléments",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "Position du dock",
   "Settings.PositionDesc": "Laissez-le flotter, ou ancrez-le à un bord de l'écran.",
+  "Settings.KeepCentered": "Garder centré",
+  "Settings.KeepCenteredDesc": "Rester au milieu quand des apps s'ouvrent et se ferment.",
   "Position.Floating": "Flottant",
   "Position.Bottom": "Bord inférieur",
   "Position.Top": "Bord supérieur",

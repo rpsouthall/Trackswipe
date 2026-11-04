@@ -261,6 +261,8 @@ public sealed partial class SettingsWindow : Window
         MagnifySwitch.IsOn = cfg.Magnify;
         GroupOpenOnHoverSwitch.IsOn = cfg.GroupOpenOnHover;
         SettingsPositionChoice.SelectedIndex = cfg.SettingsPosition == SettingsPosition.Leading ? 1 : 0;
+        ShowSettingsButtonSwitch.IsOn = cfg.ShowSettingsButton;
+        SettingsPositionChoice.IsEnabled = cfg.ShowSettingsButton;
         ShowItemLabelsSwitch.IsOn = cfg.ShowItemLabels;
         ItemHotkeysSwitch.IsOn = cfg.ItemHotkeysEnabled;
 
@@ -300,6 +302,15 @@ public sealed partial class SettingsWindow : Window
         if (_initializing)
             return;
         _manager.SetGroupOpenOnHover(GroupOpenOnHoverSwitch.IsOn);
+    }
+
+    private void ShowSettingsButtonSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        // Where the gear sits means nothing without one.
+        SettingsPositionChoice.IsEnabled = ShowSettingsButtonSwitch.IsOn;
+        if (_initializing)
+            return;
+        _manager.SetShowSettingsButton(ShowSettingsButtonSwitch.IsOn);
     }
 
     private void SettingsPositionChoice_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -847,6 +858,10 @@ public sealed partial class SettingsWindow : Window
             });
         };
         panel.Children.Add(Row(Loc.Get("Settings.Position"), Loc.Get("Settings.PositionDesc"), edges));
+
+        panel.Children.Add(Row(
+            Loc.Get("Settings.KeepCentered"), Loc.Get("Settings.KeepCenteredDesc"),
+            Switch(profile.KeepCentered, Loc.Get("Settings.KeepCentered"), on => dock?.SetKeepCentered(on))));
 
         panel.Children.Add(Row(
             Loc.Get("Settings.Transpose"), Loc.Get("Settings.TransposeDesc"),

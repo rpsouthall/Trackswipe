@@ -122,6 +122,12 @@ public sealed class DockConfig
     public SettingsPosition SettingsPosition { get; set; } = SettingsPosition.Trailing;
 
     /// <summary>
+    /// Whether each dock shows its gear (and the divider before it). Off, Settings is still on the
+    /// dock's right-click menu and the tray icon. On by default.
+    /// </summary>
+    public bool ShowSettingsButton { get; set; } = true;
+
+    /// <summary>
     /// When true, each item's display name is always visible under its icon rather than only in
     /// a hover tooltip.
     /// </summary>
@@ -294,6 +300,7 @@ public sealed class DockConfig
         Magnify = other.Magnify;
         GroupOpenOnHover = other.GroupOpenOnHover;
         SettingsPosition = other.SettingsPosition;
+        ShowSettingsButton = other.ShowSettingsButton;
         ShowItemLabels = other.ShowItemLabels;
         ItemHotkeysEnabled = other.ItemHotkeysEnabled;
         SearchHotkey = other.SearchHotkey;

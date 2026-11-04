@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "Position der Einstellungsschaltfläche",
   "Settings.SettingsPositionDesc": "Zahnrad am Anfang oder Ende des Docks.",
+  "Settings.ShowSettingsButton": "Einstellungsschaltfläche",
+  "Settings.ShowSettingsButtonDesc": "Das Zahnrad im Dock anzeigen. Aus: Einstellungen per Rechtsklick auf das Dock.",
   "SettingsPosition.Leading": "Anfang des Docks",
   "SettingsPosition.Trailing": "Ende des Docks",
   "Settings.ShowItemLabels": "Elementnamen anzeigen",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "Dock-Position",
   "Settings.PositionDesc": "Frei schweben oder an einen Bildschirmrand andocken.",
+  "Settings.KeepCentered": "Zentriert halten",
+  "Settings.KeepCenteredDesc": "In der Mitte bleiben, während Apps geöffnet und geschlossen werden.",
   "Position.Floating": "Schwebend",
   "Position.Bottom": "Unterer Rand",
   "Position.Top": "Oberer Rand",

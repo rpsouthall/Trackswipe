@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "设置按钮位置",
   "Settings.SettingsPositionDesc": "齿轮位于程序坞的开头或结尾。",
+  "Settings.ShowSettingsButton": "设置按钮",
+  "Settings.ShowSettingsButtonDesc": "在程序坞上显示齿轮。关闭后，右键单击程序坞打开设置。",
   "SettingsPosition.Leading": "程序坞开头",
   "SettingsPosition.Trailing": "程序坞结尾",
   "Settings.ShowItemLabels": "显示项目名称",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "停靠栏位置",
   "Settings.PositionDesc": "自由浮动，或贴靠屏幕边缘。",
+  "Settings.KeepCentered": "保持居中",
+  "Settings.KeepCenteredDesc": "打开和关闭应用时保持在中间。",
   "Position.Floating": "浮动",
   "Position.Bottom": "下边缘",
   "Position.Top": "上边缘",

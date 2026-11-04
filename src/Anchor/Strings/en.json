@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "Settings button position",
   "Settings.SettingsPositionDesc": "Gear at the start or end of the dock.",
+  "Settings.ShowSettingsButton": "Settings button",
+  "Settings.ShowSettingsButtonDesc": "Show the gear on the dock. Off, right-click the dock for Settings.",
   "SettingsPosition.Leading": "Start of dock",
   "SettingsPosition.Trailing": "End of dock",
   "Settings.ShowItemLabels": "Show item names",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "Dock position",
   "Settings.PositionDesc": "Float freely, or snap to a screen edge.",
+  "Settings.KeepCentered": "Keep centred",
+  "Settings.KeepCenteredDesc": "Stay in the middle as apps open and close.",
   "Position.Floating": "Floating",
   "Position.Bottom": "Bottom edge",
   "Position.Top": "Top edge",

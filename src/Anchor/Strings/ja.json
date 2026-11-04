@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "設定ボタンの位置",
   "Settings.SettingsPositionDesc": "設定の歯車をドックの先頭または末尾に配置します。",
+  "Settings.ShowSettingsButton": "設定ボタン",
+  "Settings.ShowSettingsButtonDesc": "Dockに歯車を表示します。オフの場合は、Dockを右クリックして設定を開きます。",
   "SettingsPosition.Leading": "ドックの先頭",
   "SettingsPosition.Trailing": "ドックの末尾",
   "Settings.ShowItemLabels": "項目名を表示",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "ドックの位置",
   "Settings.PositionDesc": "自由に配置するか、画面の端に固定します。",
+  "Settings.KeepCentered": "中央に保つ",
+  "Settings.KeepCenteredDesc": "アプリを開いたり閉じたりしても中央に保ちます。",
   "Position.Floating": "フローティング",
   "Position.Bottom": "下端",
   "Position.Top": "上端",

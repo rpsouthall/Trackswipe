@@ -21,6 +21,12 @@ not necessarily when it shipped in a release.
   that leaves it clear, or restoring a maximized window, brings it back without reaching for the
   edge (which still reveals it). Settings ▸ Docks ▸ **Dodge windows**, on by default; off, the
   dock hides whenever the cursor leaves, as before.
+- **Keep centred.** A dock now stays centred as it grows and shrinks — apps opening and closing,
+  items added — instead of growing from wherever it was last dropped: a snapped dock stays in the
+  middle of its edge, a floating one around its own middle. Settings ▸ Docks ▸ **Keep centred**,
+  on by default.
+- **Hide the settings button.** Settings ▸ General ▸ **Settings button** turns the gear (and its
+  divider) off; Settings is still on the dock's right-click menu and the tray icon.
 
 #### Fixed
 

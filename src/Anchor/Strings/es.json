@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "Posición del botón de configuración",
   "Settings.SettingsPositionDesc": "Engranaje al principio o al final del dock.",
+  "Settings.ShowSettingsButton": "Botón de configuración",
+  "Settings.ShowSettingsButtonDesc": "Muestra el engranaje en el Dock. Si no, haz clic derecho en el Dock para abrir la configuración.",
   "SettingsPosition.Leading": "Principio del dock",
   "SettingsPosition.Trailing": "Final del dock",
   "Settings.ShowItemLabels": "Mostrar nombres de los elementos",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "Posición del dock",
   "Settings.PositionDesc": "Flota libremente o acóplalo a un borde de la pantalla.",
+  "Settings.KeepCentered": "Mantener centrado",
+  "Settings.KeepCenteredDesc": "Seguir en el centro al abrir y cerrar apps.",
   "Position.Floating": "Flotante",
   "Position.Bottom": "Borde inferior",
   "Position.Top": "Borde superior",

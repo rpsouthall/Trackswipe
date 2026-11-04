@@ -27,6 +27,7 @@ public class DockConfigTests
         Assert.Null(dock.FreeY);
         Assert.True(dock.AutoHide);
         Assert.True(dock.DodgeWindows);
+        Assert.True(dock.KeepCentered);
         Assert.True(dock.AlwaysOnTop);
         Assert.False(dock.VerticalWhenSideSnapped);
 
@@ -35,6 +36,7 @@ public class DockConfigTests
         Assert.Equal(DockTheme.Dark, cfg.Theme);
         Assert.True(cfg.ShowRunningIndicators);
         Assert.True(cfg.ShowRunningApps);
+        Assert.True(cfg.ShowSettingsButton);
         Assert.False(cfg.Seeded);
         Assert.Equal(string.Empty, cfg.Language); // follow the Windows display language
         Assert.True(cfg.HotkeyEnabled);
@@ -466,6 +468,7 @@ public class DockConfigTests
             LaunchAtStartup = true,
             ShowRunningIndicators = false,
             ShowRunningApps = false,
+            ShowSettingsButton = false,
             CheckForUpdates = true,
             SkippedUpdate = "9.9.9",
             Seeded = true,
@@ -489,6 +492,7 @@ public class DockConfigTests
         Assert.True(target.LaunchAtStartup);
         Assert.False(target.ShowRunningIndicators);
         Assert.False(target.ShowRunningApps);
+        Assert.False(target.ShowSettingsButton);
         Assert.True(target.CheckForUpdates);
         Assert.Equal("9.9.9", target.SkippedUpdate);
 

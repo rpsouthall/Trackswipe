@@ -699,6 +699,15 @@ public sealed class DockManager
             dock.ApplyGroupOpenOnHoverSetting();
     }
 
+    /// <summary>Shows or hides every dock's gear; Settings stays on the right-click menu and the tray.</summary>
+    public void SetShowSettingsButton(bool on)
+    {
+        Config.ShowSettingsButton = on;
+        Save();
+        foreach (var dock in _docks)
+            dock.QueueRelayoutPublic(); // the layout pass shows or collapses the gear, and resizes for it
+    }
+
     public void SetSettingsPosition(SettingsPosition position)
     {
         Config.SettingsPosition = position;

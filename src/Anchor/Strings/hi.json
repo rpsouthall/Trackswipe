@@ -135,6 +135,8 @@
 
   "Settings.SettingsPosition": "सेटिंग्स बटन की स्थिति",
   "Settings.SettingsPositionDesc": "गियर डॉक के आरंभ या अंत में।",
+  "Settings.ShowSettingsButton": "सेटिंग्स बटन",
+  "Settings.ShowSettingsButtonDesc": "डॉक पर गियर दिखाएँ। बंद होने पर सेटिंग्स के लिए डॉक पर राइट-क्लिक करें।",
   "SettingsPosition.Leading": "डॉक की शुरुआत",
   "SettingsPosition.Trailing": "डॉक का अंत",
   "Settings.ShowItemLabels": "आइटम नाम दिखाएँ",
@@ -155,6 +157,8 @@
 
   "Settings.Position": "डॉक की स्थिति",
   "Settings.PositionDesc": "स्वतंत्र रूप से तैरने दें, या स्क्रीन के किनारे से सटाएँ।",
+  "Settings.KeepCentered": "बीच में रखें",
+  "Settings.KeepCenteredDesc": "ऐप्स खुलने और बंद होने पर भी बीच में रहे।",
   "Position.Floating": "फ़्लोटिंग",
   "Position.Bottom": "निचला किनारा",
   "Position.Top": "ऊपरी किनारा",
