@@ -37,6 +37,7 @@ public class DockConfigTests
         Assert.True(cfg.ShowRunningIndicators);
         Assert.True(cfg.ShowRunningApps);
         Assert.True(cfg.ShowSettingsButton);
+        Assert.False(cfg.OpenAppsDivider); // pinned and open apps share one row, as on a Mac
         Assert.False(cfg.Seeded);
         Assert.Equal(string.Empty, cfg.Language); // follow the Windows display language
         Assert.True(cfg.HotkeyEnabled);

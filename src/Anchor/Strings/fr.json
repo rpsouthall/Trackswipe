@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "Repère les apps ouvertes ; le clic les active au lieu d'en relancer une.",
   "Settings.RunningApps": "Apps ouvertes dans le Dock",
   "Settings.RunningAppsDesc": "Les apps non épinglées rejoignent le premier Dock tant qu'elles sont ouvertes, et le quittent à leur fermeture.",
+  "Settings.OpenAppsDivider": "Séparateur avant les apps ouvertes",
+  "Settings.OpenAppsDividerDesc": "Séparer les icônes épinglées des apps ouvertes. Désactivé, elles partagent une rangée.",
 
   "Settings.Startup": "Démarrer avec Windows",
   "Settings.StartupDesc": "Lancer Anchor à l'ouverture de session.",

@@ -65,6 +65,12 @@ public sealed class DockConfig
     public bool ShowRunningApps { get; set; } = true;
 
     /// <summary>
+    /// A divider between the pinned icons and the open apps. Off by default: as on a Mac with
+    /// "recent apps" off, open apps simply follow the pinned ones, one row.
+    /// </summary>
+    public bool OpenAppsDivider { get; set; }
+
+    /// <summary>
     /// The language Anchor's own UI uses, as a BCP-47 code from <c>Loc.Available</c> (e.g.
     /// <c>"de"</c>, <c>"zh-Hans"</c>). Empty — the default — follows the Windows display language.
     /// </summary>
@@ -292,6 +298,7 @@ public sealed class DockConfig
         Theme = other.Theme;
         ShowRunningIndicators = other.ShowRunningIndicators;
         ShowRunningApps = other.ShowRunningApps;
+        OpenAppsDivider = other.OpenAppsDivider;
         Language = other.Language;
         Hotkey = other.Hotkey;
         HotkeyEnabled = other.HotkeyEnabled;

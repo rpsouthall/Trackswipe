@@ -58,6 +58,9 @@ public sealed partial class DockWindow
         SyncOpenApps();
     }
 
+    /// <summary>Re-lays the section after a setting that shapes it (the divider) changed.</summary>
+    internal void ResyncOpenApps() => SetOpenApps(_openApps);
+
     private void CatchUpOpenApps()
     {
         if (!_openAppsPending || _reorderItem is not null || _dropShell is not null)
@@ -74,12 +77,14 @@ public sealed partial class DockWindow
     private void SyncOpenApps()
     {
         _openAppsPending = false;
+        RemoveLeftItems();
         var wanted = new List<DockItem>(_openApps.Count + 1);
         if (_openApps.Count > 0)
         {
-            // A divider only between something and something: with nothing pinned, the open apps
-            // are the whole strip.
-            if (Items.Any(item => !item.IsTransient && !item.IsPlaceholder))
+            // A divider, if wanted, only between something and something: with nothing pinned, the
+            // open apps are the whole strip. Without one, pinned and open apps read as one row, as
+            // on a Mac with "recent apps" off.
+            if (_manager.Config.OpenAppsDivider && Items.Any(item => !item.IsTransient && !item.IsPlaceholder))
             {
                 _openAppsDivider ??= DockItem.CreateOpenAppsDivider();
                 wanted.Add(_openAppsDivider);
@@ -87,12 +92,38 @@ public sealed partial class DockWindow
             wanted.AddRange(_openApps);
         }
 
+        // An app that has just closed stays where it was while it shrinks away (see
+        // AdvancePresence), so it is kept in the tail, after whatever it followed before; one that
+        // has finished shrinking is dropped. One that reopens mid-shrink grows back in place.
         int start = PinnedCount;
+        var before = Items.Skip(start).ToList();
+        var tail = new List<DockItem>(wanted);
+        for (int i = 0; i < before.Count; i++)
+        {
+            var item = before[i];
+            if (tail.Contains(item))
+            {
+                if (item.IsLeaving)
+                    item.AnimatePresenceTo(1);
+                continue;
+            }
+            if (item.HasLeft)
+                continue;
+            item.AnimatePresenceTo(0);
+            int after = -1;
+            for (int j = i - 1; j >= 0 && after < 0; j--)
+                after = tail.IndexOf(before[j]);
+            tail.Insert(after + 1, item);
+        }
+
+        // Laid out at all yet? The apps already open when Anchor starts are just there; only ones
+        // that open later grow in.
+        bool animate = _shownRect.Width > 0;
         bool changed = false;
-        for (int k = 0; k < wanted.Count; k++)
+        for (int k = 0; k < tail.Count; k++)
         {
             int at = start + k;
-            var item = wanted[k];
+            var item = tail[k];
             if (at < Items.Count && ReferenceEquals(Items[at], item))
                 continue;
 
@@ -106,13 +137,15 @@ public sealed partial class DockWindow
                 if (existing >= 0)
                     Items.RemoveAt(existing);
                 item.RefreshMetrics();
+                if (animate)
+                    item.BeginAppearing();
                 Items.Insert(at, item);
                 if (item.IconImage is null && !item.IsSeparator)
                     _ = LoadOneIconAsync(item);
             }
             changed = true;
         }
-        while (Items.Count > start + wanted.Count)
+        while (Items.Count > start + tail.Count)
         {
             Items.RemoveAt(Items.Count - 1);
             changed = true;
@@ -120,6 +153,57 @@ public sealed partial class DockWindow
 
         if (changed)
             QueueRelayout();
+        EnsurePresenceAnimation();
+    }
+
+    // ---- Growing in and shrinking out ----------------------------------------
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _presenceTimer;
+
+    /// <summary>Runs the grow/shrink animation while any cell on the strip is still on its way in or out.</summary>
+    private void EnsurePresenceAnimation()
+    {
+        if (_closed || !Items.Any(item => item.IsPresenceAnimating))
+        {
+            RemoveLeftItems();
+            return;
+        }
+        if (_presenceTimer is null)
+        {
+            _presenceTimer = DispatcherQueue.CreateTimer();
+            // About 120 Hz, like the hide slide: each tick is one resize of a small window.
+            _presenceTimer.Interval = TimeSpan.FromMilliseconds(8);
+            _presenceTimer.Tick += (_, _) => PresenceTick();
+        }
+        if (!_presenceTimer.IsRunning)
+            _presenceTimer.Start();
+    }
+
+    private void PresenceTick()
+    {
+        if (_closed)
+        {
+            _presenceTimer?.Stop();
+            return;
+        }
+        long now = Environment.TickCount64;
+        bool moving = false;
+        foreach (var item in Items)
+            moving |= item.AdvancePresence(now);
+        RemoveLeftItems();
+        // The window follows the cells frame by frame, so the dock itself widens and narrows (and,
+        // kept centred, stays centred) rather than jumping to its new size at the start or end.
+        UpdateSizeAndPosition();
+        if (!moving)
+            _presenceTimer?.Stop();
+    }
+
+    /// <summary>Takes cells that have finished shrinking off the strip.</summary>
+    private void RemoveLeftItems()
+    {
+        for (int i = Items.Count - 1; i >= 0; i--)
+            if (Items[i].IsTransient && Items[i].HasLeft)
+                Items.RemoveAt(i);
     }
 
     /// <summary>The open apps aren't in the profile, so density and label changes reach them here.</summary>

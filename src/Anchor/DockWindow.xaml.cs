@@ -232,6 +232,7 @@ public sealed partial class DockWindow : Window
             Items.Insert(visibleIndex, item);
         PersistAndRelayout();
         RaiseItemsChanged();
+        EnsurePresenceAnimation(); // one kept in the dock from its menu grows in
         _ = LoadOneIconAsync(item);
     }
 
@@ -675,7 +676,10 @@ public sealed partial class DockWindow : Window
 
         _shownRect = new RectInt32(x, y, w, h);
         _work = work;
-        _appWindow.MoveAndResize(_shownRect);
+        // Placed where it is now rather than where it would show: tucked away, it is resized
+        // there, instead of flashing into view for a moment on every relayout (which the open-apps
+        // animation does each frame).
+        _appWindow.MoveAndResize(PlacementFor(_shownRect));
         ApplyTopmost();
         ApplyWindowChrome();
         OnRelayoutApplied();
@@ -1679,9 +1683,12 @@ public sealed partial class DockWindow : Window
             int pinAt = _pinSlot;
             _pinSlot = _openAppHome = -1;
             Items.Remove(dragged);
-            SyncOpenApps();
+            // Pinned where it was dropped, with no grow: the icon was already standing there. The
+            // manager then re-describes the section without it, which re-syncs the tail.
             if (pinAt >= 0)
-                _manager.KeepInDock(this, dragged, pinAt);
+                _manager.KeepInDock(this, dragged, pinAt, grow: false);
+            else
+                SyncOpenApps();
         }
         else if (group is not null && dragged is not null && !ReferenceEquals(group, dragged))
         {

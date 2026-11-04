@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "Marca apps abiertas; el clic las enfoca en vez de relanzarlas.",
   "Settings.RunningApps": "Apps abiertas en el Dock",
   "Settings.RunningAppsDesc": "Las apps no ancladas aparecen en el primer Dock mientras están abiertas y se van al cerrarlas.",
+  "Settings.OpenAppsDivider": "Separador antes de las apps abiertas",
+  "Settings.OpenAppsDividerDesc": "Separa los iconos anclados de las apps abiertas. Si no, comparten una fila.",
 
   "Settings.Startup": "Iniciar con Windows",
   "Settings.StartupDesc": "Abre Anchor al iniciar sesión.",

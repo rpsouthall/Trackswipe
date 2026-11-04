@@ -202,6 +202,32 @@
                             </Grid>
                         </Border>
 
+                        <!-- A divider between pinned icons and open apps, or one row -->
+                        <Border Style="{StaticResource Card}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Grid.Column="0" Glyph="&#xE76F;"
+                                          FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="18" />
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{loc:Localize Key=Settings.OpenAppsDivider}"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                                    <TextBlock Text="{loc:Localize Key=Settings.OpenAppsDividerDesc}"
+                                               Style="{ThemeResource CaptionTextBlockStyle}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ToggleSwitch x:Name="OpenAppsDividerSwitch" Grid.Column="2"
+                                              OnContent="" OffContent="" MinWidth="0"
+                                              HorizontalAlignment="Right"
+                                              AutomationProperties.Name="{loc:Localize Key=Settings.OpenAppsDivider}"
+                                              Toggled="OpenAppsDividerSwitch_Toggled" />
+                            </Grid>
+                        </Border>
+
                         <!-- Startup -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel Spacing="12">

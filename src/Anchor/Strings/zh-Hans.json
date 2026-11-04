@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "标记正在运行的应用；点击聚焦而非重新启动。",
   "Settings.RunningApps": "在程序坞中显示打开的应用",
   "Settings.RunningAppsDesc": "未固定的应用在打开期间会出现在第一个程序坞中，关闭后消失。",
+  "Settings.OpenAppsDivider": "打开的应用前显示分隔线",
+  "Settings.OpenAppsDividerDesc": "将固定的图标与打开的应用分开。关闭后它们在同一行。",
 
   "Settings.Startup": "开机时启动",
   "Settings.StartupDesc": "登录时启动 Anchor。",

@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "起動中のアプリに印を付け、クリックで再起動せずフォーカスします。",
   "Settings.RunningApps": "開いているアプリをDockに表示",
   "Settings.RunningAppsDesc": "ピン留めしていないアプリは、開いている間だけ最初のDockに表示され、閉じると消えます。",
+  "Settings.OpenAppsDivider": "開いているアプリの前に区切り線",
+  "Settings.OpenAppsDividerDesc": "ピン留めしたアイコンと開いているアプリを区切ります。オフの場合は1列に並びます。",
 
   "Settings.Startup": "Windows と一緒に起動",
   "Settings.StartupDesc": "サインイン時に Anchor を起動します。",

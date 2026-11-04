@@ -245,6 +245,8 @@ public sealed partial class SettingsWindow : Window
 
         RunningIndicatorsSwitch.IsOn = cfg.ShowRunningIndicators;
         RunningAppsSwitch.IsOn = cfg.ShowRunningApps;
+        OpenAppsDividerSwitch.IsOn = cfg.OpenAppsDivider;
+        OpenAppsDividerSwitch.IsEnabled = cfg.ShowRunningApps;
 
         // Asked of Windows rather than read from the config, because the user can change it
         // outside Anchor (Task Manager ▸ Startup apps) — and on the packaged build that answer is
@@ -388,6 +390,14 @@ public sealed partial class SettingsWindow : Window
         if (_initializing)
             return;
         _manager.SetShowRunningApps(RunningAppsSwitch.IsOn);
+        OpenAppsDividerSwitch.IsEnabled = RunningAppsSwitch.IsOn;
+    }
+
+    private void OpenAppsDividerSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing)
+            return;
+        _manager.SetOpenAppsDivider(OpenAppsDividerSwitch.IsOn);
     }
 
     private async void StartupSwitch_Toggled(object sender, RoutedEventArgs e)

@@ -99,6 +99,23 @@ public sealed partial class DockWindow
         _ => _shownRect.Y,
     };
 
+    /// <summary>Where a dock that would show at <paramref name="shown"/> actually sits now: there, or tucked behind its edge.</summary>
+    private RectInt32 PlacementFor(RectInt32 shown)
+    {
+        if (!_autoHideStarted || !CanHide)
+            return shown;
+        int coord;
+        if (_slideTimer is { IsRunning: true })
+            coord = (int)Math.Round(_currentCoord); // mid-slide: stay on the slide, which carries on from here
+        else if (!_revealed)
+            coord = HiddenCoord; // reads _shownRect, which the caller has just set to `shown`
+        else
+            return shown;
+        return HideIsVertical
+            ? new RectInt32(shown.X, coord, shown.Width, shown.Height)
+            : new RectInt32(coord, shown.Y, shown.Width, shown.Height);
+    }
+
     private void MoveWindowCoord(int coord) => _appWindow.Move(
         HideIsVertical ? new PointInt32(_shownRect.X, coord) : new PointInt32(coord, _shownRect.Y));
 
@@ -106,11 +123,12 @@ public sealed partial class DockWindow
     partial void OnRelayoutApplied()
     {
         _edgeHasNeighbor = _profile.Snapped && ComputeEdgeHasNeighbor();
-        _currentCoord = ShownCoord;
+        if (_slideTimer is not { IsRunning: true })
+            _currentCoord = ShownCoord; // mid-slide, the slide owns it (see PlacementFor)
         if (CanHide)
         {
             EnsureStarted();
-            if (!_revealed)
+            if (!_revealed && _slideTimer is not { IsRunning: true })
                 MoveWindowCoord(HiddenCoord); // keep it tucked away after a size/edge change
         }
         else if (_autoHideStarted)

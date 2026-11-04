@@ -1144,16 +1144,33 @@ public sealed class DockManager
             _docks[i].SetOpenApps(i == 0 ? section : Array.Empty<DockItem>());
     }
 
-    /// <summary>Pins an open app from the section: a real item on its dock, at the given visible slot.</summary>
-    public void KeepInDock(DockWindow dock, DockItem openApp, int visibleIndex)
+    /// <summary>Turns the divider between pinned icons and open apps on or off.</summary>
+    public void SetOpenAppsDivider(bool on)
     {
-        dock.InsertDockItem(visibleIndex, new DockItem
+        Config.OpenAppsDivider = on;
+        Save();
+        ApplyRunningState();
+        foreach (var dock in _docks)
+            dock.ResyncOpenApps();
+    }
+
+    /// <summary>
+    /// Pins an open app from the section: a real item on its dock, at the given visible slot. From
+    /// the menu it grows in as the open copy shrinks away; dropped by a drag, it is simply there,
+    /// since the dragged icon was already standing in that slot.
+    /// </summary>
+    public void KeepInDock(DockWindow dock, DockItem openApp, int visibleIndex, bool grow = true)
+    {
+        var pinned = new DockItem
         {
             Kind = DockItemKind.Application,
             DisplayName = openApp.DisplayName,
             Target = openApp.Target,
             // Shown straight away rather than blank until the icon lookup the insert starts.
             IconImage = openApp.IconImage,
-        });
+        };
+        if (grow)
+            pinned.BeginAppearing();
+        dock.InsertDockItem(visibleIndex, pinned);
     }
 }

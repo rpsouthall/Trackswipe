@@ -25,6 +25,13 @@ not necessarily when it shipped in a release.
   items added — instead of growing from wherever it was last dropped: a snapped dock stays in the
   middle of its edge, a floating one around its own middle. Settings ▸ Docks ▸ **Keep centred**,
   on by default.
+- **Apps grow in and shrink out.** An app that opens grows into the dock, one that closes shrinks
+  away where it was, and the dock widens and narrows with them frame by frame (staying centred)
+  rather than jumping to its new size. **Keep in dock** from an app's menu grows the pinned icon in
+  as the open one shrinks away. Honors the Windows "Animation effects" setting.
+- **Running apps get a dot** under the icon, as on a Mac, in place of the underline.
+- **Pinned and open apps share one row** by default, as on a Mac with recent apps off; Settings ▸
+  General ▸ **Divider before open apps** brings the divider back.
 - **Hide the settings button.** Settings ▸ General ▸ **Settings button** turns the gear (and its
   divider) off; Settings is still on the dock's right-click menu and the tray icon.
 

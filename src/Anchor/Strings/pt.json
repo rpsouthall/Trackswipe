@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "Marca apps em execução; o clique foca em vez de reabrir.",
   "Settings.RunningApps": "Apps abertos no Dock",
   "Settings.RunningAppsDesc": "Apps não fixados aparecem no primeiro Dock enquanto estão abertos e saem quando são fechados.",
+  "Settings.OpenAppsDivider": "Divisória antes dos apps abertos",
+  "Settings.OpenAppsDividerDesc": "Separa os ícones fixados dos apps abertos. Desligado, ficam na mesma fileira.",
 
   "Settings.Startup": "Iniciar com o Windows",
   "Settings.StartupDesc": "Abre o Anchor ao entrar.",

@@ -312,7 +312,78 @@ public sealed class DockItem : INotifyPropertyChanged
     /// reordering, so the two can never disagree about where a cell starts.
     /// </summary>
     [JsonIgnore]
-    public double CellExtent => IsSeparator ? DockMetrics.SeparatorExtent : DockMetrics.Cell;
+    public double CellExtent => (IsSeparator ? DockMetrics.SeparatorExtent : DockMetrics.Cell) * _presence;
+
+    // ---- Presence (runtime-only): growing in and shrinking out --------------
+    //
+    // 0 is not on the strip at all, 1 fully there. It scales the cell along the flow, the icon and
+    // the cell's opacity together, so an app opening grows into the strip and one closing shrinks
+    // out of it, and the dock (sized from CellExtent every frame while this moves; see
+    // DockWindow.Presence) widens and narrows with it.
+
+    private const double PresenceMs = 260;
+    private double _presence = 1, _presenceFrom = 1, _presenceTarget = 1;
+    private long _presenceStart;
+
+    /// <summary>True once this item has been told to shrink out of the strip.</summary>
+    [JsonIgnore]
+    public bool IsLeaving => _presenceTarget == 0;
+
+    /// <summary>True while growing in or shrinking out.</summary>
+    [JsonIgnore]
+    public bool IsPresenceAnimating => _presence != _presenceTarget;
+
+    /// <summary>True when it has shrunk away completely and can come off the strip.</summary>
+    [JsonIgnore]
+    public bool HasLeft => _presenceTarget == 0 && _presence == 0;
+
+    /// <summary>Starts this item at nothing, growing in from the next frame.</summary>
+    public void BeginAppearing()
+    {
+        if (DockItemAnimations.ReducedMotion)
+            return;
+        _presence = _presenceFrom = 0;
+        _presenceTarget = 1;
+        _presenceStart = Environment.TickCount64;
+        NotifyPresence();
+    }
+
+    /// <summary>Starts shrinking this item away (0), or growing it back (1) if it was on its way out.</summary>
+    public void AnimatePresenceTo(double target)
+    {
+        if (DockItemAnimations.ReducedMotion)
+        {
+            _presence = _presenceFrom = _presenceTarget = target;
+            NotifyPresence();
+            return;
+        }
+        if (_presenceTarget == target)
+            return;
+        _presenceFrom = _presence;
+        _presenceTarget = target;
+        _presenceStart = Environment.TickCount64;
+    }
+
+    /// <summary>Moves the presence along its ease. True while it is still moving.</summary>
+    public bool AdvancePresence(long now)
+    {
+        if (_presence == _presenceTarget)
+            return false;
+        double t = Math.Clamp((now - _presenceStart) / PresenceMs, 0, 1);
+        double eased = 1 - Math.Pow(1 - t, 3); // cubic ease-out: quick to start, settling gently
+        _presence = t >= 1 ? _presenceTarget : _presenceFrom + (_presenceTarget - _presenceFrom) * eased;
+        NotifyPresence();
+        return _presence != _presenceTarget;
+    }
+
+    private void NotifyPresence()
+    {
+        OnPropertyChanged(nameof(CellWidth));
+        OnPropertyChanged(nameof(CellHeight));
+        OnPropertyChanged(nameof(CellOpacity));
+        OnPropertyChanged(nameof(RenderIconSize));
+        OnPropertyChanged(nameof(RenderGlyphSize));
+    }
 
     /// <summary>The rounded corner on this cell's hover/press chrome.</summary>
     [JsonIgnore]
@@ -369,7 +440,7 @@ public sealed class DockItem : INotifyPropertyChanged
 
     /// <summary>Full opacity at rest; dimmed to a placeholder while this item is being dragged.</summary>
     [JsonIgnore]
-    public double CellOpacity => _dragging ? 0.35 : 1;
+    public double CellOpacity => (_dragging ? 0.35 : 1) * _presence;
 
     // ---- Drop shell (runtime-only) -----------------------------------------
 
@@ -456,11 +527,11 @@ public sealed class DockItem : INotifyPropertyChanged
     /// past the cell it lives in (a cell is fixed, so an unbounded swell would just clip).
     /// </summary>
     [JsonIgnore]
-    public double RenderIconSize => Math.Min(DockMetrics.Icon * _magnifyDisplay, DockMetrics.Cell - 2);
+    public double RenderIconSize => Math.Min(DockMetrics.Icon * _magnifyDisplay, DockMetrics.Cell - 2) * _presence;
 
     /// <summary>The fallback glyph's size, magnified on the same curve as <see cref="RenderIconSize"/>.</summary>
     [JsonIgnore]
-    public double RenderGlyphSize => Math.Min(DockMetrics.Glyph * _magnifyDisplay, (DockMetrics.Cell - 2) * 0.72);
+    public double RenderGlyphSize => Math.Max(1, Math.Min(DockMetrics.Glyph * _magnifyDisplay, (DockMetrics.Cell - 2) * 0.72) * _presence);
 
     /// <summary>Whether a persistent label is drawn under the icon (app-wide setting).</summary>
     [JsonIgnore]
@@ -521,12 +592,12 @@ public sealed class DockItem : INotifyPropertyChanged
     /// <summary>Cell width: the narrow side only when a separator sits in a horizontal strip.</summary>
     [JsonIgnore]
     public double CellWidth =>
-        IsSeparator && !_flowVertical ? DockMetrics.SeparatorExtent : DockMetrics.Cell;
+        (IsSeparator && !_flowVertical ? DockMetrics.SeparatorExtent : DockMetrics.Cell) * (_flowVertical ? 1 : _presence);
 
     /// <summary>Cell height: the narrow side only when a separator sits in a vertical strip.</summary>
     [JsonIgnore]
     public double CellHeight =>
-        IsSeparator && _flowVertical ? DockMetrics.SeparatorExtent : DockMetrics.Cell;
+        (IsSeparator && _flowVertical ? DockMetrics.SeparatorExtent : DockMetrics.Cell) * (_flowVertical ? _presence : 1);
 
     /// <summary>A separator's hairline lies across the flow, so its sides swap with orientation.</summary>
     [JsonIgnore]

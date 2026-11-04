@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "चल रहे ऐप्स को चिह्नित करें; क्लिक से फिर से शुरू करने के बजाय फ़ोकस हो।",
   "Settings.RunningApps": "डॉक में खुले ऐप्स",
   "Settings.RunningAppsDesc": "जिन ऐप्स को आपने पिन नहीं किया है, वे खुले रहने तक पहले डॉक में दिखते हैं और बंद होने पर हट जाते हैं।",
+  "Settings.OpenAppsDivider": "खुले ऐप्स से पहले विभाजक",
+  "Settings.OpenAppsDividerDesc": "पिन किए गए आइकन को खुले ऐप्स से अलग करें। बंद होने पर सब एक ही पंक्ति में रहते हैं।",
 
   "Settings.Startup": "Windows के साथ शुरू करें",
   "Settings.StartupDesc": "साइन इन करते ही Anchor शुरू करें।",

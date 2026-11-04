@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "Mark running apps; click focuses instead of relaunching.",
   "Settings.RunningApps": "Open apps in the dock",
   "Settings.RunningAppsDesc": "Apps you haven't pinned join the first dock while they're open, and leave when they close.",
+  "Settings.OpenAppsDivider": "Divider before open apps",
+  "Settings.OpenAppsDividerDesc": "Separate pinned icons from open apps. Off, they share one row.",
 
   "Settings.Startup": "Start with Windows",
   "Settings.StartupDesc": "Launch Anchor when you sign in.",

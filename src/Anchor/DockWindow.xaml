@@ -244,16 +244,16 @@
                                     </StackPanel>
                                 </Button>
 
-                                <!-- Running-app indicator: the taskbar's underline, drawn over the
-                                     bottom of the cell. Not hit-testable, so it never intercepts
-                                     the click it sits on top of; the state it shows reaches
-                                     assistive technology through the button's ItemStatus above
-                                     rather than through this (decorative) visual. -->
+                                <!-- Running-app indicator: a dot under the icon, as on a Mac, drawn
+                                     over the bottom of the cell. Not hit-testable, so it never
+                                     intercepts the click it sits on top of; the state it shows
+                                     reaches assistive technology through the button's ItemStatus
+                                     above rather than through this (decorative) visual. -->
                                 <Border Visibility="{x:Bind RunningIndicatorVisibility, Mode=OneWay}"
-                                        Width="{x:Bind IndicatorLength, Mode=OneWay}"
-                                        Height="3"
-                                        CornerRadius="1.5"
-                                        Margin="0,0,0,2"
+                                        Width="5"
+                                        Height="5"
+                                        CornerRadius="2.5"
+                                        Margin="0,0,0,1"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Bottom"
                                         Background="{ThemeResource AccentFillColorDefaultBrush}"

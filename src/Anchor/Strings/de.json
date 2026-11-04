@@ -180,6 +180,8 @@
   "Settings.RunningIndicatorsDesc": "Laufende Apps markieren; Klick fokussiert statt neu zu starten.",
   "Settings.RunningApps": "Geöffnete Apps im Dock",
   "Settings.RunningAppsDesc": "Nicht angeheftete Apps erscheinen im ersten Dock, solange sie geöffnet sind, und verschwinden beim Schließen.",
+  "Settings.OpenAppsDivider": "Trennlinie vor geöffneten Apps",
+  "Settings.OpenAppsDividerDesc": "Angeheftete Symbole von geöffneten Apps trennen. Aus: eine gemeinsame Reihe.",
 
   "Settings.Startup": "Mit Windows starten",
   "Settings.StartupDesc": "Anchor bei der Anmeldung starten.",
