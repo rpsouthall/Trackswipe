@@ -122,6 +122,7 @@ public sealed partial class DockWindow
     // Called after every reposition (from UpdateSizeAndPosition).
     partial void OnRelayoutApplied()
     {
+        DodgeSoon(); // the dock may have grown under (or out from under) a window
         _edgeHasNeighbor = _profile.Snapped && ComputeEdgeHasNeighbor();
         if (_slideTimer is not { IsRunning: true })
             _currentCoord = ShownCoord; // mid-slide, the slide owns it (see PlacementFor)
@@ -199,6 +200,7 @@ public sealed partial class DockWindow
 
     partial void PauseAutoHideForDrag()
     {
+        _autoHidePaused = true;
         _pollTimer?.Stop();
         _slideTimer?.Stop();
         _revealed = true; // don't fight the drag
@@ -209,6 +211,7 @@ public sealed partial class DockWindow
     // the dock shut immediately: keep it revealed for the usual grace period, then it hides.
     partial void ResumeAutoHideAfterDrag()
     {
+        _autoHidePaused = false;
         if (!CanHide)
             return;
         EnsureStarted();
@@ -217,18 +220,115 @@ public sealed partial class DockWindow
 
     private void EnsureStarted()
     {
-        if (_autoHideStarted && _pollTimer is not null)
+        if (!_autoHideStarted)
         {
-            _pollTimer.Start();
-            return;
+            _autoHideStarted = true;
+            HookAutoHideEvents();
         }
-        _autoHideStarted = true;
-
         _pollTimer ??= DispatcherQueue.CreateTimer();
         _pollTimer.Interval = TimeSpan.FromMilliseconds(100);
         _pollTimer.Tick -= OnPollTick;
         _pollTimer.Tick += OnPollTick;
-        _pollTimer.Start();
+        _coveredStale = true;
+        _pollTimer.Start(); // one pass decides; UpdatePolling stops it again if nothing needs watching
+    }
+
+    // ---- Waking only when there's something to watch ------------------------
+    //
+    // A dock that polled the cursor ten times a second for as long as it lived would wake the CPU
+    // ten times a second for nothing nearly all the time. So the poll runs only while the dock is
+    // shown and waiting to hide — the cursor is the only thing that can say when it has left. The
+    // rest comes as events: a hidden dock reveals when the cursor touches the strip it leaves at the
+    // edge (part of its own window), and dodging re-checks what covers the dock only when the app
+    // in front changes, or one of its windows moves, shows or hides.
+
+    private bool _autoHideHooked;
+    private bool _autoHidePaused; // a drag or menu holds the dock out
+    private bool _covered, _coveredStale = true;
+    private DispatcherQueueTimer? _dodgeTimer;
+
+    private void HookAutoHideEvents()
+    {
+        if (_autoHideHooked)
+            return;
+        _autoHideHooked = true;
+        RootGrid.AddHandler(UIElement.PointerEnteredEvent,
+            new Microsoft.UI.Xaml.Input.PointerEventHandler(Root_PointerEntered), handledEventsToo: true);
+        _manager.Events.ForegroundChanged += OnFrontChanged;
+        _manager.Events.FrontWindowMoved += OnFrontMoved;
+        _manager.Events.WindowChanged += OnAnyWindowChanged;
+    }
+
+    /// <summary>The manager's events outlive this window: let go of them when it closes.</summary>
+    private void UnhookAutoHideEvents()
+    {
+        if (!_autoHideHooked)
+            return;
+        _autoHideHooked = false;
+        _manager.Events.ForegroundChanged -= OnFrontChanged;
+        _manager.Events.FrontWindowMoved -= OnFrontMoved;
+        _manager.Events.WindowChanged -= OnAnyWindowChanged;
+        _dodgeTimer?.Stop();
+        _manager.Events.WatchFrontMoves(this, false);
+    }
+
+    private void OnFrontChanged(nint _) => DodgeSoon();
+    private void OnFrontMoved() => DodgeSoon();
+    private void OnAnyWindowChanged(nint _, uint __) => DodgeSoon();
+
+    /// <summary>
+    /// What covers the dock may have changed. Re-checked shortly rather than at once: a window being
+    /// dragged reports every pixel it moves, and one check per frame of that would be wasted work.
+    /// </summary>
+    private void DodgeSoon()
+    {
+        _coveredStale = true;
+        if (_closed || !CanHide || !_profile.DodgeWindows)
+            return;
+        if (_dodgeTimer is null)
+        {
+            _dodgeTimer = DispatcherQueue.CreateTimer();
+            _dodgeTimer.Interval = TimeSpan.FromMilliseconds(60);
+            _dodgeTimer.IsRepeating = false;
+            _dodgeTimer.Tick += (_, _) => PollCursor();
+        }
+        if (!_dodgeTimer.IsRunning)
+            _dodgeTimer.Start();
+    }
+
+    private void Root_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        // Hidden, the only part of the dock on screen is the strip at the edge: touching it reveals.
+        if (!CanHide || _revealed)
+            return;
+        _lastInside = DateTime.UtcNow;
+        SetRevealed(true);
+        UpdatePolling();
+    }
+
+    /// <summary>Whether a window of the app in front covers the dock, re-checked only when something changed.</summary>
+    private bool IsCovered()
+    {
+        if (_coveredStale)
+        {
+            _coveredStale = false;
+            _covered = IsCoveredByFrontApp();
+        }
+        return _covered;
+    }
+
+    /// <summary>Polls the cursor only while the dock is shown and has reason to hide once it leaves.</summary>
+    private void UpdatePolling()
+    {
+        // Window moves in the app in front only matter to a dock that dodges.
+        _manager.Events.WatchFrontMoves(this, !_closed && _autoHideHooked && CanHide && _profile.DodgeWindows);
+        if (_pollTimer is null)
+            return;
+        bool needed = CanHide && _revealed && (!_profile.DodgeWindows || IsCovered());
+        if (needed && !_pollTimer.IsRunning)
+            _pollTimer.Start();
+        else if (!needed && _pollTimer.IsRunning)
+            _pollTimer.Stop();
     }
 
     private void OnPollTick(DispatcherQueueTimer sender, object args) => PollCursor();
@@ -242,12 +342,14 @@ public sealed partial class DockWindow
         _slideTimer = null;
         _revealed = true;
         MoveWindowCoord(ShownCoord); // snap fully back into view
+        _manager.Events.WatchFrontMoves(this, false);
         UpdateNotch();
     }
 
     private void PollCursor()
     {
-        if (!CanHide)
+        Probe.Count("autohidePoll");
+        if (!CanHide || _autoHidePaused)
             return;
         if (!NativeMethods.GetCursorPos(out var p))
             return;
@@ -274,7 +376,7 @@ public sealed partial class DockWindow
 
         // Dodging, the dock only gives way to a window in front that would otherwise cover it;
         // with nothing over it, it stays (or comes back) in view without needing the cursor.
-        bool covered = !_profile.DodgeWindows || IsCoveredByFrontApp();
+        bool covered = !_profile.DodgeWindows || IsCovered();
 
         var now = DateTime.UtcNow;
         if (atHotZone || (overDock && _revealed))
@@ -292,6 +394,7 @@ public sealed partial class DockWindow
         {
             SetRevealed(false);
         }
+        UpdatePolling();
     }
 
     // ---- Dodging windows ----------------------------------------------------
@@ -311,6 +414,7 @@ public sealed partial class DockWindow
 
     private bool IsCoveredByFrontApp()
     {
+        Probe.Count("coveredCheck");
         nint front = NativeMethods.GetForegroundWindow();
         if (front != nint.Zero &&
             NativeMethods.GetWindowThreadProcessId(front, out uint frontPid) != 0 && frontPid != Environment.ProcessId)

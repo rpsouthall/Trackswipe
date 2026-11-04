@@ -39,8 +39,9 @@ public sealed class DockManager
     public DockManager(DockConfig config)
     {
         Config = config;
+        Events = new WindowEvents();
         Running = new RunningAppMonitor(
-            Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+            Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), Events);
         Running.Updated += ApplyRunningState;
     }
 
@@ -48,6 +49,9 @@ public sealed class DockManager
 
     /// <summary>Which pinned apps are open, shared by every dock.</summary>
     public RunningAppMonitor Running { get; }
+
+    /// <summary>Other apps' windows coming, going and moving: the hooks every dock and the monitor share.</summary>
+    public WindowEvents Events { get; }
 
     public IReadOnlyList<DockWindow> Docks => _docks;
 
@@ -78,6 +82,9 @@ public sealed class DockManager
         // dock that is tucked behind a screen edge.
         SetUpTrayAndHotkey();
         Running.SetEnabled(Config.ShowRunningIndicators || Config.ShowRunningApps);
+        // Which AppUserModelID each program's jump list is filed under, for right-click menus: read
+        // once, in the background, well after the dock is up.
+        StartMenuApps.Warm(TimeSpan.FromSeconds(5));
 
         foreach (var dock in _docks)
             dock.Activate();
@@ -159,6 +166,8 @@ public sealed class DockManager
     {
         _shuttingDown = true;
         Running.Dispose();
+        Events.Dispose();
+        _launchZoom?.Dispose();
         ReleaseShellIntegration();
         Application.Current.Exit();
     }
@@ -179,6 +188,7 @@ public sealed class DockManager
     {
         _shuttingDown = true;
         Running.Dispose();
+        Events.Dispose();
         ReleaseShellIntegration();
 
         if (PackagedRuntime.IsPackaged)
@@ -591,18 +601,23 @@ public sealed class DockManager
     /// launches it. Shared by the dock strip, the fly-out bars, quick-launch search and the
     /// per-item shortcuts, so "click it" and "press its shortcut" can't drift apart.
     /// </summary>
-    public void LaunchOrFocus(DockItem item, bool forceNewInstance)
+    /// <returns>True when it launched; false when it brought an open window forward instead.</returns>
+    public bool LaunchOrFocus(DockItem item, bool forceNewInstance)
     {
         // A pinned app focuses its window only with the indicators on (the switch promises
         // "click focuses instead of relaunching"); an open app's own icon always does — that is
         // all it is there for.
         if (!forceNewInstance && (item.IsTransient || Config.ShowRunningIndicators) && Running.TryFocus(item))
-        {
-            Diag.Log("LaunchOrFocus: focused the existing window instead of launching");
-            return;
-        }
+            return false;
         Launcher.Launch(item);
+        return true;
     }
+
+    private LaunchZoom? _launchZoom;
+
+    /// <summary>The window the launch animation plays in, shared by every dock and made on first use.</summary>
+    public LaunchZoom LaunchZoom => _launchZoom ??=
+        new LaunchZoom(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
 
     /// <summary>A dock's name, or a positional fallback ("Dock 2") when it hasn't been given one.
     /// The one place that decides what a dock is called, so the Settings pages, the "move to
@@ -1091,6 +1106,7 @@ public sealed class DockManager
     /// </summary>
     private void ApplyRunningState()
     {
+        Probe.Count("applyRunning");
         if (_shuttingDown)
             return;
 

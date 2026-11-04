@@ -70,6 +70,23 @@
     <NeutralLanguage>en-US</NeutralLanguage>
   </PropertyGroup>
 
+  <!-- Footprint. A dock sits in the background all day, so it trades a little peak throughput it
+       never needs for less memory, fewer threads and a faster start:
+       - ReadyToRun: the code ships precompiled, so starting up doesn't spend CPU and memory
+         compiling it (publish only; a debug build still JITs).
+       - Non-concurrent GC: no background GC thread. Anchor's heap is a few MB; a blocking
+         collection of it takes about a millisecond.
+       - No tiered PGO: no instrumented second compile of hot methods for a program with none.
+       - ConserveMemory: the GC compacts rather than growing the heap. -->
+  <PropertyGroup>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
+  </ItemGroup>
+
   <!-- Optional framework-dependent publish (~60–80 MB vs ~215 MB self-contained). Pass
        -p:FrameworkDependent=true on publish; users need the Windows App Runtime installed. -->
   <PropertyGroup Condition="'$(FrameworkDependent)' == 'true'">

@@ -29,6 +29,21 @@ not necessarily when it shipped in a release.
   away where it was, and the dock widens and narrows with them frame by frame (staying centred)
   rather than jumping to its new size. **Keep in dock** from an app's menu grows the pinned icon in
   as the open one shrinks away. Honors the Windows "Animation effects" setting.
+- **Launch animation.** An app started from the dock plays Dash to Dock's launch effect: a copy of
+  its icon zooms out to twice its size and fades. It is drawn in a small click-through layered
+  window of its own (the dock's window is only as big as its strip) and costs nothing between
+  launches.
+- **The taskbar's right-click menu.** An app's menu now leads with what the taskbar shows: its jump
+  list (recent or frequent files, the categories it files itself, and tasks such as "New window" or
+  "New InPrivate window"), its name to open another instance, **Remove from dock** or **Keep in
+  dock**, and **Close window** / **Close all windows**. Anchor's own commands for the icon (edit,
+  move, group, shortcut, hide) are under **Options**. Tasks are read through the undocumented
+  interface Explorer's taskbar uses; on a Windows where that fails, the menu simply has no tasks.
+- **Lighter when idle.** Watching for windows no longer wakes Anchor for every mouse move on the
+  system: the window hooks are exact events rather than a range, a hidden dock waits for the cursor
+  to touch its edge instead of polling, a dock that has nothing covering it doesn't poll at all, and
+  the open-app list is only re-read when an app window comes or goes. Publishes precompiled
+  (ReadyToRun) with a non-concurrent, memory-conserving GC.
 - **Running apps get a dot** under the icon, as on a Mac, in place of the underline.
 - **Pinned and open apps share one row** by default, as on a Mac with recent apps off; Settings ▸
   General ▸ **Divider before open apps** brings the divider back.

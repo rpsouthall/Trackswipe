@@ -181,6 +181,7 @@ public sealed partial class DockWindow
 
     private void PresenceTick()
     {
+        Probe.Count("presenceFrame");
         if (_closed)
         {
             _presenceTimer?.Stop();
@@ -217,13 +218,16 @@ public sealed partial class DockWindow
     /// <summary>An open app's menu: bring it forward, keep it in the dock, find its file, or quit it.</summary>
     private void ShowOpenAppMenu(FrameworkElement target, DockItem item, ContextRequestedEventArgs e)
     {
+        // The taskbar's menu: jump list, the app, pinning, closing.
         var menu = new MenuFlyout();
-        menu.Items.Add(Mi(Loc.Get("Menu.Open"), () => LaunchOrFocus(item)));
-        menu.Items.Add(Mi(Loc.Get("Menu.KeepInDock"), () => _manager.KeepInDock(this, item, PinnedCount)));
+        AddTaskbarSection(menu, item, () => _manager.KeepInDock(this, item, PinnedCount), Loc.Get("Menu.KeepInDock"));
         if (Launcher.SupportsFileLocation(item))
-            menu.Items.Add(Mi(Loc.Get("Menu.OpenFileLocation"), () => Launcher.OpenFileLocation(item)));
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(Mi(Loc.Get("Menu.QuitApp"), () => _manager.Running.Quit(item)));
+        {
+            var options = new MenuFlyoutSubItem { Text = Loc.Get("Menu.Options") };
+            options.Items.Add(Mi(Loc.Get("Menu.OpenFileLocation"), () => Launcher.OpenFileLocation(item)));
+            menu.Items.Add(options);
+        }
+        AddCloseSection(menu, item);
 
         // Held open over the menu as the item menu is, so the dock doesn't slide away mid-click.
         PauseAutoHideForDrag();

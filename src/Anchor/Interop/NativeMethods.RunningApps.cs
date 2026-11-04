@@ -127,7 +127,9 @@ internal static partial class NativeMethods
     // they need no locking and cost nothing while nothing happens.
 
     public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    public const uint EVENT_SYSTEM_MINIMIZESTART = 0x0016;
     public const uint EVENT_SYSTEM_MINIMIZEEND = 0x0017;
+    public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
     public const uint EVENT_OBJECT_DESTROY = 0x8001;
     public const uint EVENT_OBJECT_SHOW = 0x8002;
     public const uint EVENT_OBJECT_HIDE = 0x8003;

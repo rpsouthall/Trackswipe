@@ -261,7 +261,7 @@ public static class RunningAppService
     }
 
     /// <summary>The AppUserModelID set on a window for the taskbar, if any.</summary>
-    private static string? WindowAppId(nint hwnd)
+    public static string? WindowAppId(nint hwnd)
     {
         var iid = NativeMethods.IID_IPropertyStore;
         if (NativeMethods.SHGetPropertyStoreForWindow(hwnd, ref iid, out var store) != 0 || store is null)

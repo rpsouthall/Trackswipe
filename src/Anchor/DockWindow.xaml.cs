@@ -176,6 +176,8 @@ public sealed partial class DockWindow : Window
         _groupCloseTimer?.Stop();
         _visualAnimTimer?.Stop();
         _dropShellWatchdog?.Stop();
+        _presenceTimer?.Stop();
+        UnhookAutoHideEvents();
         DockItemAnimations.ShowLabelsChanged -= _showLabelsHandler;
         _backdrop?.Dispose();
         NativeReclaim.Request();
@@ -513,6 +515,7 @@ public sealed partial class DockWindow : Window
         _visualAnimTimer.Interval = TimeSpan.FromMilliseconds(8);
         _visualAnimTimer.Tick += (_, _) =>
         {
+            Probe.Count("visualFrame");
             bool any = false;
             const double hoverStep = 0.28;
             const double magnifyStep = 0.22;
@@ -588,6 +591,7 @@ public sealed partial class DockWindow : Window
 
     private void UpdateSizeAndPosition()
     {
+        Probe.Count("relayout");
         UpdateEmptyState();
 
         // Compute the strip size analytically from the (uniform) cell metrics. This is
@@ -784,7 +788,68 @@ public sealed partial class DockWindow : Window
         // Read the modifier from the keyboard rather than the event args: Button.Click carries no
         // modifier state, and fires for keyboard invokes too.
         bool forceNewInstance = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_SHIFT) & 0x8000) != 0;
-        _manager.LaunchOrFocus(item, forceNewInstance);
+        // An app started from here gets Dash to Dock's launch animation; one already open, which
+        // only comes forward, doesn't.
+        if (_manager.LaunchOrFocus(item, forceNewInstance) && item.Kind == DockItemKind.Application && !ReducedMotion)
+            PlayLaunchZoom(item);
+    }
+
+    /// <summary>
+    /// Captures the item's icon as drawn on the strip, at twice its size, and hands it to the
+    /// manager's <see cref="LaunchZoom"/> to zoom out over it.
+    /// </summary>
+    private async void PlayLaunchZoom(DockItem item)
+    {
+        try
+        {
+            int index = Items.IndexOf(item);
+            if (index < 0 || ItemsHost.TryGetElement(index) is not FrameworkElement cell)
+                return;
+            FrameworkElement? icon = FindVisible<Image>(cell) ?? (FrameworkElement?)FindVisible<FontIcon>(cell);
+            if (icon is null || icon.ActualWidth <= 0 || icon.ActualHeight <= 0)
+                return;
+
+            double scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+            double longest = Math.Max(icon.ActualWidth, icon.ActualHeight);
+            var capture = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+            await capture.RenderAsync(icon, (int)Math.Round(icon.ActualWidth * 2 * scale), (int)Math.Round(icon.ActualHeight * 2 * scale));
+            var pixels = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(await capture.GetPixelsAsync());
+            int w = capture.PixelWidth, h = capture.PixelHeight;
+            if (w <= 0 || h <= 0 || pixels.Length < w * h * 4)
+                return;
+
+            // Square, centred: a glyph's box needn't be.
+            int side = Math.Max(w, h);
+            var square = new byte[side * side * 4];
+            for (int row = 0; row < h; row++)
+                Buffer.BlockCopy(pixels, row * w * 4, square, ((row + (side - h) / 2) * side + (side - w) / 2) * 4, w * 4);
+
+            var centre = icon.TransformToVisual(null).TransformPoint(
+                new Windows.Foundation.Point(icon.ActualWidth / 2, icon.ActualHeight / 2));
+            var origin = _appWindow.Position;
+            _manager.LaunchZoom.Play(square, side,
+                origin.X + (int)Math.Round(centre.X * scale), origin.Y + (int)Math.Round(centre.Y * scale));
+        }
+        catch (Exception ex)
+        {
+            Diag.Log("Launch animation failed: " + ex.Message);
+        }
+
+        static T? FindVisible<T>(DependencyObject root) where T : FrameworkElement
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is T match && match.Visibility == Visibility.Visible)
+                    return match;
+                if (child is UIElement { Visibility: Visibility.Collapsed })
+                    continue;
+                if (FindVisible<T>(child) is { } found)
+                    return found;
+            }
+            return null;
+        }
     }
 
     // ContextRequested fires for right-click and for the keyboard context-menu gesture
@@ -806,27 +871,40 @@ public sealed partial class DockWindow : Window
         int index = Items.IndexOf(item);
         var menu = new MenuFlyout();
 
+        // An app's menu is the taskbar's: its jump list, then the app itself, unpinning and
+        // closing, with Anchor's own commands for the icon gathered under Options rather than
+        // pushing those down the screen. Everything else (folders, files, links, groups,
+        // separators) keeps the flat list of Anchor's commands.
+        bool isApp = item.Kind == DockItemKind.Application && !item.IsGroup && !item.IsSeparator;
+        var options = new MenuFlyoutSubItem { Text = Loc.Get("Menu.Options") };
+        IList<MenuFlyoutItemBase> sink = isApp ? options.Items : menu.Items;
+        if (isApp)
+            AddTaskbarSection(menu, item, () => RemoveDockItem(item), Loc.Get("Menu.RemoveFromDock"));
+
         // A separator has no target to open, no name and no icon, so its menu is just the
         // placement/removal commands below. A group has both a name and an icon, so it is edited
         // here like anything else — the editor simply leaves out the target field it has no use
         // for.
         if (!item.IsSeparator)
         {
-            menu.Items.Add(item.IsGroup
-                ? Mi(Loc.Get("Menu.OpenGroup"), () => ShowGroupFlyout(target, item))
-                : Mi(Loc.Get("Menu.Open"), () => LaunchOrFocus(item)));
+            if (!isApp)
+            {
+                sink.Add(item.IsGroup
+                    ? Mi(Loc.Get("Menu.OpenGroup"), () => ShowGroupFlyout(target, item))
+                    : Mi(Loc.Get("Menu.Open"), () => LaunchOrFocus(item)));
+            }
 
             // Rename and "change icon" are not separate commands any more: both are fields of this
             // one editor, which is a single panel where the menu used to carry three entries
             // opening three of them. Dropping back to the item's own icon stays a command of its
             // own, since it is one action with no form to fill in.
-            menu.Items.Add(Mi(Loc.Get("Menu.Edit"), () => _manager.OpenItemEditor(this, item)));
+            sink.Add(Mi(Loc.Get("Menu.Edit"), () => _manager.OpenItemEditor(this, item)));
             if (item.HasCustomIcon)
-                menu.Items.Add(Mi(Loc.Get("Menu.ResetIcon"), () => SetCustomIcon(item, null)));
+                sink.Add(Mi(Loc.Get("Menu.ResetIcon"), () => SetCustomIcon(item, null)));
 
             if (item.IsGroup)
             {
-                menu.Items.Add(Mi(Loc.Get("Menu.Ungroup"), () => Ungroup(item)));
+                sink.Add(Mi(Loc.Get("Menu.Ungroup"), () => Ungroup(item)));
             }
             else
             {
@@ -839,7 +917,7 @@ public sealed partial class DockWindow : Window
                 // lines up the same way.
                 if (item.Kind == DockItemKind.Folder)
                 {
-                    menu.Items.Add(Mi(
+                    sink.Add(Mi(
                         Loc.Get(item.FolderFlyout
                             ? "Menu.OpenFolderInExplorer"
                             : "Menu.ShowFolderContents"),
@@ -847,44 +925,46 @@ public sealed partial class DockWindow : Window
                 }
 
                 if (Launcher.SupportsFileLocation(item))
-                    menu.Items.Add(Mi(Loc.Get("Menu.OpenFileLocation"), () => Launcher.OpenFileLocation(item)));
+                    sink.Add(Mi(Loc.Get("Menu.OpenFileLocation"), () => Launcher.OpenFileLocation(item)));
 
-                menu.Items.Add(BuildMoveToGroupMenu(target, item));
+                sink.Add(BuildMoveToGroupMenu(target, item));
 
                 // Both of these are hidden rather than shown greyed out: with one dock there is
                 // nowhere to move an item to, and with per-item shortcuts switched off nothing an
                 // item is given here would fire. An entry that can only be disabled is one more
                 // line to read past every time the menu opens.
                 if (_manager.Docks.Count > 1)
-                    menu.Items.Add(BuildMoveToDockMenu(item));
+                    sink.Add(BuildMoveToDockMenu(item));
 
                 // Groups are excluded: a shortcut fires with the dock hidden and possibly
                 // off-screen, and a group has nothing to do except open a fly-out that would have
                 // nowhere to appear.
                 if (_manager.Config.ItemHotkeysEnabled)
-                    menu.Items.Add(BuildItemHotkeyMenu(target, item));
+                    sink.Add(BuildItemHotkeyMenu(target, item));
             }
 
-            menu.Items.Add(new MenuFlyoutSeparator());
+            sink.Add(new MenuFlyoutSeparator());
         }
 
         var moveLeft = Mi(Loc.Get("Menu.MoveLeft"), () => MoveItem(item, -1));
         moveLeft.IsEnabled = index > 0;
-        menu.Items.Add(moveLeft);
+        sink.Add(moveLeft);
 
         var moveRight = Mi(Loc.Get("Menu.MoveRight"), () => MoveItem(item, +1));
         moveRight.IsEnabled = index >= 0 && index < PinnedCount - 1;
-        menu.Items.Add(moveRight);
+        sink.Add(moveRight);
 
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(Mi(Loc.Get("Menu.Hide"), () => SetItemHidden(item, true)));
-        menu.Items.Add(Mi(Loc.Get("Menu.Remove"), () => RemoveDockItem(item)));
-
-        // A pinned app that is open can be quit from its icon, as on a Mac.
-        if (!item.IsGroup && _manager.Running.IsRunning(item))
+        sink.Add(new MenuFlyoutSeparator());
+        sink.Add(Mi(Loc.Get("Menu.Hide"), () => SetItemHidden(item, true)));
+        if (isApp)
         {
-            menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Mi(Loc.Get("Menu.QuitApp"), () => _manager.Running.Quit(item)));
+            // Options sits with the app's own commands; closing it comes last, as on the taskbar.
+            menu.Items.Add(options);
+            AddCloseSection(menu, item);
+        }
+        else
+        {
+            menu.Items.Add(Mi(Loc.Get("Menu.Remove"), () => RemoveDockItem(item)));
         }
 
         // The cursor is about to sit over the menu, off the dock's own bounds; hold auto-hide out

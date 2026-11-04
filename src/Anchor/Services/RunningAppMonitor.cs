@@ -18,34 +18,30 @@ namespace Anchor.Services;
 /// </summary>
 public sealed class RunningAppMonitor : IDisposable
 {
-    // The fallback poll: the events carry the work, so this only has to catch what they don't.
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
+    // The fallback poll: the events carry the work, so this only has to catch what they don't
+    // (chiefly a window that was shown untitled and named itself later). A walk is ~2 ms.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
     // A burst of window events (an app opening shows a dozen surfaces) becomes one walk.
     private static readonly TimeSpan EventSettle = TimeSpan.FromMilliseconds(120);
 
     private readonly DispatcherQueue _dispatcher;
+    private readonly WindowEvents _events;
     private DispatcherQueueTimer? _timer, _settleTimer;
     private IReadOnlyList<RunningApp> _apps = Array.Empty<RunningApp>();
     private Dictionary<string, RunningApp> _byExe = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, RunningApp> _byAppId = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, RunningApp> _byName = new(StringComparer.CurrentCultureIgnoreCase);
+    private HashSet<nint> _appWindows = new();
     private bool _refreshInFlight, _refreshAgain;
-
-    // Held for the life of the hooks: the native side calls back through this delegate.
-    private readonly NativeMethods.WinEventProc _onWinEvent;
-    private nint _windowHook, _foregroundHook;
-
-    /// <summary>The last window in front that wasn't ours: what was active before the dock was clicked.</summary>
-    private nint _lastForeground;
 
     /// <summary>Raised on the UI thread after each successful refresh.</summary>
     public event Action? Updated;
 
-    public RunningAppMonitor(DispatcherQueue dispatcher)
+    public RunningAppMonitor(DispatcherQueue dispatcher, WindowEvents events)
     {
         _dispatcher = dispatcher;
-        _onWinEvent = OnWinEvent;
+        _events = events;
     }
 
     public bool IsEnabled { get; private set; }
@@ -64,14 +60,14 @@ public sealed class RunningAppMonitor : IDisposable
         {
             _timer?.Stop();
             _settleTimer?.Stop();
-            Unhook();
+            _events.WindowChanged -= OnWindowChanged;
             Publish(Array.Empty<RunningApp>());
             return;
         }
 
         _timer ??= CreateTimer(PollInterval, repeat: true);
         _timer.Start();
-        Hook();
+        _events.WindowChanged += OnWindowChanged;
         Refresh(); // don't make the first frame wait for its dots
     }
 
@@ -84,51 +80,31 @@ public sealed class RunningAppMonitor : IDisposable
         return timer;
     }
 
-    private void Hook()
+    /// <summary>
+    /// A top-level window came or went. Most such windows (tooltips, menus, popups, the shell's own)
+    /// can never be an app's, so they're dismissed here with a check or two rather than costing a
+    /// walk of every window: one that appears must look like an app window, and one that goes must
+    /// have been one of the app windows already known.
+    /// </summary>
+    private void OnWindowChanged(nint hwnd, uint eventType)
     {
-        // Out of context: the events arrive as messages on this (the UI) thread, so nothing else
-        // runs in other processes and nothing here needs a lock.
-        _windowHook = NativeMethods.SetWinEventHook(
-            NativeMethods.EVENT_OBJECT_DESTROY, NativeMethods.EVENT_OBJECT_UNCLOAKED, nint.Zero, _onWinEvent,
-            0, 0, NativeMethods.WINEVENT_OUTOFCONTEXT | NativeMethods.WINEVENT_SKIPOWNPROCESS);
-        _foregroundHook = NativeMethods.SetWinEventHook(
-            NativeMethods.EVENT_SYSTEM_FOREGROUND, NativeMethods.EVENT_SYSTEM_FOREGROUND, nint.Zero, _onWinEvent,
-            0, 0, NativeMethods.WINEVENT_OUTOFCONTEXT | NativeMethods.WINEVENT_SKIPOWNPROCESS);
-        _lastForeground = NativeMethods.GetForegroundWindow();
-    }
-
-    private void Unhook()
-    {
-        if (_windowHook != nint.Zero)
-            NativeMethods.UnhookWinEvent(_windowHook);
-        if (_foregroundHook != nint.Zero)
-            NativeMethods.UnhookWinEvent(_foregroundHook);
-        _windowHook = _foregroundHook = nint.Zero;
-    }
-
-    private void OnWinEvent(nint hook, uint eventType, nint hwnd, int idObject, int idChild, uint thread, uint time)
-    {
-        if (eventType == NativeMethods.EVENT_SYSTEM_FOREGROUND)
-        {
-            if (hwnd != nint.Zero)
-                _lastForeground = hwnd;
+        bool relevant = eventType is NativeMethods.EVENT_OBJECT_SHOW or NativeMethods.EVENT_OBJECT_UNCLOAKED
+            ? CouldBeAppWindow(hwnd)
+            : _appWindows.Contains(hwnd);
+        if (!relevant)
             return;
-        }
-
-        // Only whole top-level windows matter; carets, menus and controls inside windows come
-        // through this range too, and far more often.
-        if (idObject != NativeMethods.OBJID_WINDOW || idChild != NativeMethods.CHILDID_SELF || hwnd == nint.Zero)
-            return;
-        if (eventType is not (NativeMethods.EVENT_OBJECT_SHOW or NativeMethods.EVENT_OBJECT_HIDE or
-            NativeMethods.EVENT_OBJECT_DESTROY or NativeMethods.EVENT_OBJECT_CLOAKED or NativeMethods.EVENT_OBJECT_UNCLOAKED))
-            return;
-        // A destroyed window can't be asked about its parent any more; let it through.
-        if (eventType != NativeMethods.EVENT_OBJECT_DESTROY && NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT) != hwnd)
-            return;
-
         _settleTimer ??= CreateTimer(EventSettle, repeat: false);
         _settleTimer.Stop();
         _settleTimer.Start();
+    }
+
+    private static bool CouldBeAppWindow(nint hwnd)
+    {
+        long ex = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE);
+        if ((ex & NativeMethods.WS_EX_APPWINDOW) != 0)
+            return true;
+        return (ex & (NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE)) == 0 &&
+               NativeMethods.GetWindow(hwnd, NativeMethods.GW_OWNER) == nint.Zero;
     }
 
     private void Refresh()
@@ -146,6 +122,7 @@ public sealed class RunningAppMonitor : IDisposable
         // That is fast, but it is not something to do on the thread that draws the dock.
         _ = Task.Run(() =>
         {
+            Probe.Count("snapshot");
             var snapshot = RunningAppService.Snapshot();
             _dispatcher.TryEnqueue(() =>
             {
@@ -164,6 +141,11 @@ public sealed class RunningAppMonitor : IDisposable
 
     private void Publish(IReadOnlyList<RunningApp> apps)
     {
+        // The same apps as last time (their windows' order changes with every click, which no
+        // dock shows) is nothing to tell the docks about; just keep the fresh windows for clicks.
+        bool sameApps = apps.Count == _apps.Count &&
+            apps.Select(app => app.Key).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(_apps.Select(app => app.Key));
+
         var byExe = new Dictionary<string, RunningApp>(StringComparer.OrdinalIgnoreCase);
         var byAppId = new Dictionary<string, RunningApp>(StringComparer.OrdinalIgnoreCase);
         var byName = new Dictionary<string, RunningApp>(StringComparer.CurrentCultureIgnoreCase);
@@ -176,6 +158,9 @@ public sealed class RunningAppMonitor : IDisposable
             byName.TryAdd(app.Name, app);
         }
         (_apps, _byExe, _byAppId, _byName) = (apps, byExe, byAppId, byName);
+        _appWindows = apps.SelectMany(app => app.Windows).ToHashSet();
+        if (sameApps && apps.Count > 0)
+            return;
         try
         {
             Updated?.Invoke();
@@ -257,7 +242,7 @@ public sealed class RunningAppMonitor : IDisposable
         nint front = NativeMethods.GetForegroundWindow();
         if (front == nint.Zero ||
             (NativeMethods.GetWindowThreadProcessId(front, out uint pid) != 0 && pid == Environment.ProcessId))
-            front = _lastForeground;
+            front = _events.Foreground;
         if (front == nint.Zero || NativeMethods.IsIconic(front))
             return false;
         // An app's dialog counts as the app: compare the window it belongs to.
@@ -271,7 +256,7 @@ public sealed class RunningAppMonitor : IDisposable
         _timer = null;
         _settleTimer?.Stop();
         _settleTimer = null;
-        Unhook();
+        _events.WindowChanged -= OnWindowChanged;
         IsEnabled = false;
     }
 }
