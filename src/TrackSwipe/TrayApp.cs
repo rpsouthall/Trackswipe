@@ -17,7 +17,7 @@ internal sealed partial class TrayApp : IDisposable
 {
     private readonly GestureEngine _engine;
     private readonly TapDetector _tap = new(); // composition thread
-    private volatile bool _tapForStart; // a three-finger tap opens Start
+    private volatile int _tapFingers; // the fingers whose tap opens Start, or 0 for off
     private readonly TouchpadThread _touchpad;
     private readonly UiPump _pump;
     private readonly UiPump _shellPump;
@@ -31,7 +31,7 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem;
     private UiTimer? _taskbarTimer;
     private int _taskbarAttempts;
-    private readonly TrayMenuItem _gestureTitle, _threeFingerItem, _fourFingerItem, _tapForStartItem;
+    private readonly TrayMenuItem _gestureTitle, _threeFingerItem, _fourFingerItem, _tapOffItem, _tapThreeItem, _tapFourItem;
     private volatile string _device = "No precision touchpad input seen yet";
     private InputMonitorForm? _monitor;
     private UiTimer? _preview;
@@ -102,7 +102,8 @@ internal sealed partial class TrayApp : IDisposable
 
         _processFrame = ProcessFrame;
         Action drainInput = DrainInput;
-        _tapForStart = GesturePreferences.LoadOption(GesturePreferences.ThreeFingerTapForStart);
+        _tapFingers = GesturePreferences.LoadTapFingers();
+        if (_tapFingers > 0) _tap.Fingers = _tapFingers;
         _touchpad = new TouchpadThread { GestureFingers = ReportedFingers(options.Fingers) };
         _touchpad.FramesWaiting += () => { if (!_clock.IsRunning || !_samplingInput) _pump.Post(drainInput); };
         _touchpad.DeviceFound += device =>
@@ -118,7 +119,9 @@ internal sealed partial class TrayApp : IDisposable
         _gestureTitle = new TrayMenuItem(Title(options.Fingers)) { Enabled = false };
         _threeFingerItem = new TrayMenuItem("Three fingers", () => SetFingers(3)) { Checked = options.Fingers == 3 };
         _fourFingerItem = new TrayMenuItem("Four fingers", () => SetFingers(4)) { Checked = options.Fingers == 4 };
-        _tapForStartItem = new TrayMenuItem("Three-finger tap opens Start", ToggleTapForStart) { Checked = _tapForStart };
+        _tapOffItem = new TrayMenuItem("Off", () => SetTapFingers(0)) { Checked = _tapFingers == 0 };
+        _tapThreeItem = new TrayMenuItem("Three fingers", () => SetTapFingers(3)) { Checked = _tapFingers == 3 };
+        _tapFourItem = new TrayMenuItem("Four fingers", () => SetTapFingers(4)) { Checked = _tapFingers == 4 };
         _startupItem = new TrayMenuItem("Start at sign-in", ToggleStartup) { Checked = Setup.Startup.Enabled };
         _adminItem = new TrayMenuItem("Run as administrator", () => RequestRestart(_elevated ? RestartMode.Normal : RestartMode.Elevated))
             { Checked = _elevated };
@@ -141,7 +144,7 @@ internal sealed partial class TrayApp : IDisposable
             TrayMenuItem.Separator,
             _enabledItem,
             new TrayMenuItem("Gesture fingers", null, _threeFingerItem, _fourFingerItem),
-            _tapForStartItem,
+            new TrayMenuItem("Tap to open Start", null, _tapOffItem, _tapThreeItem, _tapFourItem),
             new TrayMenuItem("Spring", null, _snappyItem, _smoothItem),
             new TrayMenuItem("Preview animation", RunPreview),
             new TrayMenuItem("Input monitor...", ShowMonitor),
@@ -167,7 +170,7 @@ internal sealed partial class TrayApp : IDisposable
 
         Log.Write($"Started {AppVersion}{(_elevated ? " as administrator" : "")} on Windows {WindowsBuild.Describe()}: {options.Fingers} fingers, full swipe {options.FullSwipeMm} mm, spring {options.Spring}. Instant desktop switching {_overlay.SwitcherStatus}.");
         if (Setup.NativeGestures.Active(options.Fingers)) Setup.NativeGestures.Claim(options.Fingers);
-        if (_tapForStart && Setup.NativeGestures.TapActive) Setup.NativeGestures.ClaimTap();
+        if (_tapFingers > 0 && Setup.NativeGestures.TapActive(_tapFingers)) Setup.NativeGestures.ClaimTap(_tapFingers);
         if (welcome)
             Notify("TrackSwipe is running", $"Swipe {options.Fingers} fingers left or right to change desktops, and up for Mission Control. " +
                 (adminDeclined ? "Administrator mode wasn't approved; you can turn it on from this icon's menu." : "Settings are in this icon's menu."));
@@ -286,7 +289,7 @@ internal sealed partial class TrayApp : IDisposable
         {
             var phase = _engine.Phase;
             _engine.Process(frame);
-            if (_tapForStart) _tap.Process(frame);
+            if (_tapFingers > 0) _tap.Process(frame);
             if (phase != GesturePhase.Tracking && _engine.Phase == GesturePhase.Tracking) _firstTrackingFrame = true;
             if (_engine.NeedsFrames) _clock.Start();
             _samplingInput = _engine.NeedsFrames;
@@ -407,20 +410,29 @@ internal sealed partial class TrayApp : IDisposable
     }
 
     /// <summary>
-    /// The fewest fingers the touchpad reader passes on: the swipe's count, or three for the tap if it's on and swipes
+    /// The fewest fingers the touchpad reader passes on: the swipe's count, or three for a three-finger tap when swipes
     /// use four. Fewer (pointing, scrolling) never wake this thread.
     /// </summary>
-    private int ReportedFingers(int swipeFingers) => _tapForStart ? Math.Min(swipeFingers, _tap.Fingers) : swipeFingers;
+    private int ReportedFingers(int swipeFingers) => _tapFingers > 0 ? Math.Min(swipeFingers, _tapFingers) : swipeFingers;
 
-    private void ToggleTapForStart()
+    /// <summary>Which tap opens Start: three fingers, four, or none (0).</summary>
+    private void SetTapFingers(int fingers)
     {
-        _tapForStart = !_tapForStart;
-        _tapForStartItem.Checked = _tapForStart;
-        GesturePreferences.SaveOption(GesturePreferences.ThreeFingerTapForStart, _tapForStart);
-        _compositionThread.Invoke(() => _touchpad.GestureFingers = ReportedFingers(_engine.Options.Fingers));
-        Log.Write($"Three-finger tap opens Start {(_tapForStart ? "on" : "off")}.");
-        // Windows' own three-finger tap (Search, by default) would fire alongside it.
-        if (_tapForStart) Setup.NativeGestures.ClaimTap();
+        if (fingers == _tapFingers) return;
+        _compositionThread.Invoke(() =>
+        {
+            _tap.Cancel(); // a touch in progress was being judged against the old count
+            if (fingers > 0) _tap.Fingers = fingers;
+            _tapFingers = fingers;
+            _touchpad.GestureFingers = ReportedFingers(_engine.Options.Fingers);
+        });
+        _tapOffItem.Checked = fingers == 0;
+        _tapThreeItem.Checked = fingers == 3;
+        _tapFourItem.Checked = fingers == 4;
+        GesturePreferences.SaveTapFingers(fingers);
+        Log.Write(fingers > 0 ? $"A {fingers}-finger tap now opens Start." : "Tap to open Start turned off.");
+        // Windows' own tap with that many fingers (Search or notifications, by default) would fire alongside it.
+        if (fingers > 0) Setup.NativeGestures.ClaimTap(fingers); // and gives the other count's tap back
         else Setup.NativeGestures.RestoreTap();
     }
 

@@ -7,15 +7,21 @@ public class TapDetectorTests
 {
     private const double FrameInterval = 1.0 / 125;
 
-    /// <summary>Sends touchpad scans through the reader's filter (gestures of three fingers) to a tap detector.</summary>
+    /// <summary>Sends touchpad scans through the reader's filter (gestures of <c>reported</c> fingers) to a tap detector.</summary>
     private sealed class Pad
     {
         private readonly TapDetector _detector = new();
         private readonly Dictionary<int, (double X, double Y)> _fingers = new();
+        private readonly int _reported;
         private bool _engaged;
         private double _touchStarted;
 
-        public Pad() => _detector.Tapped += () => Taps++;
+        public Pad(int tapFingers = 3, int reported = 3)
+        {
+            _detector.Fingers = tapFingers;
+            _reported = reported;
+            _detector.Tapped += () => Taps++;
+        }
 
         public int Taps { get; private set; }
         public double Time { get; private set; } = 100;
@@ -59,7 +65,7 @@ public class TapDetectorTests
             // fingers and the drop below them.
             if (contacts.Length == 0) _touchStarted = 0;
             else if (_touchStarted == 0) _touchStarted = Time;
-            if (TouchFilter.Deliver(contacts.Length, 3, forwardAll: false, ref _engaged))
+            if (TouchFilter.Deliver(contacts.Length, _reported, forwardAll: false, ref _engaged))
                 _detector.Process(new TouchFrame(Time, contacts, 100, 70) { TouchStarted = _touchStarted });
             return this;
         }
@@ -119,6 +125,36 @@ public class TapDetectorTests
     {
         var pad = new Pad().Land(0, 1).Hold(0.2).Land(2).Hold(0.05).Lift(0, 1, 2);
         Assert.Equal(0, pad.Taps);
+    }
+
+    // Four-finger taps: with four-finger swipes the reader passes on four or more; with three-finger swipes, three or more.
+    [Theory, InlineData(4), InlineData(3)]
+    public void A_quick_still_four_finger_tap_is_recognised_once(int reported)
+    {
+        Assert.Equal(1, new Pad(4, reported).Land(0, 1, 2, 3).Hold(0.1).Lift(0, 1, 2, 3).Taps);
+        Assert.Equal(1, new Pad(4, reported).Land(0, 1, 2, 3).Hold(0.1).Lift(3).Hold(0.03).Lift(2).Hold(0.03).Lift(0, 1).Taps);
+        Assert.Equal(1, new Pad(4, reported).Land(0, 1).Hold(0.03).Land(2, 3).Hold(0.06).Lift(0, 1, 2, 3).Taps);
+    }
+
+    [Theory, InlineData(4), InlineData(3)]
+    public void A_four_finger_tap_ignores_three_and_five(int reported)
+    {
+        Assert.Equal(0, new Pad(4, reported).Land(0, 1, 2).Hold(0.1).Lift(0, 1, 2).Taps);
+        Assert.Equal(0, new Pad(4, reported).Land(0, 1, 2, 3, 4).Hold(0.1).Lift(0, 1, 2, 3, 4).Taps);
+    }
+
+    [Theory, InlineData(4), InlineData(3)]
+    public void A_four_finger_hold_or_swipe_is_not_a_tap(int reported)
+    {
+        Assert.Equal(0, new Pad(4, reported).Land(0, 1, 2, 3).Hold(0.6).Lift(0, 1, 2, 3).Taps);
+        Assert.Equal(0, new Pad(4, reported).Land(0, 1, 2, 3).Move(6, 0.1).Lift(0, 1, 2, 3).Taps);
+    }
+
+    [Fact]
+    public void A_three_finger_tap_with_four_finger_swipes_is_recognised()
+    {
+        Assert.Equal(1, new Pad(3, 3).Land(0, 1, 2).Hold(0.1).Lift(0, 1, 2).Taps);
+        Assert.Equal(0, new Pad(3, 3).Land(0, 1, 2, 3).Hold(0.1).Lift(0, 1, 2, 3).Taps);
     }
 
     [Fact]

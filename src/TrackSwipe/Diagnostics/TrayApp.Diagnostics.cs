@@ -11,7 +11,7 @@ internal sealed partial class TrayApp
     private void StartDiagnostics(bool preview, bool diagnose, int? missionDiagnostics)
     {
         if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_OPTIONS") == "1") { RunTaskbarOptionsDiagnostics(); return; }
-        if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP") == "1") { RunTapDiagnostics(); return; }
+        if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP") is "3" or "4") { RunTapDiagnostics(int.Parse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP")!)); return; }
         _compositionThread.Post(() =>
         {
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_INPUT") == "1")

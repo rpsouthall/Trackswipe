@@ -159,7 +159,9 @@ internal static class Program
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_OPTIONS", "1");
                     break;
                 case "--diagnose-tap":
-                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP", "1");
+                    var tapFingers = next is "3" or "4" ? next : "3";
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP", tapFingers);
+                    if (next is "3" or "4") i++;
                     break;
                 case "--diagnose-taskbar-jump" when long.TryParse(next, out var jumper):
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_JUMP", jumper.ToString());

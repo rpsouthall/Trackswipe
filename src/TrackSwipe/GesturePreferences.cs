@@ -40,8 +40,38 @@ internal static class GesturePreferences
     public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl",
         LargeTrayIcons = "LargeTrayIcons", HideRunningIndicators = "HideRunningIndicators";
 
-    /// <summary>A three-finger tap opens (or closes) Start. Off unless turned on.</summary>
-    public const string ThreeFingerTapForStart = "ThreeFingerTapForStart";
+    private const string TapFingersValue = "TapForStartFingers", OldThreeFingerTapValue = "ThreeFingerTapForStart";
+
+    /// <summary>The fingers whose tap opens (or closes) Start: 3 or 4, or 0 for off (the default).</summary>
+    public static int LoadTapFingers()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(KeyPath);
+            if (key?.GetValue(TapFingersValue) is int fingers) return fingers is 3 or 4 ? fingers : 0;
+            // Until four-finger taps were offered, it was a yes-or-no option for three fingers.
+            return key?.GetValue(OldThreeFingerTapValue) is int on && on != 0 ? 3 : 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return 0;
+        }
+    }
+
+    public static void SaveTapFingers(int fingers)
+    {
+        if (fingers is not (0 or 3 or 4)) throw new ArgumentOutOfRangeException(nameof(fingers));
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(KeyPath);
+            key.SetValue(TapFingersValue, fingers, RegistryValueKind.DWord);
+            key.DeleteValue(OldThreeFingerTapValue, throwOnMissingValue: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            Log.Write($"Could not save the tap for Start: {ex.Message}");
+        }
+    }
 
     public static bool LoadOption(string name)
     {

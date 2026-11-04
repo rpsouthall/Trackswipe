@@ -8,13 +8,14 @@ namespace TrackSwipe;
 internal sealed partial class TrayApp
 {
     /// <summary>
-    /// For --diagnose-tap: plays synthetic three-finger taps through the real input path (the touchpad reader's filter,
-    /// the gesture engine and the tap detector) and checks that the first opens Start and the second closes it. Quits after.
+    /// For --diagnose-tap [3|4]: plays synthetic taps through the real input path (the touchpad reader's filter, the
+    /// gesture engine and the tap detector) and checks that the first opens Start and the second closes it. Quits after.
     /// </summary>
-    private void RunTapDiagnostics()
+    private void RunTapDiagnostics(int tapFingers)
     {
-        var wasOn = _tapForStart;
-        _tapForStart = true;
+        var was = _tapFingers;
+        _compositionThread.Invoke(() => { _tap.Fingers = tapFingers; _tapFingers = tapFingers; });
+        Log.Write($"Tap diagnostic: {tapFingers}-finger taps, {_engine.Options.Fingers}-finger swipes.");
         var taps = 0;
         _tap.Tapped += () => taps++;
         string Start()
@@ -26,10 +27,11 @@ internal sealed partial class TrayApp
         }
         void Tap() => _compositionThread.Invoke(() =>
         {
-            // Three fingers down for 0.1 s at 125 Hz, then all lifted, through the same filter the reader applies.
+            // The fingers down for 0.1 s at 125 Hz, then all lifted, through the same filter the reader applies.
             var engaged = false;
             var started = Clock.Now;
-            var fingers = new[] { new Contact(0, 40, 35, true, true), new Contact(1, 52, 33, true, true), new Contact(2, 64, 35, true, true) };
+            var fingers = new Contact[tapFingers];
+            for (var f = 0; f < tapFingers; f++) fingers[f] = new Contact(f, 30 + 12 * f, f % 2 == 0 ? 35 : 33, true, true);
             for (var i = 0; i <= 13; i++)
             {
                 var contacts = i < 13 ? fingers : Array.Empty<Contact>();
@@ -49,7 +51,7 @@ internal sealed partial class TrayApp
                 case 1: Log.Write($"Tap diagnostic: after the first tap ({taps} recognised), Start {Start()}."); Tap(); return;
                 case 2:
                     Log.Write($"Tap diagnostic: after the second tap ({taps} recognised), Start {Start()}.");
-                    _tapForStart = wasOn;
+                    _compositionThread.Invoke(() => { if (was > 0) _tap.Fingers = was; _tapFingers = was; });
                     timer.Dispose();
                     ExitOnShell();
                     return;
