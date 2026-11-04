@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Changelog — Anchor</title>
+  <meta name="description" content="Release notes and changelog for Anchor, including recent fixes, updates, and new features.">
+  <meta name="theme-color" content="#0d0f14">
+  <link rel="canonical" href="https://www.anchordock-app.com/changelog.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Anchor">
+  <meta property="og:title" content="Changelog — Anchor">
+  <meta property="og:description" content="Release notes and changelog for Anchor, including recent fixes, updates, and new features.">
+  <meta property="og:url" content="https://www.anchordock-app.com/changelog.html">
+  <meta property="og:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Changelog — Anchor">
+  <meta name="twitter:description" content="Release notes and changelog for Anchor, including recent fixes, updates, and new features.">
+  <meta name="twitter:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icon-32.png">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <script src="assets/js/theme.js"></script>
+  <style>
+    .release { margin: 2.5rem 0; padding: 1.5rem; border: 1px solid rgba(148,163,184,0.22); border-radius: 22px; background: rgba(255,255,255,0.02); }
+    .release h2 { margin-top: 0; }
+    .release__meta { color: var(--night-ink-2); margin-bottom: 1rem; }
+    .release h3 { margin-top: 1.25rem; }
+    .release ul { margin: 0.75rem 0 0; padding-left: 1.2rem; }
+    .release li + li { margin-top: 0.55rem; }
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .summary-card { border: 1px solid rgba(148,163,184,0.18); border-radius: 18px; padding: 1rem; background: rgba(17,20,27,0.3); }
+    .summary-card h3 { margin: 0 0 0.5rem; }
+    .summary-card p { margin: 0; color: var(--night-ink-2); }
+  </style>
+</head>
+<body>
+<header class="nav is-light" id="nav">
+  <div class="wrap-wide nav__inner">
+    <a class="nav__brand" href="index.html" aria-label="Anchor home">
+      <img src="assets/img/icon-180.png" alt="" width="26" height="26">
+      Anchor
+    </a>
+    <nav aria-label="Primary">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="index.html#highlights">Highlights</a></li>
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="changelog.html" aria-current="page">Changelog</a></li>
+        <li><a href="feedback.html">Feedback</a></li>
+        <li><a href="apps.html">More Apps</a></li>
+        <li><a href="privacy.html">Privacy</a></li>
+        <li><a href="https://github.com/framedparadox/anchor-dock">GitHub</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn--small nav__cta" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">Download</a>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+      <span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <header class="doc-hero">
+    <div class="wrap">
+      <p class="eyebrow">Anchor Dock</p>
+      <h1 class="headline headline--md">Changelog</h1>
+      <p class="lede">Recent improvements, fixes, and feature work for the Anchor app.</p>
+    </div>
+  </header>
+
+  <article class="doc">
+    <div class="doc-callout">
+      <p>All notable changes to Anchor are documented here. This page highlights the most recent notes from the project changelog.</p>
+    </div>
+
+    <section class="release">
+      <h2>v1.2.5</h2>
+      <div class="release__meta">About-page feedback and support improvements.</div>
+
+      <h3>Changed</h3>
+      <ul>
+        <li><strong>About links are easier to find.</strong> The About page now groups Microsoft Store ratings, GitHub stars, feedback, and issue reporting under <strong>Feedback &amp; support</strong>, with a dedicated section icon.</li>
+        <li>License, privacy policy, website, and changelog links are grouped together, and the source-code link has been removed.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v1.2.4</h2>
+      <div class="release__meta">Added and fixed in the latest release.</div>
+
+      <h3>Added</h3>
+      <ul>
+        <li><strong>Group icon colour.</strong> A group's editor now includes a <strong>Colour</strong> row, with the theme colour, Windows palette presets, and a custom swatch picker. The chosen colour is stored on the item as <code>IconColor</code> and is drawn on the dock strip, drag ghost, and Apps &amp; links settings list.</li>
+        <li>Colour-only tinting is respected without overriding the icon itself, and the accent is ignored when Windows High Contrast is active.</li>
+      </ul>
+
+      <h3>Fixed</h3>
+      <ul>
+        <li><strong>Taskbar icon issue in the Store build.</strong> The app icon previously appeared on a blue square in the taskbar, desktop, and Start menu. The package now includes the correct unplated icon variants, so Windows draws the transparent artwork cleanly.</li>
+      </ul>
+    </section>
+
+    <section class="release">
+      <h2>v1.2.3</h2>
+      <div class="release__meta">Drag-and-drop improvements and crash/hang hardening.</div>
+
+      <h3>Added</h3>
+      <ul>
+        <li><strong>Drop anything onto Add to Dock.</strong> Apps, files, folders, shortcut links, and web links can now be dropped directly into the Add window, where Anchor fills the form and adds the item in one step.</li>
+        <li><strong>Drag 'n drop</strong> support was expanded with a dedicated drop zone and grouped multi-item handling.</li>
+        <li>The dock now has a smoother drag-and-drop experience, including a drop shell that reveals the destination slot before the item lands.</li>
+      </ul>
+
+      <h3>Changed</h3>
+      <ul>
+        <li>Type tiles were consolidated into a more compact layout for cleaner visual balance.</li>
+        <li>Web URL normalization logic was made consistent between the dock strip and Add item window.</li>
+      </ul>
+
+      <h3>Fixed</h3>
+      <ul>
+        <li>Multiple crash and hang bugs were fixed during the hardening pass, including configuration loss, unhandled null items, unclosed drag timers, slow folder scans, and leak-prone Settings windows.</li>
+        <li>Power-user flows like shortcut resolution, app startup, and background polling were made more resilient.</li>
+      </ul>
+    </section>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <h3>Store build</h3>
+        <p>The recommended install path is the Microsoft Store, which keeps Anchor updated automatically and keeps the app in the supported packaging flow.</p>
+      </div>
+      <div class="summary-card">
+        <h3>Open-source</h3>
+        <p>Anchor is still developed in the open on GitHub, with release notes and issue reporting available alongside the source code.</p>
+      </div>
+      <div class="summary-card">
+        <h3>Privacy</h3>
+        <p>Anchor stays local-first, with no account, analytics, or tracking system. The app stores your dock settings in your user profile.</p>
+      </div>
+    </div>
+  </article>
+</main>
+
+<footer class="footer">
+  <div class="wrap-wide">
+    <div class="footer__legal">
+      <p style="margin:0">Copyright © 2026 Ajay Kontham.</p>
+      <nav aria-label="Legal">
+        <a href="index.html">Home</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="feedback.html">Feedback</a>
+        <a href="apps.html">More Apps</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/site.js" defer></script>
+</body>
+</html>

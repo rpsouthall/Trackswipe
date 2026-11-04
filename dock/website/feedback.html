@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Feedback — Anchor</title>
+  <meta name="description" content="Send suggestions, feedback, or praise for Anchor. Include your email if you'd like a reply.">
+  <meta name="theme-color" content="#0d0f14">
+  <link rel="canonical" href="https://www.anchordock-app.com/feedback.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Anchor">
+  <meta property="og:title" content="Feedback — Anchor">
+  <meta property="og:description" content="Send suggestions, feedback, or praise for Anchor. Include your email if you'd like a reply.">
+  <meta property="og:url" content="https://www.anchordock-app.com/feedback.html">
+  <meta property="og:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Feedback — Anchor">
+  <meta name="twitter:description" content="Send suggestions, feedback, or praise for Anchor. Include your email if you'd like a reply.">
+  <meta name="twitter:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icon-32.png">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <script src="assets/js/theme.js"></script>
+  <style>
+    .feedback-wrap { max-width: 760px; margin: 0 auto; }
+    .feedback-form { display: grid; gap: 1rem; }
+    .feedback-form label { display: grid; gap: 0.5rem; font-weight: 600; }
+    .feedback-form input,
+    .feedback-form select,
+    .feedback-form textarea {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(255,255,255,0.04);
+      color: inherit;
+      font: inherit;
+      padding: 0.85rem 1rem;
+      box-sizing: border-box;
+    }
+    .feedback-form textarea { min-height: 180px; resize: vertical; }
+    .feedback-form .muted { color: var(--night-ink-2, #9aa6b2); font-size: 0.92rem; }
+    .feedback-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .feedback-card { border: 1px solid rgba(148,163,184,0.2); border-radius: 18px; padding: 1rem; background: rgba(255,255,255,0.02); }
+    .feedback-card h3 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+    .feedback-card p { margin: 0; color: var(--night-ink-2); }
+  </style>
+</head>
+<body>
+<header class="nav is-light" id="nav">
+  <div class="wrap-wide nav__inner">
+    <a class="nav__brand" href="index.html" aria-label="Anchor home">
+      <img src="assets/img/icon-180.png" alt="" width="26" height="26">
+      Anchor
+    </a>
+    <nav aria-label="Primary">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="index.html#highlights">Highlights</a></li>
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="feedback.html" aria-current="page">Feedback</a></li>
+        <li><a href="apps.html">More Apps</a></li>
+        <li><a href="privacy.html">Privacy</a></li>
+        <li><a href="https://github.com/framedparadox/anchor-dock">GitHub</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn--small nav__cta" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">Download</a>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+      <span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <header class="doc-hero">
+    <div class="wrap">
+      <p class="eyebrow">Anchor Dock</p>
+      <h1 class="headline headline--md">Feedback</h1>
+      <p class="lede">Suggestions, bug notes, and praise are all welcome. If you want a reply, add your email.</p>
+    </div>
+  </header>
+
+  <article class="doc feedback-wrap">
+    <div class="doc-callout">
+      <p>Use the form below to send your feedback by email. Your mail app will open with the message ready to send.</p>
+    </div>
+
+    <form class="feedback-form" action="mailto:hello@anchodock-app.com" method="post" enctype="text/plain">
+      <label>
+        Name
+        <input type="text" name="Name" placeholder="Your name (optional)">
+      </label>
+
+      <label>
+        Email
+        <input type="email" name="Email" placeholder="you@example.com (optional)">
+      </label>
+
+      <label>
+        Type
+        <select name="Type">
+          <option value="Suggestion">Suggestion</option>
+          <option value="Feedback">Feedback</option>
+          <option value="Praise">Praise</option>
+        </select>
+      </label>
+
+      <label>
+        Message
+        <textarea name="Message" placeholder="Tell us what you like, what you'd improve, or what bug or idea you'd like to share."></textarea>
+      </label>
+
+      <button class="btn" type="submit">Send feedback</button>
+      <p class="muted">If your device has no default mail app, copy the message and send it to hello@anchodock-app.com.</p>
+    </form>
+
+    <div class="feedback-grid">
+      <div class="feedback-card">
+        <h3>Suggestions</h3>
+        <p>Share ideas for new features, workflow improvements, or quality-of-life tweaks.</p>
+      </div>
+      <div class="feedback-card">
+        <h3>Feedback</h3>
+        <p>Tell us about friction, pauses, rough edges, or places where the dock could feel smoother.</p>
+      </div>
+      <div class="feedback-card">
+        <h3>Praise</h3>
+        <p>We love hearing what people find useful, beautiful, or worth keeping in their workflow.</p>
+      </div>
+    </div>
+  </article>
+</main>
+
+<footer class="footer">
+  <div class="wrap-wide">
+    <div class="footer__legal">
+      <p style="margin:0">Copyright © 2026 Ajay Kontham.</p>
+      <nav aria-label="Legal">
+        <a href="index.html">Home</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="apps.html">More Apps</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/site.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: ajaykontham.Anchor
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: ajaykontham
+PublisherUrl: https://github.com/framedparadox
+PublisherSupportUrl: https://github.com/framedparadox/anchor-dock/issues
+PackageName: Anchor
+PackageUrl: https://github.com/framedparadox/anchor-dock
+License: MIT
+LicenseUrl: https://github.com/framedparadox/anchor-dock/blob/main/LICENSE
+ShortDescription: A floating dock for Windows 11.
+Description: >-
+  Anchor is a floating dock for Windows 11. Pin apps, files, folders and web links for one-click
+  access, snap it to a screen edge with auto-hide, and customize its look with light/dark/acrylic
+  theming. Runs entirely on your PC — no accounts, no telemetry, no ads.
+Moniker: anchor
+Tags:
+  - dock
+  - launcher
+  - productivity
+  - taskbar
+  - utility
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

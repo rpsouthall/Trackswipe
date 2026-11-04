@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AnchorDock</title>
+  <meta name="description" content="Anchor is a floating Windows dock and app launcher built on WinUI 3 and dotnet. Pin apps, files, folders and web links, and launch them across multiple monitors with a shortcut.">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="light dark">
+  <link rel="canonical" href="https://www.anchordock-app.com/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Anchor">
+  <meta property="og:title" content="Anchor — Drop anchor. Launch anything.">
+  <meta property="og:description" content="A native WinUI 3 dock for Windows. Real acrylic glass, one dock per monitor, fly-out groups and search across every pin. Free, open source, and private by design.">
+  <meta property="og:url" content="https://www.anchordock-app.com/">
+  <meta property="og:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Anchor — Drop anchor. Launch anything.">
+  <meta name="twitter:description" content="A native WinUI 3 dock for Windows. Free, open source, and private by design.">
+  <meta name="twitter:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icon-32.png">
+  <link rel="apple-touch-icon" href="assets/img/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <script src="assets/js/theme.js"></script>
+  <link rel="preload" as="image" href="assets/img/dock-dark.webp">
+
+  <script>document.documentElement.classList.add('js');</script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "AnchorDock",
+    "alternateName": "Anchor Dock",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows 11, Windows 10 version 1809 or later",
+    "softwareVersion": "1.2.3",
+    "description": "A native WinUI 3 dock for Windows. Pin apps, files, folders and web links; snap to any edge of any monitor; summon with Ctrl+Alt+A.",
+    "url": "https://www.anchordock-app.com/",
+    "downloadUrl": "https://apps.microsoft.com/detail/9nlp5cwmkdj0",
+    "installUrl": "https://apps.microsoft.com/detail/9nlp5cwmkdj0",
+    "license": "https://opensource.org/licenses/MIT",
+    "author": { "@type": "Person", "name": "Ajay Kontham", "url": "https://github.com/ajaykontham" },
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "inLanguage": ["en", "de", "es", "fr", "hi", "ja", "pt-BR", "zh-Hans"]
+  }
+  </script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<!-- ============ Icon sprite ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="g-folder" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd665"/><stop offset="1" stop-color="#f5b400"/></linearGradient>
+    <linearGradient id="g-folder-back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0b21a"/><stop offset="1" stop-color="#dc9400"/></linearGradient>
+    <linearGradient id="g-code" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4aa3ff"/><stop offset="1" stop-color="#1861d8"/></linearGradient>
+    <linearGradient id="g-term" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3a40"/><stop offset="1" stop-color="#18181b"/></linearGradient>
+    <linearGradient id="g-music" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b8a"/><stop offset="1" stop-color="#f0306a"/></linearGradient>
+    <linearGradient id="g-photo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8a4dff"/><stop offset="1" stop-color="#1f7cf0"/></linearGradient>
+    <linearGradient id="g-mail" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5ec8ff"/><stop offset="1" stop-color="#1f7cf0"/></linearGradient>
+    <linearGradient id="g-web" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#35d6b5"/><stop offset="1" stop-color="#1f7cf0"/></linearGradient>
+    <linearGradient id="g-notes" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a4c"/><stop offset="1" stop-color="#ff5a36"/></linearGradient>
+  </defs>
+
+  <!-- App tiles (48 × 48) -->
+  <symbol id="app-folder" viewBox="0 0 48 48">
+    <path fill="url(#g-folder-back)" d="M5 12a4 4 0 0 1 4-4h9.6a4 4 0 0 1 2.8 1.2l2.4 2.4a4 4 0 0 0 2.8 1.2H39a4 4 0 0 1 4 4v2H5z"/>
+    <rect x="5" y="16" width="38" height="25" rx="4" fill="url(#g-folder)"/>
+  </symbol>
+  <symbol id="app-code" viewBox="0 0 48 48">
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#g-code)"/>
+    <path d="M19 17l-7 7 7 7M29 17l7 7-7 7" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="app-terminal" viewBox="0 0 48 48">
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#g-term)"/>
+    <rect x="4.5" y="4.5" width="39" height="39" rx="9.5" fill="none" stroke="#fff" stroke-opacity=".12"/>
+    <path d="M13 17l7 6-7 6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M23 31h11" stroke="#22c3a6" stroke-width="3" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="app-music" viewBox="0 0 48 48">
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#g-music)"/>
+    <path d="M20 31.5V15l13-3v16" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="17" cy="31.5" r="4" fill="#fff"/><circle cx="30" cy="28" r="4" fill="#fff"/>
+  </symbol>
+  <symbol id="app-photos" viewBox="0 0 48 48">
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#g-photo)"/>
+    <circle cx="31" cy="17" r="4" fill="#ffd665"/>
+    <path d="M9 36l11-13 8 9 4-4 7 8z" fill="#fff" fill-opacity=".92"/>
+  </symbol>
+  <symbol id="app-mail" viewBox="0 0 48 48">
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#g-mail)"/>
+    <rect x="11" y="15" width="26" height="18" rx="3" fill="#fff"/>
+    <path d="M12 17l12 9 12-9" fill="none" stroke="#1f7cf0" stroke-width="2.4" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="app-web" viewBox="0 0 48 48">
+    <circle cx="24" cy="24" r="20" fill="url(#g-web)"/>
+    <g fill="none" stroke="#fff" stroke-width="2.2">
+      <circle cx="24" cy="24" r="12"/><path d="M12 24h24M24 12c-4.5 4-4.5 20 0 24M24 12c4.5 4 4.5 20 0 24"/>
+    </g>
+  </symbol>
+  <symbol id="app-notes" viewBox="0 0 48 48">
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#g-notes)"/>
+    <path d="M14 17h20M14 24h20M14 31h12" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="app-gear" viewBox="0 0 48 48">
+    <g fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round">
+      <path d="M21.6 9h4.8l.9 4.2 2.8 1.2 3.6-2.4 3.4 3.4-2.4 3.6 1.2 2.8 4.1.8v4.8l-4.1.8-1.2 2.8 2.4 3.6-3.4 3.4-3.6-2.4-2.8 1.2-.9 4.2h-4.8l-.8-4.2-2.8-1.2-3.6 2.4-3.4-3.4 2.4-3.6-1.2-2.8L9 26.4v-4.8l4.1-.8 1.2-2.8-2.4-3.6 3.4-3.4 3.6 2.4 2.8-1.2z"/>
+      <circle cx="24" cy="24" r="5"/>
+    </g>
+  </symbol>
+
+  <!-- Line glyphs (24 × 24) -->
+  <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><path d="M12 14.5v2"/></g></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 8.5 4.5 9.5 7a13 13 0 0 1-2.8 3.9M6.3 6.3C4.4 7.6 3.1 9.6 2.5 12c1 2.5 4.5 7 9.5 7 1.7 0 3.2-.5 4.5-1.3"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></g></symbol>
+  <symbol id="i-person-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.5 3.6-5.5 7-5.5s6.2 2 7 5.5"/><path d="M3.5 3.5l17 17"/></g></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c-3 3-3 14 0 17M12 3.5c3 3 3 14 0 17"/></g></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></g></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6" y="3.5" width="12" height="12" rx="3"/></g><rect x="9.5" y="18.5" width="5" height="2" rx="1" fill="currentColor"/></symbol>
+  <symbol id="i-separator" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="8" width="7" height="8" rx="2"/><rect x="14.5" y="8" width="7" height="8" rx="2"/><path d="M12 5v14"/></g></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="15.5" cy="9.5" r="1.8"/><path d="M4 17l5-5.5 4 4.5 2-2 5 4"/></g></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h6l4 4v5"/><path d="M13 3.5v4h4"/><path d="M7 3.5a2 2 0 0 0-2 2V13"/><rect x="8.5" y="15" width="12" height="5.5" rx="2"/><path d="M14.5 10v7"/><path d="M12.5 15l2 2 2-2"/></g></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="8" height="6" rx="1.5"/><rect x="13.5" y="13.5" width="8" height="6" rx="1.5"/><path d="M6.5 13.5v1.5a2 2 0 0 0 2 2H11M9.5 15l1.5 2-1.5 2"/></g></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></g></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M10.8 3.5h2.4l.5 2.3 1.5.7 2-1.3 1.7 1.7-1.3 2 .7 1.5 2.2.4v2.4l-2.2.4-.7 1.5 1.3 2-1.7 1.7-2-1.3-1.5.7-.5 2.3h-2.4l-.4-2.3-1.6-.7-2 1.3-1.7-1.7 1.3-2-.7-1.5-2.2-.4v-2.4l2.2-.4.7-1.5-1.3-2 1.7-1.7 2 1.3 1.6-.7z"/></g></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3.5" width="10" height="10" rx="2.5"/><path d="M5 18h14M8 21h8"/></g></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.2 0 1.8-.8 1.8-1.7 0-1-.8-1.4-.8-2.3 0-1 .8-1.7 1.8-1.7h2.1a3.6 3.6 0 0 0 3.6-3.6C20.5 7 16.7 3.5 12 3.5z"/><circle cx="7.8" cy="11" r="1.1" fill="currentColor"/><circle cx="10.5" cy="7.4" r="1.1" fill="currentColor"/><circle cx="15" cy="7.6" r="1.1" fill="currentColor"/></g></symbol>
+  <symbol id="i-resize" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></g></symbol>
+  <symbol id="i-contrast" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.5"/></g><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></symbol>
+  <symbol id="i-tray" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 14.5V18a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-3.5"/><path d="M3.5 14.5h4.5l1.5 2h5l1.5-2h4.5"/><path d="M12 3.5l3.5 4h-2.2v4h-2.6v-4H8.5z"/></g></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3.5v8"/><path d="M7 6.5a7.5 7.5 0 1 0 10 0"/></g></symbol>
+  <symbol id="i-stack" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3.5l8.5 4.5L12 12.5 3.5 8z"/><path d="M3.5 12L12 16.5 20.5 12M3.5 16L12 20.5 20.5 16"/></g></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4h-4"/></g></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6"/></g></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 9.5h.01M9.5 9.5h.01M13 9.5h.01M16.5 9.5h.01M6 13h.01M18 13h.01M9 15h6"/></g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></g></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3.5" y="12.5" width="17" height="6" rx="2"/><rect x="6.5" y="4.5" width="11" height="5.5" rx="2"/><path d="M12 10v2.5"/></g></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M9 20.5h6M12 16.5v4"/><path d="M9 13.5h6" stroke-width="2"/></g></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14.5V3.5M8 7.5l4-4 4 4"/><path d="M5 12.5v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.3l7.4-1v7.2H3zm8.3-1.2L21 2.8v8.7h-9.7zM3 12.5h7.4v7.2L3 18.7zm8.3 0H21v8.7l-9.7-1.3z"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5a9.5 9.5 0 0 0-3 18.5c.5.1.7-.2.7-.5v-1.7c-2.7.6-3.3-1.2-3.3-1.2-.4-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.1-.2-4.4-1.1-4.4-4.8 0-1 .4-1.9 1-2.6-.1-.3-.4-1.2.1-2.5 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.2.1 2.5.6.7 1 1.6 1 2.6 0 3.7-2.3 4.5-4.4 4.8.3.3.6.9.6 1.8v2.6c0 .3.2.6.7.5A9.5 9.5 0 0 0 12 2.5z"/></symbol>
+</svg>
+
+<!-- ============ Navigation ============ -->
+<header class="nav" id="nav">
+  <div class="wrap-wide nav__inner">
+    <a class="nav__brand" href="#top" aria-label="Anchor, back to top">
+      <img src="assets/img/icon-180.png" alt="" width="26" height="26">
+      Anchor
+    </a>
+    <nav aria-label="Primary">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="#highlights">Highlights</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#privacy">Privacy</a></li>
+        <li><a href="#specs">Tech Specs</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="feedback.html">Feedback</a></li>
+        <li><a href="apps.html">More Apps</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="https://github.com/framedparadox/anchor-dock">GitHub</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn--small nav__cta" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">Download</a>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+      <span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============ Hero ============ -->
+<section class="stage hero center" id="top" aria-labelledby="hero-title">
+  <div class="wrap">
+    <img class="hero__logo reveal" src="assets/img/logo.png" alt="" width="84" height="84">
+    <p class="hero__eyebrow reveal">Anchor for Windows</p>
+    <h1 class="headline reveal reveal-d1" id="hero-title">Drop anchor.<br><span class="gradient-text">Launch anything.</span></h1>
+    <p class="lede reveal reveal-d2">A native glass dock for the apps, files, folders and links you actually reach for. It stays out of the way until you whistle for it.</p>
+    <div class="cta-row reveal reveal-d3">
+      <a class="btn" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">
+        <svg aria-hidden="true"><use href="#i-windows"/></svg>
+        Get it from Microsoft Store
+      </a>
+      <a class="more" href="changelog.html">View changelog</a>
+    </div>
+    <p class="hero__meta reveal reveal-d3">Free &amp; open source · Windows 11 · x64 and ARM64 · Version 1.2.3</p>
+  </div>
+
+  <div class="hero__stage" aria-hidden="false">
+    <figure class="hero__screen" id="hero-screen" style="margin-block:0">
+      <img src="assets/img/dock-dark.webp" width="1523" height="959"
+           alt="The Windows 11 desktop with Anchor floating as a slim dark glass strip just above the taskbar, holding two folders, a website and the Microsoft Store.">
+      <figcaption class="hero__callout"><span>Anchor</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ Statement ============ -->
+<section class="stage stage--paper" aria-label="Why a dock">
+  <div class="wrap center">
+    <p class="statement" id="statement">
+      Windows already has a taskbar. Anchor is the strip you build for the handful of things you <mark>actually launch,</mark> then it <mark>gets out of the way.</mark>
+    </p>
+
+    <div class="stat-row">
+      <div class="reveal"><span class="stat__num">0</span><span class="stat__label">Accounts, trackers or ads</span></div>
+      <div class="reveal reveal-d1"><span class="stat__num">7</span><span class="stat__label">Kinds of thing you can pin</span></div>
+      <div class="reveal reveal-d2"><span class="stat__num">8</span><span class="stat__label">Languages, switched live</span></div>
+      <div class="reveal reveal-d3"><span class="stat__num">2</span><span class="stat__label">Native builds, x64 and ARM64</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Highlights ============ -->
+<section class="stage stage--night" id="highlights" aria-labelledby="hl-title">
+  <div class="wrap-wide">
+    <div class="section-head section-head--split">
+      <h2 class="headline headline--md reveal" id="hl-title">Get the highlights.</h2>
+      <a class="more reveal" href="#features">Take a closer look</a>
+    </div>
+
+    <div class="bento">
+      <!-- Glass -->
+      <article class="tile tile--wide tile--glass reveal">
+        <div class="tile__copy">
+          <p class="tile__kicker">Glass that is glass</p>
+          <h3 class="tile__title">Real desktop acrylic.<br>Not a fake blur.</h3>
+          <p class="tile__body">The same material as the Windows 11 taskbar, kept translucent even when the dock isn't the focused window. <strong>Light, Dark, or follow Windows.</strong></p>
+        </div>
+        <div class="glass-strip" aria-hidden="true">
+          <svg class="app"><use href="#app-folder"/></svg>
+          <svg class="app"><use href="#app-code"/></svg>
+          <svg class="app"><use href="#app-web"/></svg>
+          <svg class="app"><use href="#app-music"/></svg>
+          <svg class="app"><use href="#app-photos"/></svg>
+          <span class="sep"></span>
+          <svg class="app"><use href="#app-gear"/></svg>
+        </div>
+      </article>
+
+      <!-- Monitors -->
+      <article class="tile reveal">
+        <p class="tile__kicker">One dock per ocean</p>
+        <h3 class="tile__title">A strip for every screen.</h3>
+        <p class="tile__body">Each monitor gets its own pins, its own edge and its own hide behaviour.</p>
+        <div class="monitors" aria-hidden="true">
+          <div class="monitor"><div class="mini-dock mini-dock--bottom"><i style="--c:#ffc53d"></i><i style="--c:#1f7cf0"></i><i style="--c:#f0306a"></i><i style="--c:#22c3a6"></i></div></div>
+          <div class="monitor"><div class="mini-dock mini-dock--right"><i style="--c:#8a4dff"></i><i style="--c:#ff6a3d"></i><i style="--c:#ffc53d"></i></div></div>
+        </div>
+      </article>
+
+      <!-- Groups -->
+      <article class="tile tile--groups reveal reveal-d1">
+        <p class="tile__kicker">A harbour, not a list</p>
+        <h3 class="tile__title">Groups fly out like a second dock.</h3>
+        <p class="tile__body">Same glass, same cells. Not a menu.</p>
+        <div class="tile__shot"><img src="assets/img/group-crop.webp" alt="A group's fly-out bar opening above the dock with five more apps in it." loading="lazy" width="680" height="406"></div>
+      </article>
+
+      <!-- Shortcut -->
+      <article class="tile tile--third tile--keys reveal">
+        <p class="tile__kicker">Summon it</p>
+        <h3 class="tile__title">From anywhere.</h3>
+        <p class="tile__body">One global shortcut slides every dock out and gives it focus. Rebind it to anything.</p>
+        <div class="keys" aria-label="Control plus Alt plus A">
+          <kbd class="key key--pressed">Ctrl</kbd><b aria-hidden="true">+</b>
+          <kbd class="key key--pressed">Alt</kbd><b aria-hidden="true">+</b>
+          <kbd class="key key--pressed">A</kbd>
+        </div>
+      </article>
+
+      <!-- Search / languages -->
+      <article class="tile tile--four tile--lang reveal reveal-d1">
+        <p class="tile__kicker">Speaks your language</p>
+        <h3 class="tile__title">Search every pin, in eight languages.</h3>
+        <p class="tile__body">A glass card filters every item on every dock. Anchor follows your Windows display language, or pick one, with no restart.</p>
+        <div class="search-mock" aria-hidden="true">
+          <div class="search-mock__field">
+            <svg><use href="#i-search"/></svg>
+            <span class="search-mock__text" id="search-text" lang="en">Search your dock…</span>
+          </div>
+          <ul class="lang-list" id="lang-list">
+            <li lang="en">English</li><li lang="de">Deutsch</li><li lang="es">Español</li><li lang="fr">Français</li>
+            <li lang="hi">हिन्दी</li><li lang="ja">日本語</li><li lang="pt-BR">Português (Brasil)</li><li lang="zh-Hans">简体中文</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- Snap -->
+      <article class="tile tile--snap reveal">
+        <p class="tile__kicker">Out of sight</p>
+        <h3 class="tile__title">Tucks behind any edge.</h3>
+        <p class="tile__body">Snap it to a side and it slides away, leaving a small notch. Behind the taskbar, if you like.</p>
+        <img class="snap-shot" src="assets/img/dock-sidesnap.webp" alt="Anchor snapped vertically to the right edge of the screen, just above the clock." loading="lazy" width="185" height="353">
+      </article>
+
+      <!-- Privacy -->
+      <article class="tile tile--private reveal reveal-d1">
+        <svg class="big-glyph" aria-hidden="true"><use href="#i-shield"/></svg>
+        <p class="tile__kicker">Yours, on this PC</p>
+        <h3 class="tile__title">No account. No telemetry. No admin rights.</h3>
+        <p class="tile__body">Out of the box, a pinned website's icon is the only thing Anchor ever fetches.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Closer look ============ -->
+<section class="stage stage--alt" id="features" aria-labelledby="closer-title">
+  <div class="wrap-wide">
+    <div class="section-head center">
+      <p class="eyebrow reveal">Take a closer look</p>
+      <h2 class="headline headline--md reveal" id="closer-title">Everything you pin, one glance away.</h2>
+    </div>
+
+    <div class="closer">
+      <div class="closer__tabs" role="tablist" aria-label="Anchor windows">
+        <button class="closer__tab" role="tab" id="tab-add" aria-controls="panel-add" aria-selected="true">Add to Dock</button>
+        <button class="closer__tab" role="tab" id="tab-search" aria-controls="panel-search" aria-selected="false" tabindex="-1">Quick Search</button>
+        <button class="closer__tab" role="tab" id="tab-groups" aria-controls="panel-groups" aria-selected="false" tabindex="-1">Groups</button>
+        <button class="closer__tab" role="tab" id="tab-light" aria-controls="panel-light" aria-selected="false" tabindex="-1">Light &amp; Dark</button>
+        <button class="closer__tab" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+      </div>
+
+      <div class="closer__panels">
+        <div class="closer__panel" role="tabpanel" id="panel-add" aria-labelledby="tab-add">
+          <div class="closer__media"><img src="assets/img/addToDock.webp" alt="The Add to Dock window with seven type buttons: App, File, Folder, Web Link, Shortcut, Separator and Group." width="1406" height="878" loading="lazy"></div>
+          <div class="closer__copy">
+            <h3>Seven kinds of thing, one window.</h3>
+            <p>Apps are just the start. Pin a <strong>file, a folder, a web link, a shell shortcut</strong>, a separator or a whole group. Browse picks the target; the name fills itself in. Or skip the window and drag straight from Explorer.</p>
+            <ul class="chips"><li>App</li><li>File</li><li>Folder</li><li>Web link</li><li>Shortcut</li><li>Separator</li><li>Group</li></ul>
+          </div>
+        </div>
+
+        <div class="closer__panel" role="tabpanel" id="panel-search" aria-labelledby="tab-search" hidden>
+          <div class="closer__media closer__media--contain"><img src="assets/img/quick-search.webp" alt="Anchor Search open beneath the dock, listing folders, shortcuts and a website that match." width="542" height="561" loading="lazy"></div>
+          <div class="closer__copy">
+            <h3>Type. Arrow. Enter.</h3>
+            <p>Quick-launch search opens a small glass card that filters <strong>every item on every dock</strong>, including the ones tucked inside groups. Esc or a click elsewhere dismisses it.</p>
+            <p>Give it its own shortcut in Settings, or open it from the dock's or the tray's right-click menu.</p>
+          </div>
+        </div>
+
+        <div class="closer__panel" role="tabpanel" id="panel-groups" aria-labelledby="tab-groups" hidden>
+          <div class="closer__media"><img src="assets/img/dock-group.webp" alt="A group open as a second glass bar directly above the main dock." width="1491" height="876" loading="lazy"></div>
+          <div class="closer__copy">
+            <h3>A long dock, kept short.</h3>
+            <p>Drag an icon onto another to start a group. Hover it and a <strong>fly-out bar grows out of the icon</strong>, running across the dock and away from the edge it's snapped to.</p>
+            <p>Drag cells along the bar to reorder, or sideways off it to put them back on the strip.</p>
+          </div>
+        </div>
+
+        <div class="closer__panel" role="tabpanel" id="panel-light" aria-labelledby="tab-light" hidden>
+          <div class="closer__media"><img src="assets/img/dock-light.webp" alt="Anchor in its light theme floating above the taskbar." width="1492" height="939" loading="lazy"></div>
+          <div class="closer__copy">
+            <h3>Light, Dark, or whatever Windows says.</h3>
+            <p>The dock, its glass, and the Settings and Add windows all switch together. Turn on <strong>accent tint</strong> to wash the acrylic in your Windows accent colour.</p>
+            <p>High Contrast always wins, so Anchor never gets in the way of accessibility settings.</p>
+          </div>
+        </div>
+
+        <div class="closer__panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
+          <div class="closer__media"><img src="assets/img/s-appearance.webp" alt="Anchor Settings open on the Appearance page with theme, icon size and magnification options." width="1000" height="728" loading="lazy"></div>
+          <div class="closer__copy">
+            <h3>Settings that feel like Windows.</h3>
+            <p>A Mica window with left navigation and six pages: <strong>General, Appearance, Shortcuts, Docks, Apps &amp; links</strong> and <strong>About</strong>. Changes apply as you make them.</p>
+            <a class="more" href="#settings-tour">Tour every page</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Magnify playground ============ -->
+<section class="stage stage--paper" aria-labelledby="mag-title">
+  <div class="wrap center">
+    <p class="eyebrow reveal">Magnification</p>
+    <h2 class="headline headline--md reveal" id="mag-title">Go on. Give it a hover.</h2>
+    <p class="lede reveal">Icons swell under the cursor, macOS-style. Or leave it off and get the Windows 11 taskbar's quiet highlight. Your call, one switch.</p>
+  </div>
+
+  <div class="wrap-wide">
+    <div class="playground reveal" id="playground">
+      <svg class="playground__waves" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 260 C 200 180, 380 360, 600 250 S 1000 160, 1200 240 V420 H0z" fill="#ffffff" fill-opacity=".18"/>
+        <path d="M0 320 C 260 240, 420 400, 700 300 S 1040 250, 1200 310 V420 H0z" fill="#1d3a66" fill-opacity=".25"/>
+        <path d="M0 140 C 240 60, 460 220, 720 120 S 1060 80, 1200 130" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2"/>
+      </svg>
+      <span class="playground__hint">A live demo. Hover the icons.</span>
+
+      <div class="demo-dock" id="demo-dock" role="toolbar" aria-label="Demo dock">
+        <button class="demo-dock__cell is-running" type="button"><svg class="app"><use href="#app-folder"/></svg><span class="tip">Projects</span></button>
+        <button class="demo-dock__cell is-running" type="button"><svg class="app"><use href="#app-code"/></svg><span class="tip">Code editor</span></button>
+        <button class="demo-dock__cell" type="button"><svg class="app"><use href="#app-terminal"/></svg><span class="tip">Terminal</span></button>
+        <button class="demo-dock__cell" type="button"><svg class="app"><use href="#app-web"/></svg><span class="tip">github.com</span></button>
+        <span class="demo-dock__sep" aria-hidden="true"></span>
+        <button class="demo-dock__cell" type="button"><svg class="app"><use href="#app-mail"/></svg><span class="tip">Mail</span></button>
+        <button class="demo-dock__cell is-running" type="button"><svg class="app"><use href="#app-music"/></svg><span class="tip">Music</span></button>
+        <button class="demo-dock__cell" type="button"><svg class="app"><use href="#app-photos"/></svg><span class="tip">Photos</span></button>
+        <button class="demo-dock__cell" type="button"><svg class="app"><use href="#app-notes"/></svg><span class="tip">Notes.md</span></button>
+        <span class="demo-dock__sep" aria-hidden="true"></span>
+        <button class="demo-dock__cell" type="button"><svg class="app"><use href="#app-gear"/></svg><span class="tip">Settings</span></button>
+      </div>
+
+      <label class="playground__toggle">
+        Magnify on hover
+        <input type="checkbox" id="mag-toggle" checked>
+        <span class="switch" aria-hidden="true"></span>
+      </label>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Split features ============ -->
+<section class="stage stage--night-2" aria-label="Groups, docks and search">
+  <div class="wrap-wide">
+
+    <div class="split">
+      <div class="split__media reveal"><img src="assets/img/group-crop.webp" alt="Close-up of a group fly-out above the main dock." width="680" height="406" loading="lazy"></div>
+      <div class="split__copy">
+        <p class="eyebrow reveal">Groups &amp; folder stacks</p>
+        <h2 class="headline headline--sm reveal">Club related things into one icon.</h2>
+        <p class="lede reveal">Groups and folders open as a second dock growing out of their icon: the same cells, glass and spacing as the strip itself.</p>
+        <ul class="feature-list reveal">
+          <li><svg aria-hidden="true"><use href="#i-layers"/></svg><div><strong>Drag to group</strong>Drop an icon onto a group, or use <em>Move to group</em>. <em>Ungroup</em> puts everything back where it was.</div></li>
+          <li><svg aria-hidden="true"><use href="#i-folder"/></svg><div><strong>Folder fly-outs</strong>Turn on <em>Show folder contents</em> and a folder lists what's inside it, macOS-stack style. Click a subfolder to drill in.</div></li>
+          <li><svg aria-hidden="true"><use href="#i-drop"/></svg><div><strong>Drop onto an icon</strong>Drop a file on an app to open it with that app, or on a group to file it there. The target swells to tell you which.</div></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="split split--flip">
+      <div class="split__media reveal" style="background:none;box-shadow:none">
+        <div class="edges" id="edges" data-edge="bottom" aria-hidden="true">
+          <span class="edges__label" id="edges-label">Snapped: bottom</span>
+          <div class="edges__dock"><i style="--c:#ffc53d"></i><i style="--c:#1f7cf0"></i><i style="--c:#f0306a"></i><i style="--c:#8a4dff"></i><i style="--c:#22c3a6"></i></div>
+          <div class="edges__taskbar"></div>
+        </div>
+      </div>
+      <div class="split__copy">
+        <p class="eyebrow reveal">Docks &amp; edges</p>
+        <h2 class="headline headline--sm reveal">Float it. Snap it. Forget it's there.</h2>
+        <p class="lede reveal">Drag the dock's background and drop it at any edge of any monitor to snap and auto-hide, or anywhere else to float.</p>
+        <ul class="feature-list reveal">
+          <li><svg aria-hidden="true"><use href="#i-monitor"/></svg><div><strong>Several docks</strong>Add a dock per monitor. Each has its own items, edge, auto-hide and always-on-top.</div></li>
+          <li><svg aria-hidden="true"><use href="#i-eye-off"/></svg><div><strong>Off the taskbar and Alt-Tab</strong>Reveal a hidden dock from its edge or notch, the tray icon, or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>A</kbd>.</div></li>
+          <li><svg aria-hidden="true"><use href="#i-swap"/></svg><div><strong>Move items between docks</strong>Re-home an item without losing its custom icon, arguments or shortcut.</div></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="split__media reveal" style="background:#dfe6ee;display:grid;place-items:center;padding:28px">
+        <img src="assets/img/quick-search.webp" alt="Anchor Search filtering pinned items." width="542" height="561" loading="lazy" style="width:auto;max-height:440px;border-radius:12px">
+      </div>
+      <div class="split__copy">
+        <p class="eyebrow reveal">Keyboard first</p>
+        <h2 class="headline headline--sm reveal">Every pin can have its own shortcut.</h2>
+        <p class="lede reveal">Give any icon a system-wide key combination, even one tucked inside a group. It's off by default, behind one master switch.</p>
+        <ul class="feature-list reveal">
+          <li><svg aria-hidden="true"><use href="#i-keyboard"/></svg><div><strong>Record, don't type</strong>Click the shortcut button and press the combination. Esc cancels, Backspace clears.</div></li>
+          <li><svg aria-hidden="true"><use href="#i-check"/></svg><div><strong>No silent clashes</strong>Anchor tells you if another app already owns that combination.</div></li>
+          <li><svg aria-hidden="true"><use href="#i-search"/></svg><div><strong>Quick-launch search</strong>Its own shortcut, plus a spot on the dock and tray menus.</div></li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ Settings tour ============ -->
+<section class="stage stage--paper" id="settings-tour" aria-labelledby="tour-title">
+  <div class="wrap-wide">
+    <div class="section-head--split section-head" style="margin-bottom:0">
+      <div>
+        <p class="eyebrow reveal">Settings</p>
+        <h2 class="headline headline--md reveal" id="tour-title">Six pages. Zero guesswork.</h2>
+      </div>
+    </div>
+  </div>
+
+  <div class="carousel" id="carousel" tabindex="0" aria-label="Settings pages, scroll horizontally">
+    <figure class="slide"><div class="slide__frame"><img src="assets/img/s-general.webp" alt="Settings, General page" width="1006" height="743" loading="lazy"></div><figcaption><strong>General.</strong> Language, running-app indicators, start with Windows, backup and restore.</figcaption></figure>
+    <figure class="slide"><div class="slide__frame"><img src="assets/img/s-appearance.webp" alt="Settings, Appearance page" width="1000" height="728" loading="lazy"></div><figcaption><strong>Appearance.</strong> Theme, icon size, gear position, magnification, group on hover, names, accent tint.</figcaption></figure>
+    <figure class="slide"><div class="slide__frame"><img src="assets/img/s-shortcuts.webp" alt="Settings, Shortcuts page" width="1005" height="768" loading="lazy"></div><figcaption><strong>Shortcuts.</strong> The summon key, quick-launch search, and every per-item shortcut you've assigned.</figcaption></figure>
+    <figure class="slide"><div class="slide__frame"><img src="assets/img/s-docks.webp" alt="Settings, Docks page" width="1000" height="744" loading="lazy"></div><figcaption><strong>Docks.</strong> One card per dock: name, monitor, position, auto-hide and always-on-top.</figcaption></figure>
+    <figure class="slide"><div class="slide__frame"><img src="assets/img/s-appsAndLinks.webp" alt="Settings, Apps and links page" width="1045" height="757" loading="lazy"></div><figcaption><strong>Apps &amp; links.</strong> Every entry by dock, with reorder, show/hide, edit and remove.</figcaption></figure>
+    <figure class="slide"><div class="slide__frame"><img src="assets/img/s-about.webp" alt="Settings, About page" width="925" height="739" loading="lazy"></div><figcaption><strong>About.</strong> Version, source, licence, and the privacy summary in plain words.</figcaption></figure>
+  </div>
+
+  <div class="wrap-wide">
+    <div class="carousel-controls">
+      <button class="round-btn" type="button" id="car-prev" aria-label="Previous page"><svg aria-hidden="true"><use href="#i-chev-l"/></svg></button>
+      <button class="round-btn" type="button" id="car-next" aria-label="Next page"><svg aria-hidden="true"><use href="#i-chev-r"/></svg></button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Compare ============ -->
+<section class="stage stage--alt" id="compare" aria-labelledby="cmp-title">
+  <div class="wrap">
+    <div class="center">
+      <p class="eyebrow reveal">Anchor and the taskbar</p>
+      <h2 class="headline headline--md reveal" id="cmp-title">Not a replacement. A companion.</h2>
+      <p class="lede reveal">Anchor lives beside the taskbar, not instead of it, and holds the things the taskbar can't.</p>
+    </div>
+
+    <div class="compare" role="table" aria-label="Taskbar compared with Anchor">
+      <div class="compare__head" role="row">
+        <span role="columnheader"></span>
+        <span role="columnheader">Windows taskbar</span>
+        <span role="columnheader" class="is-us"><img src="assets/img/icon-32.png" alt="" width="22" height="22">Anchor</span>
+      </div>
+      <dl style="margin:0">
+        <div class="compare__row" role="row"><dt role="rowheader">What you pin</dt><dd role="cell">Apps</dd><dd role="cell" class="is-us">Apps, plus <b>files, folders, web links, shortcuts, separators and groups</b></dd></div>
+        <div class="compare__row" role="row"><dt role="rowheader">Where it lives</dt><dd role="cell">One bar, bottom or a side</dd><dd role="cell" class="is-us"><b>Floats</b>, or snaps to <b>any edge of any monitor</b></dd></div>
+        <div class="compare__row" role="row"><dt role="rowheader">Hiding</dt><dd role="cell">Auto-hide the whole taskbar</dd><dd role="cell" class="is-us">Tucks <b>behind its own edge</b>, even behind the taskbar, with a small notch</dd></div>
+        <div class="compare__row" role="row"><dt role="rowheader">Density</dt><dd role="cell">One row of apps</dd><dd role="cell" class="is-us">Groups open a <b>fly-out dock</b>; folders stack macOS-style</dd></div>
+        <div class="compare__row" role="row"><dt role="rowheader">Presence</dt><dd role="cell">Always on the taskbar and in Alt-Tab</dd><dd role="cell" class="is-us"><b>Off both</b>, summoned from the tray or <b>Ctrl+Alt+A</b></dd></div>
+        <div class="compare__row" role="row"><dt role="rowheader">Search</dt><dd role="cell">Start menu</dd><dd role="cell" class="is-us">A glass card that filters <b>every pin on every dock</b></dd></div>
+        <div class="compare__row" role="row"><dt role="rowheader">Your data</dt><dd role="cell">Microsoft's</dd><dd role="cell" class="is-us"><b>%AppData%\Anchor</b>, exportable, no cloud</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Privacy ============ -->
+<section class="stage stage--night" id="privacy" aria-labelledby="privacy-title">
+  <div class="wrap">
+    <div class="privacy-hero">
+      <svg class="big-glyph reveal" aria-hidden="true"><use href="#i-lock"/></svg>
+      <h2 class="headline headline--md reveal" id="privacy-title">Privacy isn't a setting.<br>It's the whole design.</h2>
+      <p class="lede reveal" style="margin-inline:auto">Anchor runs entirely on your PC. There's no server to send anything to, because we never built one.</p>
+    </div>
+
+    <div class="privacy-grid">
+      <div class="pcard reveal">
+        <svg aria-hidden="true"><use href="#i-person-off"/></svg>
+        <h3>No account</h3>
+        <p>No sign-in, no profile, no email. Install it and it works.</p>
+      </div>
+      <div class="pcard reveal reveal-d1">
+        <svg aria-hidden="true"><use href="#i-eye-off"/></svg>
+        <h3>No telemetry</h3>
+        <p>No analytics, no advertising, no tracking of any kind. Not even anonymised.</p>
+      </div>
+      <div class="pcard reveal reveal-d2">
+        <svg aria-hidden="true"><use href="#i-folder"/></svg>
+        <h3>Stays local</h3>
+        <p>Your docks live in <code>dock.json</code> under <code>%AppData%\Anchor</code>. Export them any time.</p>
+      </div>
+    </div>
+
+    <div class="network-log reveal" aria-label="Every network request Anchor can make">
+      <h3>Every network request Anchor can make. All of them.</h3>
+      <p><span class="ok">●</span> GET https://&lt;site&gt;/favicon.ico <span class="dim">— once per pinned web link, then cached</span></p>
+      <p><span class="ok">●</span> GET https://icons.duckduckgo.com/ip3/&lt;site&gt;.ico <span class="dim">— only if the site has no icon; sends the domain, nothing else</span></p>
+      <p><span class="off">○</span> GET api.github.com/…/releases/latest <span class="dim">— update check, portable build only, <b style="color:#ff9f0a;font-weight:500">off</b> until you turn it on</span></p>
+      <p class="dim" style="margin-top:10px">// Never pin a web link and Anchor makes no network requests at all.</p>
+    </div>
+
+    <p class="center reveal" style="margin-top:40px"><a class="more" href="privacy.html">Read the privacy policy</a></p>
+  </div>
+</section>
+
+<!-- ============ All the details ============ -->
+<section class="stage stage--paper" id="details" aria-labelledby="details-title">
+  <div class="wrap-wide">
+    <div class="section-head" style="margin-bottom:0">
+      <p class="eyebrow reveal">And so much more</p>
+      <h2 class="headline headline--md reveal" id="details-title">The little things, done properly.</h2>
+    </div>
+
+    <div class="details">
+      <div class="detail reveal"><svg aria-hidden="true"><use href="#i-dot"/></svg><h3>Running-app indicators</h3><p>A dot under open apps. A click brings the window forward; Shift+click starts another.</p></div>
+      <div class="detail reveal reveal-d1"><svg aria-hidden="true"><use href="#i-tray"/></svg><h3>Tray icon</h3><p>Left-click to raise every dock. Right-click for Search, Add, Settings and Quit.</p></div>
+      <div class="detail reveal reveal-d2"><svg aria-hidden="true"><use href="#i-separator"/></svg><h3>Separators</h3><p>A thin divider you can drop and drag anywhere on the strip.</p></div>
+      <div class="detail reveal reveal-d3"><svg aria-hidden="true"><use href="#i-image"/></svg><h3>Custom icons</h3><p>Point any item at a PNG, ICO, JPG, BMP or GIF, or pick a built-in glyph.</p></div>
+      <div class="detail reveal"><svg aria-hidden="true"><use href="#i-resize"/></svg><h3>Three icon sizes</h3><p>Small, Medium and Large. Medium matches the Windows 11 taskbar exactly.</p></div>
+      <div class="detail reveal reveal-d1"><svg aria-hidden="true"><use href="#i-text"/></svg><h3>Item names</h3><p>Tooltips on hover, or keep a label under every icon.</p></div>
+      <div class="detail reveal reveal-d2"><svg aria-hidden="true"><use href="#i-palette"/></svg><h3>Accent tint</h3><p>Wash the glass in your Windows accent colour, restrained, never garish.</p></div>
+      <div class="detail reveal reveal-d3"><svg aria-hidden="true"><use href="#i-gear"/></svg><h3>Gear at either end</h3><p>Put the settings button at the start or the end of the strip.</p></div>
+      <div class="detail reveal"><svg aria-hidden="true"><use href="#i-export"/></svg><h3>Import &amp; export</h3><p>Save every dock, item and setting to a file. Restore it on another PC.</p></div>
+      <div class="detail reveal reveal-d1"><svg aria-hidden="true"><use href="#i-power"/></svg><h3>Start with Windows</h3><p>Per-user, no admin prompt, visible in Task Manager's Startup apps.</p></div>
+      <div class="detail reveal reveal-d2"><svg aria-hidden="true"><use href="#i-contrast"/></svg><h3>High Contrast aware</h3><p>Accessibility themes always override Anchor's own colours.</p></div>
+      <div class="detail reveal reveal-d3"><svg aria-hidden="true"><use href="#i-refresh"/></svg><h3>Opt-in update check</h3><p>Portable build only, off by default. It never downloads or installs anything.</p></div>
+    </div>
+
+    <div class="ribbon" aria-label="Available in English, Deutsch, Español, Français, Hindi, Japanese, Português (Brasil) and Simplified Chinese">
+      <div class="ribbon__track" aria-hidden="true">
+        <span>English</span><span lang="de">Deutsch</span><span lang="es">Español</span><span lang="fr">Français</span><span lang="hi">हिन्दी</span><span lang="ja">日本語</span><span lang="pt-BR">Português</span><span lang="zh-Hans">简体中文</span>
+        <span>English</span><span lang="de">Deutsch</span><span lang="es">Español</span><span lang="fr">Français</span><span lang="hi">हिन्दी</span><span lang="ja">日本語</span><span lang="pt-BR">Português</span><span lang="zh-Hans">简体中文</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Download ============ -->
+<section class="stage stage--alt" id="download" aria-labelledby="dl-title">
+  <div class="wrap-wide">
+    <div class="center">
+      <p class="eyebrow reveal">Get Anchor</p>
+      <h2 class="headline headline--md reveal" id="dl-title">Free. On your desktop in a minute.</h2>
+      <p class="lede reveal">Two ways in. Same dock either way.</p>
+    </div>
+
+    <div class="get">
+      <article class="get__card reveal">
+        <span class="get__badge">Recommended</span>
+        <h3>Microsoft Store</h3>
+        <p>One click to install. The Store keeps it up to date for you.</p>
+        <ul>
+          <li><strong>Automatic updates</strong> from the Store</li>
+          <li><strong>Clean uninstall</strong> removes your data with it</li>
+          <li>Starts with Windows via the packaged startup task</li>
+        </ul>
+        <div class="get__actions">
+          <a class="store-btn" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="10.5" height="10.5" fill="#f25022"/><rect x="12.5" y="1" width="10.5" height="10.5" fill="#7fba00"/><rect x="1" y="12.5" width="10.5" height="10.5" fill="#00a4ef"/><rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#ffb900"/></svg>
+            <span><small>Get it from</small>Microsoft Store</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="get__card reveal reveal-d1">
+        <span class="get__badge get__badge--grey">Alternative</span>
+        <h3>Microsoft Store</h3>
+        <p>The recommended install path for most users: simple, clean, and automatically updated by Windows.</p>
+        <ol>
+          <li>Open the Microsoft Store listing.</li>
+          <li>Choose <strong>Install</strong> and wait for the app to download.</li>
+          <li>Launch Anchor from the Start menu or your tray icon.</li>
+          <li>Use <strong>Settings ▸ General ▸ Start with Windows</strong> if you want it to launch at sign-in.</li>
+        </ol>
+        <div class="get__actions">
+          <a class="btn" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0"><svg aria-hidden="true"><use href="#i-download"/></svg>Open Microsoft Store</a>
+        </div>
+        <p class="get__note">The Store version is the supported install path. The GitHub release remains available for advanced/manual scenarios, but the Store keeps Anchor current and simplifies support.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Cheat sheet ============ -->
+<section class="stage stage--night-2" id="how" aria-labelledby="how-title">
+  <div class="wrap-wide">
+    <div class="center">
+      <p class="eyebrow reveal">Using it</p>
+      <h2 class="headline headline--md reveal" id="how-title">You already know how.</h2>
+      <p class="lede reveal">Anchor behaves like the rest of Windows. Here's the whole manual on one screen.</p>
+    </div>
+
+    <div class="cheats reveal">
+      <div class="cheat"><div class="cheat__keys"><span>Click</span></div><h3>Launch</h3><p>Opens the item. If the app is already running, brings its window forward instead.</p></div>
+      <div class="cheat"><div class="cheat__keys"><kbd>Shift</kbd><span>+ click</span></div><h3>New instance</h3><p>Starts another copy anyway, just like the Windows 11 taskbar.</p></div>
+      <div class="cheat"><div class="cheat__keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>A</kbd></div><h3>Summon</h3><p>Brings every dock to the front and gives it focus, from anywhere. Rebindable.</p></div>
+      <div class="cheat"><div class="cheat__keys"><span>Drag an icon</span></div><h3>Reorder or group</h3><p>Along the strip to reorder, onto a group to file it, out of a group bar to bring it back.</p></div>
+      <div class="cheat"><div class="cheat__keys"><span>Drag the background</span></div><h3>Move or snap</h3><p>Drop at a screen edge to snap and auto-hide, anywhere else to float.</p></div>
+      <div class="cheat"><div class="cheat__keys"><span>Drag from Explorer</span></div><h3>Add or open with</h3><p>Onto the dock to pin it, onto an app to open it there, onto a group to file it.</p></div>
+      <div class="cheat"><div class="cheat__keys"><span>Right-click an icon</span></div><h3>Item menu</h3><p>Open, Edit, Move to group, Move to dock, Shortcut, Open file location, Hide, Remove.</p></div>
+      <div class="cheat"><div class="cheat__keys"><span>Right-click the dock</span></div><h3>Dock menu</h3><p>Add new, separator, new group, Search, Snap, another dock, Settings, Quit.</p></div>
+      <div class="cheat"><div class="cheat__keys"><span>Tray icon</span></div><h3>Always there</h3><p>Left-click raises the docks. Right-click to show/hide, search, add, open Settings or quit.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Tech specs ============ -->
+<section class="stage stage--paper" id="specs" aria-labelledby="specs-title">
+  <div class="wrap">
+    <h2 class="headline headline--md reveal" id="specs-title">Tech Specs</h2>
+
+    <div class="specs">
+      <div class="spec"><h3>Version</h3><div class="spec__body"><p>1.2.3</p><p class="sub"><a href="https://github.com/framedparadox/anchor-dock/blob/main/CHANGELOG.md">Release notes</a></p></div></div>
+      <div class="spec"><h3>Operating system</h3><div class="spec__body"><p>Windows 11 (designed and tested on build 26200)</p><p class="sub">Windows 10 version 1809 (build 17763) and later should also work. Acrylic, rounded corners and Mica look their best on Windows 11.</p></div></div>
+      <div class="spec"><h3>Architecture</h3><div class="spec__body"><p>x64 and ARM64</p><p class="sub">Separate native builds. There is no x86 build.</p></div></div>
+      <div class="spec"><h3>Built with</h3><div class="spec__body"><p>.NET 10 and WinUI 3 (Windows App SDK)</p><p class="sub">Self-contained. Nothing else to install.</p></div></div>
+      <div class="spec"><h3>Download size</h3><div class="spec__body"><p>About 86 MB zipped · about 215 MB on disk</p></div></div>
+      <div class="spec"><h3>Permissions</h3><div class="spec__body"><p>No administrator rights, at install or at run time</p><p class="sub">Start with Windows uses a per-user mechanism in both builds.</p></div></div>
+      <div class="spec"><h3>Languages</h3><div class="spec__body"><p>English, Deutsch, Español, Français, हिन्दी, 日本語, Português (Brasil), 简体中文</p><p class="sub">Follows the Windows display language, or choose one. Switches live, no restart.</p></div></div>
+      <div class="spec"><h3>Pinnable items</h3><div class="spec__body"><ul><li>Apps (.exe, .lnk)</li><li>Files and folders</li><li>Web links (http and https)</li><li>Shell shortcuts and URIs, like <code>ms-settings:</code></li><li>Separators and groups</li></ul></div></div>
+      <div class="spec"><h3>Data</h3><div class="spec__body"><p><code>%AppData%\Anchor\dock.json</code></p><p class="sub">Plain JSON, exportable from Settings ▸ General. The Store build keeps it in the app's own package storage.</p></div></div>
+      <div class="spec"><h3>Network</h3><div class="spec__body"><p>Favicons for pinned web links only</p><p class="sub">An update check exists in the portable build and is off by default.</p></div></div>
+      <div class="spec"><h3>Licence</h3><div class="spec__body"><p>MIT. Free and open source.</p><p class="sub"><a href="https://github.com/framedparadox/anchor-dock">View the source on GitHub</a></p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="stage stage--alt" id="faq" aria-labelledby="faq-title">
+  <div class="wrap">
+    <h2 class="headline headline--md reveal" id="faq-title">Questions? Answers.</h2>
+
+    <div class="faq">
+      <details>
+        <summary>How do I quit Anchor?</summary>
+        <div class="faq__a"><p>Right-click the tray icon and choose <em>Quit Anchor</em>, or right-click the dock's background. The dock deliberately stays off the taskbar, so there's no taskbar close button.</p></div>
+      </details>
+      <details>
+        <summary>Where did my dock go after I snapped it?</summary>
+        <div class="faq__a"><p>It auto-hides behind that edge. Move the cursor to the edge or onto the notch, press <strong>Ctrl+Alt+A</strong>, or click the tray icon. Turn off <em>Auto-hide when snapped</em> in Settings ▸ Docks to keep it visible.</p></div>
+      </details>
+      <details>
+        <summary>The shortcut doesn't work.</summary>
+        <div class="faq__a"><p>Another app almost certainly owns that combination. Settings tells you when it can't register one. Pick a different combination, or switch the shortcut off entirely.</p></div>
+      </details>
+      <details>
+        <summary>Can I run it on multiple monitors?</summary>
+        <div class="faq__a"><p>Yes. A single dock hides and reveals on whichever monitor you dropped it on. Or give each screen its own from <strong>Settings ▸ Docks ▸ Add dock</strong>, and each keeps its own items and edge.</p></div>
+      </details>
+      <details>
+        <summary>Can I use my own icon for an item?</summary>
+        <div class="faq__a"><p>Right-click it, choose <strong>Edit…</strong>, then <strong>Change icon…</strong> and pick a PNG, ICO, JPG, BMP or GIF. <em>Use the default icon</em> puts the original back.</p></div>
+      </details>
+      <details>
+        <summary>Does it need admin rights?</summary>
+        <div class="faq__a"><p>No. Everything, including Start with Windows, is per-user.</p></div>
+      </details>
+      <details>
+        <summary>Does it work on Windows 10?</summary>
+        <div class="faq__a"><p>The minimum is Windows 10 version 1809 (build 17763). Anchor is designed and tested on Windows 11, where acrylic, rounded corners and the Mica Settings window look their best.</p></div>
+      </details>
+      <details>
+        <summary>How is it different from RocketDock or ObjectDock?</summary>
+        <div class="faq__a"><p>Those are classic docks that fake transparency, or theming shells around the taskbar. Anchor is a native WinUI 3 app that uses the real Windows 11 acrylic, lives beside the taskbar rather than replacing it, and treats files and links as first-class items, not just apps.</p></div>
+      </details>
+      <details>
+        <summary>Why does SmartScreen warn me about the zip?</summary>
+        <div class="faq__a"><p>Portable releases aren't code-signed yet. Choose <em>More info ▸ Run anyway</em>. The Microsoft Store version doesn't show this warning.</p></div>
+      </details>
+      <details>
+        <summary>How do I move my dock to another PC?</summary>
+        <div class="faq__a"><p>Use <strong>Settings ▸ General ▸ Export</strong> to save every dock, item and setting to a file, then Import it on the other PC. Importing replaces everything, so export first if you want to keep what's there.</p></div>
+      </details>
+      <details>
+        <summary>Can I add a language you don't ship?</summary>
+        <div class="faq__a"><p>Adding one is a single file. Copy <code>src/Anchor/Strings/en.json</code>, translate the values, and add the code to <code>Loc.Available</code>. The tests tell you if you missed a key. Translation fixes are welcome too.</p></div>
+      </details>
+      <details>
+        <summary>How do I uninstall the portable version?</summary>
+        <div class="faq__a"><p>Turn off <em>Start with Windows</em>, quit Anchor from the tray, then delete the folder you extracted and <code>%AppData%\Anchor</code>. That's everything.</p></div>
+      </details>
+    </div>
+
+    <p class="reveal" style="margin-top:36px">Still stuck? <a class="more" href="https://github.com/framedparadox/anchor-dock/issues">Open an issue on GitHub</a></p>
+  </div>
+</section>
+
+<!-- ============ Open source ============ -->
+<section class="stage oss" aria-labelledby="oss-title">
+  <div class="wrap">
+    <img class="oss__logo reveal" src="assets/img/logo.png" alt="" width="96" height="96" loading="lazy">
+    <h2 class="headline headline--md reveal" id="oss-title">Built in the open.<br><span class="gradient-text">Free for everyone.</span></h2>
+    <p class="lede reveal" style="margin-inline:auto">Anchor is MIT-licensed and developed on GitHub. Bug reports, feature ideas and translation fixes are all welcome.</p>
+    <div class="cta-row reveal">
+      <a class="btn" href="https://github.com/framedparadox/anchor-dock"><svg aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
+      <a class="btn btn--ghost" href="https://github.com/framedparadox/anchor-dock/issues">Report an issue</a>
+    </div>
+    <p class="reveal" style="margin:56px 0 0;font-size:14px;color:var(--night-ink-2)">If Anchor is useful to you, you can support its development.</p>
+    <div class="support reveal">
+      <a href="https://github.com/sponsors/ajaykontham">GitHub Sponsors</a>
+      <a href="https://ko-fi.com/ajaykontham">Ko-fi</a>
+      <a href="https://www.buymeacoffee.com/ajaykontham">Buy Me a Coffee</a>
+      <a href="https://www.patreon.com/ajaykontham">Patreon</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ Footer ============ -->
+<footer class="footer">
+  <div class="wrap-wide">
+    <div class="footer__notes">
+      <p>Screenshots show Anchor 1.2 on Windows 11. Features available may vary between the Microsoft Store and portable builds; the update check is portable-only.</p>
+      <p>Translations are machine-assisted and not yet reviewed by native speakers. Corrections are welcome.</p>
+      <p>Windows, Microsoft Store and the Microsoft logo are trademarks of the Microsoft group of companies. Anchor is an independent project and is not affiliated with or endorsed by Microsoft.</p>
+    </div>
+
+    <div class="footer__cols">
+      <div>
+        <h2>Anchor</h2>
+        <ul>
+          <li><a href="#highlights">Highlights</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#compare">Anchor vs. taskbar</a></li>
+          <li><a href="#specs">Tech Specs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Get it</h2>
+        <ul>
+          <li><a href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">Microsoft Store</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+          <li><a href="feedback.html">Share feedback</a></li>
+          <li><a href="#how">How to use it</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Support</h2>
+        <ul>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="feedback.html">Suggestions &amp; praise</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/issues">Report a bug</a></li>
+          <li><a href="https://github.com/sponsors/ajaykontham">Sponsor the project</a></li>
+          <li><a href="apps.html">More Apps</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Open source</h2>
+        <ul>
+          <li><a href="https://github.com/framedparadox/anchor-dock">Source code</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock#contributing">Contributing</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/blob/main/LICENSE">MIT License</a></li>
+          <li><a href="https://github.com/ajaykontham">Ajay Kontham on GitHub</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer__legal">
+      <p style="margin:0">Copyright © 2026 Ajay Kontham. Released under the MIT License.</p>
+      <nav aria-label="Legal">
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="feedback.html">Feedback</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/framedparadox/anchor-dock">GitHub</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/site.js" defer></script>
+</body>
+</html>

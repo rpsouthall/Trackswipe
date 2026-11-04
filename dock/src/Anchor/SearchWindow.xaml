@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Anchor.SearchWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:loc="using:Anchor.Localization"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
+
+    <!-- Quick-launch: a borderless acrylic card, Start-menu-search shaped — a filter box over a
+         short list of matches. The window is the card (no title bar, no chrome), so the whole
+         surface is the acrylic the dock itself uses. -->
+    <Grid x:Name="RootGrid" Background="Transparent" RequestedTheme="Dark"
+          AutomationProperties.AutomationId="AnchorSearchRoot">
+        <Grid Margin="12" RowSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- A plain TextBox rather than an AutoSuggestBox: the results are the list below,
+                 which is always visible and keyboard-navigable, and AutoSuggestBox would put a
+                 second, competing popup list on top of it. -->
+            <TextBox x:Name="QueryBox"
+                     Grid.Row="0"
+                     PlaceholderText="{loc:Localize Key=Search.Placeholder}"
+                     AutomationProperties.AutomationId="AnchorSearchBox"
+                     AutomationProperties.Name="{loc:Localize Key=Search.Placeholder}"
+                     TextChanged="QueryBox_TextChanged"
+                     PreviewKeyDown="QueryBox_PreviewKeyDown" />
+
+            <ListView x:Name="Results"
+                      Grid.Row="1"
+                      SelectionMode="Single"
+                      IsItemClickEnabled="True"
+                      ItemClick="Results_ItemClick"
+                      AutomationProperties.AutomationId="AnchorSearchResults" />
+
+            <TextBlock x:Name="NoResults"
+                       Grid.Row="1"
+                       Visibility="Collapsed"
+                       Margin="4,8,4,0"
+                       VerticalAlignment="Top"
+                       TextWrapping="Wrap"
+                       Style="{ThemeResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Text="{loc:Localize Key=Search.NoResults}" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Mirrors src/Anchor/Anchor.csproj's TFM/platform settings: Anchor.Models and Anchor.Services
+    types (e.g. DockItem.IconImage is a Microsoft.UI.Xaml.Media.ImageSource) are WinRT-projected
+    and only resolvable against the windows-qualified TFM + Windows App SDK, so this test project
+    has to target the same combination the app does (and can therefore only build/run on Windows,
+    like the app itself).
+
+    Scope: these are unit tests for plain-CLR logic (Models/, Services/DockItemFactory.cs) that
+    doesn't touch the shell, network, registry or a live XAML tree. Deliberately NOT covered here:
+    IconService (shell thumbnails + network favicon fetch), Launcher (ShellExecute), WindowChrome /
+    NativeMethods (Win32/DWM interop), StartupService (registry) and DockStore (real %AppData%
+    I/O) are integration-shaped — they need a live Windows host and real OS resources, and the
+    app has no seams (no filesystem/registry/HTTP abstractions) to fake them out yet. DockWindow /
+    SettingsWindow / AddNewWindow are UI classes that need a running WinUI Application + window to
+    construct at all, so they're exercised by manual testing (see README.md) rather than here.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Anchor.Tests</RootNamespace>
+
+    <!-- Mirrors the app's platform/RID derivation (including the AnyCPU normalization a solution
+         build needs — see Anchor.csproj) so `dotnet test -p:Platform=ARM64` builds and runs the
+         tests against the same architecture the app was built for. -->
+    <Platforms>x64;ARM64</Platforms>
+    <AnchorArchitecture Condition="'$(Platform)' == 'ARM64'">arm64</AnchorArchitecture>
+    <AnchorArchitecture Condition="'$(AnchorArchitecture)' == ''">x64</AnchorArchitecture>
+    <RuntimeIdentifier>win-$(AnchorArchitecture)</RuntimeIdentifier>
+
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.6901" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Anchor\Anchor.csproj" />
+  </ItemGroup>
+
+</Project>

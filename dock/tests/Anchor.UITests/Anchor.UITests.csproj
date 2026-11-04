@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI smoke tests: they launch the published Anchor.exe and drive it through UI Automation,
+    covering the shell/Win32/live-XAML paths that Anchor.Tests deliberately can't touch.
+
+    Deliberately NOT part of Anchor.slnx. `dotnet build` / `dotnet test` on the solution stays
+    exactly what it was for contributors — fast, headless, no side effects — while these need a
+    real interactive desktop (a session with a visible desktop, no lock screen) and take seconds
+    per test. Run them with scripts/run-ui-tests.ps1.
+
+    UI Automation via FlaUI (UIA3) rather than WinAppDriver or Appium: no background server to
+    install and keep running, no Node/npm, no protocol-version matching between the client
+    library and WinAppDriver — and UIA3 talks to WinUI 3's automation peers directly, which is
+    what the dock is built from. The trade-off is that it drives UIA rather than the WebDriver
+    wire protocol, so these tests aren't portable to a Selenium grid; nothing here needs that.
+
+    This project does NOT reference src/Anchor: it is a black-box harness that starts the exe and
+    talks to it the way a screen reader would. That keeps it honest about what actually ships.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Anchor.UITests</RootNamespace>
+
+    <!-- Same platform/RID derivation as the app (see Anchor.csproj). -->
+    <Platforms>x64;ARM64</Platforms>
+    <AnchorArchitecture Condition="'$(Platform)' == 'ARM64'">arm64</AnchorArchitecture>
+    <AnchorArchitecture Condition="'$(AnchorArchitecture)' == ''">x64</AnchorArchitecture>
+    <RuntimeIdentifier>win-$(AnchorArchitecture)</RuntimeIdentifier>
+
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- The tests drive a UI: running them in parallel would have two Anchors fighting over the
+         foreground window and the same data directory. xunit.runner.json turns collection
+         parallelism off; this keeps the assembly single-threaded too. -->
+    <UseAppHost>true</UseAppHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

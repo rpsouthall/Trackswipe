@@ -1,0 +1,69 @@
+name: CI
+
+# Anchor is a Windows-only WinUI 3 app, so every job here runs on a Windows runner.
+on:
+  push:
+    branches: [release]
+  pull_request:
+    branches: [release]
+  workflow_dispatch:
+
+jobs:
+  # The everyday gate: both architectures compile warning-free, and the headless test suite
+  # passes. This is what a PR is judged on.
+  build-and-test:
+    name: Build (${{ matrix.platform }}) and test
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Anchor.slnx
+
+      # -warnaserror because the contributing guide asks for warning-free builds, and a warning
+      # nobody is forced to look at is a warning that accumulates.
+      - name: Build
+        run: dotnet build src/Anchor/Anchor.csproj -c Release -p:Platform=${{ matrix.platform }} --no-restore -warnaserror
+
+      # The unit tests are pure logic (config migration, the string tables, item geometry) and
+      # need no desktop, so they run on every matrix leg. ARM64 binaries can't execute on the
+      # x64 runner, so the test project is built and run as x64 there.
+      - name: Test
+        if: matrix.platform == 'x64'
+        run: dotnet test tests/Anchor.Tests/Anchor.Tests.csproj -c Release -p:Platform=x64 --no-restore
+
+  # The UI smoke tests drive a real Anchor.exe through UI Automation, which needs an interactive
+  # desktop session — a hosted runner has no logged-in user, so this job is opt-in and only runs
+  # where a self-hosted, windowed runner labelled "windows-desktop" is available.
+  #
+  # It is deliberately not part of the required checks: a repository without such a runner would
+  # otherwise have every PR blocked by a job that can never start.
+  ui-tests:
+    name: UI smoke tests
+    runs-on: [self-hosted, windows, windows-desktop]
+    if: github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Publishes the app and drives it through FlaUI against a throwaway ANCHOR_DATA_DIR, so it
+      # never touches the dock of whoever the runner is logged in as.
+      - name: Run the UI smoke tests
+        shell: pwsh
+        run: pwsh scripts/run-ui-tests.ps1

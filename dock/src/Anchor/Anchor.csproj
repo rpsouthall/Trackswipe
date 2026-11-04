@@ -1,0 +1,144 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- The SDK version compiled against. It is also what the MSIX build stamps as the manifest's
+         MaxVersionTested — the packaging targets derive that from TargetPlatformVersion and
+         overwrite whatever Package.appxmanifest says — so it has to name a Windows the app has
+         actually been tested on, not the oldest one it runs on. That floor is
+         TargetPlatformMinVersion below, which is unchanged: Windows 10 1809 still runs it. -->
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Anchor</RootNamespace>
+    <AssemblyName>Anchor</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Anchor.ico</ApplicationIcon>
+
+    <!-- WinUI apps cannot be AnyCPU, so every build names an architecture. Pass
+         -p:Platform=ARM64 to build natively for Windows-on-ARM; x64 stays the default so an
+         un-parameterized `dotnet build` behaves exactly as it always has. The RID is derived
+         from the platform rather than hard-coded, so the two can never drift apart (a win-x64
+         RID under an ARM64 Platform silently produces an emulated binary).
+
+         It goes through AnchorArchitecture rather than reading $(Platform) directly because a
+         solution build passes Platform=AnyCPU as a *global* property, and a global property
+         cannot be overridden by a <Platform> element here — that route yields "win-anycpu" and
+         fails the build. Normalizing into our own property sidesteps that: ARM64 maps to arm64,
+         and anything else (x64, AnyCPU, unset) maps to x64. -->
+    <Platforms>x64;ARM64</Platforms>
+    <AnchorArchitecture Condition="'$(Platform)' == 'ARM64'">arm64</AnchorArchitecture>
+    <AnchorArchitecture Condition="'$(AnchorArchitecture)' == ''">x64</AnchorArchitecture>
+    <RuntimeIdentifier>win-$(AnchorArchitecture)</RuntimeIdentifier>
+    <!-- Restore-time only, and both RIDs deliberately. A Store bundle is one build that produces
+         x64 *and* ARM64 (msbuild -p:AppxBundlePlatforms="x64|arm64"), but every pass shares this
+         project's single obj\project.assets.json — so restoring per-platform makes the second
+         restore overwrite the first, and whichever architecture built next failed with NETSDK1047
+         ("Assets file doesn't have a target for .../win-x64"). Listing both here makes one restore
+         cover both. It does not change what gets built: RuntimeIdentifier (singular, above) still
+         picks the single architecture each pass compiles. -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Unpackaged (no MSIX) so it runs like a normal desktop utility.
+         EnableMsixTooling is still required even unpackaged: it is what brings in the targets
+         that generate the app's resource index (Anchor.pri), which is where the compiled XAML
+         lives. Without it `dotnet build` still produced one but `dotnet publish` did not copy
+         it, so a published Anchor.exe died on its first window with
+         "Cannot locate resource from 'ms-appx:///DockWindow.xaml'". -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Self-contained so no separate Windows App Runtime install is required. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+
+    <!-- App identity metadata: shows up in the exe's Details tab, Task Manager, and is required
+         for a real Store/installer submission (see docs/microsoft-store-deployment.md). -->
+    <Product>Anchor</Product>
+    <Company>Anchor</Company>
+    <Authors>Anchor</Authors>
+    <Description>A floating dock for Windows 11.</Description>
+    <Version>1.2.5.0</Version>
+    <FileVersion>1.2.5.0</FileVersion>
+    <AssemblyVersion>1.2.5.0</AssemblyVersion>
+    <NeutralLanguage>en-US</NeutralLanguage>
+  </PropertyGroup>
+
+  <!-- Footprint. A dock sits in the background all day, so it trades a little peak throughput it
+       never needs for less memory, fewer threads and a faster start:
+       - ReadyToRun: the code ships precompiled, so starting up doesn't spend CPU and memory
+         compiling it (publish only; a debug build still JITs).
+       - Non-concurrent GC: no background GC thread. Anchor's heap is a few MB; a blocking
+         collection of it takes about a millisecond.
+       - No tiered PGO: no instrumented second compile of hot methods for a program with none.
+       - ConserveMemory: the GC compacts rather than growing the heap. -->
+  <PropertyGroup>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
+  </ItemGroup>
+
+  <!-- Optional framework-dependent publish (~60–80 MB vs ~215 MB self-contained). Pass
+       -p:FrameworkDependent=true on publish; users need the Windows App Runtime installed. -->
+  <PropertyGroup Condition="'$(FrameworkDependent)' == 'true'">
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <!-- MSIX packaging for the Microsoft Store, built on demand with -p:StorePackage=true.
+       Everyday `dotnet build`/`dotnet publish` stays unpackaged (see docs/microsoft-store-deployment.md). -->
+  <PropertyGroup Condition="'$(StorePackage)' == 'true'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <AppxBundle>Always</AppxBundle>
+    <AppxAutoIncrementPackageRevision>false</AppxAutoIncrementPackageRevision>
+    <UapAppxPackageBuildMode>StoreUpload</UapAppxPackageBuildMode>
+
+    <!-- Off by default because generating the .appxsym needs mspdbcmf.exe, which ships with Visual
+         Studio's C++ tooling and is absent from a plain .NET SDK install — and the MSIX targets
+         don't degrade gracefully when it's missing: they build the package, then fail the whole
+         build on the symbol step (MSB6011), so `-p:StorePackage=true` never completes on a machine
+         without it. Symbols are optional for a Partner Center upload; they only feed the Store's
+         crash analytics. Turn them on with -p:AppxSymbolPackageEnabled=true on a machine that has
+         the Visual Studio "Desktop development with C++" workload installed. -->
+    <AppxSymbolPackageEnabled Condition="'$(AppxSymbolPackageEnabled)' == ''">false</AppxSymbolPackageEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(StorePackage)' == 'true'">
+    <AppxManifest Include="Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.6901" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.10" />
+  </ItemGroup>
+
+  <!-- App logos. Needed by the MSIX manifest for its tiles, but also by the app itself: the
+       About page shows the real logo via ms-appx:///Images/…, which resolves out of the app
+       folder. Included unconditionally (it used to be Store-only) so an unpackaged build ships
+       them too — without them About rendered an empty 56px box. -->
+  <ItemGroup>
+    <Content Include="Images\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- UI translations. Embedded (not Content) so a single-file publish carries every language
+       with no loose files to lose; Services/Loc.cs reads them back by resource name. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Strings\*.json" LogicalName="Anchor.Strings.%(Filename).json" />
+  </ItemGroup>
+
+</Project>

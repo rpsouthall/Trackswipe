@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Privacy Policy — Anchor</title>
+  <meta name="description" content="Anchor Dock collects no personal information. No accounts, no telemetry, no analytics, no advertising. Read the full privacy policy.">
+  <meta name="theme-color" content="#fbfbfd">
+  <link rel="canonical" href="https://www.anchordock-app.com/privacy.html">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Anchor">
+  <meta property="og:title" content="Privacy Policy — Anchor">
+  <meta property="og:description" content="Anchor Dock collects no personal information. No accounts, no telemetry, no analytics, no advertising. Read the full privacy policy.">
+  <meta property="og:url" content="https://www.anchordock-app.com/privacy.html">
+  <meta property="og:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Privacy Policy — Anchor">
+  <meta name="twitter:description" content="Anchor Dock collects no personal information. No accounts, no telemetry, no analytics, no advertising. Read the full privacy policy.">
+  <meta name="twitter:image" content="https://www.anchordock-app.com/assets/img/og.jpg">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/icon-32.png">
+  <link rel="apple-touch-icon" href="assets/img/icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <script src="assets/js/theme.js"></script>
+  <script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="nav is-light" id="nav">
+  <div class="wrap-wide nav__inner">
+    <a class="nav__brand" href="index.html" aria-label="Anchor home">
+      <img src="assets/img/icon-180.png" alt="" width="26" height="26">
+      Anchor
+    </a>
+    <nav aria-label="Primary">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="index.html#highlights">Highlights</a></li>
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#privacy">Privacy</a></li>
+        <li><a href="index.html#specs">Tech Specs</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="feedback.html">Feedback</a></li>
+        <li><a href="apps.html">More Apps</a></li>
+        <li><a href="index.html#faq">FAQ</a></li>
+        <li><a href="https://github.com/framedparadox/anchor-dock">GitHub</a></li>
+      </ul>
+    </nav>
+    <a class="btn btn--small nav__cta" href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">Download</a>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+      <span></span><span></span>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+  <header class="doc-hero">
+    <div class="wrap">
+      <p class="eyebrow">Anchor Dock for Windows</p>
+      <h1 class="headline headline--md">Privacy Policy</h1>
+      <p class="lede">Short version: Anchor collects nothing about you, and runs entirely on your PC.</p>
+      <p class="doc-meta">Last updated 28 July 2026 · Applies to the Microsoft Store package and the portable release, published by ajaykontham.</p>
+    </div>
+  </header>
+
+  <article class="doc">
+    <div class="doc-callout">
+      <p>There are no accounts, no sign-in, no telemetry, no analytics, no advertising and no tracking of any kind.</p>
+    </div>
+
+    <p>Anchor Dock is a floating application dock for Windows. This document is the privacy policy referenced from the app's <strong>Settings ▸ About</strong> page and from the Microsoft Store listing.</p>
+
+    <h2 id="collect">1. Personal information we collect</h2>
+    <p><strong>None.</strong> Anchor Dock does not collect, transmit, sell, share or otherwise disclose any personal information to the developer or to any third party. There is no server operated by the developer for this app, and no data of any kind is sent to one.</p>
+
+    <h2 id="stored">2. Data the app stores on your device</h2>
+    <p>Everything Anchor Dock saves stays on your own PC, in your own user profile. Nothing in this list leaves your device.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">What</th><th scope="col">Where</th><th scope="col">Why</th></tr></thead>
+        <tbody>
+          <tr><td>Your docks, pinned items, layout, keyboard shortcuts and settings</td><td><code>dock.json</code> in the app's per-user data folder</td><td>So your dock is the same next time you sign in</td></tr>
+          <tr><td>Cached website icons (favicons) for pinned web links</td><td>An <code>IconCache</code> folder alongside <code>dock.json</code></td><td>So a site's icon is fetched at most once and still shows offline</td></tr>
+          <tr><td>A diagnostic log (<code>anchor.log</code>, overwritten on each start)</td><td>Your Windows temp folder</td><td>Local troubleshooting only. It records app events such as which pinned item was launched and any unexpected error</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The data folder is <code>%AppData%\Anchor</code> for the portable release. For the Microsoft Store package, Windows redirects it into the app's own per-user package storage, which Windows deletes when you uninstall the app.</p>
+    <p>Pinned items are things <strong>you</strong> chose to add, so <code>dock.json</code> contains the file paths, folder paths and web addresses you pinned, and any custom names or icons you gave them. Anchor Dock does not read the <em>contents</em> of your files: launching a pinned item hands it to Windows exactly as double-clicking it in File Explorer would, and a folder fly-out lists a folder's entry <em>names</em> only.</p>
+    <p>You can export this data at any time (<strong>Settings ▸ General ▸ Backup</strong>) and delete it at any time by removing the data folder or uninstalling the app.</p>
+
+    <h2 id="network">3. Network access</h2>
+    <p>Anchor Dock makes network requests in exactly two situations, and in no others.</p>
+    <ol>
+      <li><strong>Website icons for pinned web links.</strong> When you pin a web link, the app requests that site's icon, first directly from the site itself (<code>https://&lt;site&gt;/favicon.ico</code>). Only if that fails does it fall back to DuckDuckGo's public icon service (<code>https://icons.duckduckgo.com/ip3/&lt;site&gt;.ico</code>), which receives only the site's domain name and no information about you. The result is cached locally so the request happens at most once per site. <strong>If you never pin a web link, the app makes no network requests at all.</strong></li>
+      <li><strong>An optional update check, portable release only, and off by default.</strong> In the portable (non-Store) release, the update check can be switched on. When it is, the app asks the public GitHub releases API once at startup whether a newer version exists. No account, token or identifier is sent beyond the HTTP request itself, nothing is uploaded, and nothing is ever downloaded or installed automatically. <strong>This feature does not exist in the Microsoft Store version</strong>, which is updated by the Microsoft Store itself.</li>
+    </ol>
+    <p>Launching a pinned web link opens it in your default browser; from that point onward your browser's own privacy policy applies.</p>
+
+    <h2 id="children">4. Children's privacy</h2>
+    <p>Anchor Dock is a general-purpose desktop utility. It is not directed at children, and since it collects no personal information from anyone, it collects none from children.</p>
+
+    <h2 id="permissions">5. Permissions the app requests</h2>
+    <p>The Microsoft Store package declares one restricted capability, <strong><code>runFullTrust</code></strong>. Anchor Dock is a launcher: it needs full trust to start the applications, files, folders and links you pin, and to read their icons from Windows, which a sandboxed app cannot do. It declares no other capability, and it requires no administrator rights.</p>
+
+    <h2 id="security">6. Security</h2>
+    <p>Because no personal information is collected or transmitted, there is none held by the developer to secure. The data described in section 2 is stored in your Windows user profile and protected by your Windows account. Network requests described in section 3 use HTTPS.</p>
+    <p>Note that <code>dock.json</code> describes programs that can be started, so treat it as you would any file that can launch software on your PC.</p>
+
+    <h2 id="changes">7. Changes to this policy</h2>
+    <p>If this policy changes, the updated version will be published at this URL and the "Last updated" date above will change. Material changes will also be noted in the app's <a href="https://github.com/framedparadox/anchor-dock/blob/main/CHANGELOG.md">changelog</a>.</p>
+
+    <h2 id="contact">8. Contact</h2>
+    <p>Questions or privacy concerns:</p>
+    <ul>
+      <li><strong>Issues:</strong> <a href="https://github.com/framedparadox/anchor-dock/issues">github.com/framedparadox/anchor-dock/issues</a></li>
+      <li><strong>Source code:</strong> <a href="https://github.com/framedparadox/anchor-dock">github.com/framedparadox/anchor-dock</a></li>
+    </ul>
+
+    <p style="margin-top:48px;font-size:14px;color:var(--ink-2)"><em>Anchor Dock is free and open source software released under the <a href="https://github.com/framedparadox/anchor-dock/blob/main/LICENSE">MIT License</a>. This policy covers the app as distributed by the publisher named above; a third party redistributing a modified build is responsible for its own privacy practices.</em></p>
+  </article>
+</main>
+<footer class="footer">
+  <div class="wrap-wide">
+    <div class="footer__notes">
+      <p>Screenshots show Anchor 1.2 on Windows 11. Features available may vary between the Microsoft Store and portable builds; the update check is portable-only.</p>
+      <p>Translations are machine-assisted and not yet reviewed by native speakers. Corrections are welcome.</p>
+      <p>Windows, Microsoft Store and the Microsoft logo are trademarks of the Microsoft group of companies. Anchor is an independent project and is not affiliated with or endorsed by Microsoft.</p>
+    </div>
+
+    <div class="footer__cols">
+      <div>
+        <h2>Anchor</h2>
+        <ul>
+          <li><a href="index.html#highlights">Highlights</a></li>
+          <li><a href="index.html#features">Features</a></li>
+          <li><a href="index.html#compare">Anchor vs. taskbar</a></li>
+          <li><a href="index.html#specs">Tech Specs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Get it</h2>
+        <ul>
+          <li><a href="https://apps.microsoft.com/detail/9nlp5cwmkdj0">Microsoft Store</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/releases/latest">Latest release</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="index.html#how">How to use it</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Support</h2>
+        <ul>
+          <li><a href="index.html#faq">FAQ</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/issues">Report a bug</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/issues">Request a feature</a></li>
+          <li><a href="https://github.com/sponsors/ajaykontham">Sponsor the project</a></li>
+          <li><a href="apps.html">More Apps</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Open source</h2>
+        <ul>
+          <li><a href="https://github.com/framedparadox/anchor-dock">Source code</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock#contributing">Contributing</a></li>
+          <li><a href="https://github.com/framedparadox/anchor-dock/blob/main/LICENSE">MIT License</a></li>
+          <li><a href="https://github.com/ajaykontham">Ajay Kontham on GitHub</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer__legal">
+      <p style="margin:0">Copyright © 2026 Ajay Kontham. Released under the MIT License.</p>
+      <nav aria-label="Legal">
+        <a href="privacy.html" aria-current="page">Privacy Policy</a>
+        <a href="https://github.com/framedparadox/anchor-dock/blob/main/LICENSE">License</a>
+        <a href="https://github.com/framedparadox/anchor-dock">GitHub</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/site.js" defer></script>
+</body>
+</html>
