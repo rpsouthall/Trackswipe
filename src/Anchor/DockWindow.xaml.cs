@@ -178,6 +178,7 @@ public sealed partial class DockWindow : Window
         _dropShellWatchdog?.Stop();
         _presenceTimer?.Stop();
         UnhookAutoHideEvents();
+        TrackSwipeBridge.RemoveDockRect(_hwnd);
         DockItemAnimations.ShowLabelsChanged -= _showLabelsHandler;
         _backdrop?.Dispose();
         NativeReclaim.Request();
@@ -679,6 +680,8 @@ public sealed partial class DockWindow : Window
         }
 
         _shownRect = new RectInt32(x, y, w, h);
+        // Where it shows, for TrackSwipe's Mission Control to keep its windows clear of.
+        TrackSwipeBridge.PublishDockRect(_hwnd, x, y, x + w, y + h);
         _work = work;
         // Placed where it is now rather than where it would show: tucked away, it is resized
         // there, instead of flashing into view for a moment on every relayout (which the open-apps
@@ -869,7 +872,7 @@ public sealed partial class DockWindow : Window
         }
 
         int index = Items.IndexOf(item);
-        var menu = new MenuFlyout();
+        var menu = new MenuFlyout { MenuFlyoutPresenterStyle = MenuStyle };
 
         // An app's menu is the taskbar's: its jump list, then the app itself, unpinning and
         // closing, with Anchor's own commands for the icon gathered under Options rather than
@@ -1051,7 +1054,7 @@ public sealed partial class DockWindow : Window
 
     private void ShowDockMenu(FrameworkElement target, Windows.Foundation.Point at)
     {
-        var menu = new MenuFlyout();
+        var menu = new MenuFlyout { MenuFlyoutPresenterStyle = MenuStyle };
 
         menu.Items.Add(MenuItem(Loc.Get("Menu.AddNew"), OpenAddNew));
         menu.Items.Add(MenuItem(Loc.Get("Menu.AddSeparator"), AddSeparator));

@@ -226,6 +226,15 @@ public sealed class DockManager
         try
         {
             _messageWindow = new MessageWindow();
+            // TrackSwipe's Mission Control: keep every dock in view for as long as it is open, as the
+            // Mac's Dock stays through Mission Control (TrackSwipe keeps its windows clear of it).
+            _messageWindow.MessageReceived += (msg, wParam, _) =>
+            {
+                if (msg != TrackSwipeBridge.MissionControlMessage)
+                    return;
+                foreach (var dock in _docks)
+                    dock.HoldInView(wParam != 0);
+            };
 
             _tray = new TrayIconService(_messageWindow)
             {

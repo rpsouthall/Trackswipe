@@ -517,7 +517,7 @@ public sealed partial class DockWindow
     private void ShowGroupChildMenu(
         FrameworkElement target, DockItem child, Flyout owner, ContextRequestedEventArgs e)
     {
-        var menu = new MenuFlyout();
+        var menu = new MenuFlyout { MenuFlyoutPresenterStyle = MenuStyle };
         menu.Items.Add(Mi(Loc.Get("Menu.Open"), () => { owner.Hide(); LaunchOrFocus(child); }));
         // The same one editor the strip's own menu opens — name, target and icon together — in a
         // window of its own, so closing the bar first takes nothing with it.

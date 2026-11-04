@@ -317,6 +317,31 @@ public sealed partial class DockWindow
         return _covered;
     }
 
+    /// <summary>
+    /// Holds the dock in full view (sliding it out if it was tucked away) while something else is
+    /// on screen that it belongs with — TrackSwipe's Mission Control — and lets auto-hide take over
+    /// again afterwards.
+    /// </summary>
+    internal void HoldInView(bool hold)
+    {
+        Diag.Log($"HoldInView({hold}): auto-hide {(CanHide ? "on" : "off")}, {(_revealed ? "shown" : "tucked away")}");
+        if (hold)
+        {
+            _autoHidePaused = true;
+            _pollTimer?.Stop();
+            if (CanHide && !_revealed)
+                SetRevealed(true);
+            return;
+        }
+        if (!_autoHidePaused)
+            return;
+        _autoHidePaused = false;
+        if (!CanHide)
+            return;
+        _lastInside = DateTime.UtcNow; // linger the usual moment before tucking away again
+        EnsureStarted();
+    }
+
     /// <summary>Polls the cursor only while the dock is shown and has reason to hide once it leaves.</summary>
     private void UpdatePolling()
     {

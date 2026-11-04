@@ -37,6 +37,7 @@
   "Menu.Options": "オプション",
   "Menu.CloseWindow": "ウィンドウを閉じる",
   "Menu.CloseAllWindows": "すべてのウィンドウを閉じる",
+  "Menu.EndTask": "タスクの終了",
   "Jump.Recent": "最近使ったもの",
   "Jump.Frequent": "よく使うもの",
   "Jump.Tasks": "タスク",

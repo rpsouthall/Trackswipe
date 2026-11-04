@@ -37,6 +37,7 @@
   "Menu.Options": "Opciones",
   "Menu.CloseWindow": "Cerrar ventana",
   "Menu.CloseAllWindows": "Cerrar todas las ventanas",
+  "Menu.EndTask": "Finalizar tarea",
   "Jump.Recent": "Recientes",
   "Jump.Frequent": "Frecuentes",
   "Jump.Tasks": "Tareas",

@@ -39,6 +39,16 @@ not necessarily when it shipped in a release.
   dock**, and **Close window** / **Close all windows**. Anchor's own commands for the icon (edit,
   move, group, shortcut, hide) are under **Options**. Tasks are read through the undocumented
   interface Explorer's taskbar uses; on a Windows where that fails, the menu simply has no tasks.
+- **Works with TrackSwipe.** Clicking an app whose window is on another virtual desktop slides
+  there with TrackSwipe's desktop animation, as a taskbar click does, instead of cutting. In
+  TrackSwipe's Mission Control the dock comes into view and stays over the overview, and windows are
+  laid out clear of it. (Needs TrackSwipe 1.4.5; without TrackSwipe nothing changes.)
+- **End task** on the right-click menu of an open app ends its processes outright, for an app that
+  won't close (never the shell's own, so it can't take Explorer down).
+- **Menus have a maximum width.** Long jump-list lines (full URLs, long file names) are shortened
+  with an ellipsis, the whole line in a tooltip, so a menu no longer stretches across the screen.
+- **Launch animation fixed for every launch.** It played only the first time: the dock re-asserts
+  itself as topmost when it lays out, which put it over the animation's window afterwards.
 - **Lighter when idle.** Watching for windows no longer wakes Anchor for every mouse move on the
   system: the window hooks are exact events rather than a range, a hidden dock waits for the cursor
   to touch its edge instead of polling, a dock that has nothing covering it doesn't poll at all, and

@@ -75,7 +75,11 @@ public sealed unsafe class LaunchZoom : IDisposable
 
         _start = Environment.TickCount64;
         DrawFrame(0);
-        NativeMethods.ShowWindow(_hwnd, NativeMethods.SW_SHOWNOACTIVATE);
+        // Shown and raised in one: the dock re-asserts itself as topmost whenever it lays out (and
+        // TrackSwipe raises it over its slides), so a zoom window that was only on top when it was
+        // first made would play every later launch underneath the dock it is zooming out of.
+        NativeMethods.SetWindowPos(_hwnd, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
         if (_timer is null)
         {
             _timer = _dispatcher.CreateTimer();

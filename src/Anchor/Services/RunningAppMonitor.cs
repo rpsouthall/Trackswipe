@@ -219,6 +219,8 @@ public sealed class RunningAppMonitor : IDisposable
 
         foreach (var hwnd in app.Windows)
         {
+            // On another desktop, TrackSwipe (if running) turns the switch this causes into its slide.
+            TrackSwipeBridge.PrepareJumpTo(hwnd);
             if (RunningAppService.Activate(hwnd))
                 return true;
         }
@@ -234,6 +236,13 @@ public sealed class RunningAppMonitor : IDisposable
     {
         if (Find(item) is { } app)
             RunningAppService.Quit(app);
+    }
+
+    /// <summary>Ends the item's app outright (Task Manager's End task), for one that won't close.</summary>
+    public void EndTask(DockItem item)
+    {
+        if (Find(item) is { } app)
+            RunningAppService.EndTask(app);
     }
 
     /// <summary>Whether one of this app's windows was active before the dock took the click.</summary>

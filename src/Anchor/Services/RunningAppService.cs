@@ -16,7 +16,9 @@ namespace Anchor.Services;
 /// <param name="Name">What to call it: the Start menu's name for a packaged app, the file description for an exe.</param>
 /// <param name="Windows">Its app windows, most recently used first.</param>
 /// <param name="Started">When its process started (a FILETIME), so apps already open at startup keep their launch order.</param>
-public sealed record RunningApp(string Key, string? ExePath, string? AppId, string Name, IReadOnlyList<nint> Windows, long Started)
+/// <param name="ProcessIds">The processes behind its windows — a Store app's own, never the ApplicationFrameHost that draws its frame.</param>
+public sealed record RunningApp(string Key, string? ExePath, string? AppId, string Name, IReadOnlyList<nint> Windows, long Started,
+    IReadOnlyList<uint>? ProcessIds = null)
 {
     /// <summary>The window a click brings forward: the one used most recently.</summary>
     public nint Window => Windows[0];
@@ -87,6 +89,7 @@ public static class RunningAppService
     public static List<RunningApp> Snapshot()
     {
         var apps = new Dictionary<string, (string? Exe, string? AppId, long Started, List<nint> Windows)>(StringComparer.OrdinalIgnoreCase);
+        var processIds = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
         var order = new List<string>();
         // Several windows normally belong to one process, and opening it is the expensive part.
         var processes = new Dictionary<uint, ProcessInfo>();
@@ -112,12 +115,14 @@ public static class RunningAppService
 
                     string? exe, appId;
                     long started;
+                    nint processWindow = hwnd; // the window whose process is the app's own
                     if (className.ToString() == FrameClass)
                     {
                         // A UWP app's frame belongs to ApplicationFrameHost; the app itself owns the
                         // CoreWindow inside it. Minimized, the CoreWindow is detached, and all that
                         // is left to go on is the AppUserModelID the frame carries for the taskbar.
                         nint core = NativeMethods.FindWindowEx(hwnd, nint.Zero, CoreWindowClass, null);
+                        processWindow = core;
                         if (core != nint.Zero && OwnerOf(core, processes) is { Path: not null } inside)
                             (exe, appId, started) = (inside.Path, inside.AppId ?? WindowAppId(hwnd), inside.Started);
                         else if (WindowAppId(hwnd) is { } frameAppId)
@@ -150,6 +155,12 @@ public static class RunningAppService
                     }
                     // Enumeration runs front to back, so the first window is the most recently used.
                     app.Windows.Add(hwnd);
+                    if (processWindow != nint.Zero && NativeMethods.GetWindowThreadProcessId(processWindow, out uint pid) != 0 && pid != 0)
+                    {
+                        if (!processIds.TryGetValue(key, out var set))
+                            processIds[key] = set = new HashSet<uint>();
+                        set.Add(pid);
+                    }
                 }
                 catch
                 {
@@ -172,7 +183,8 @@ public static class RunningAppService
         foreach (var key in order)
         {
             var (exe, appId, started, windows) = apps[key];
-            result.Add(new RunningApp(key, exe, appId, NameOf(key, exe, appId), windows, started));
+            result.Add(new RunningApp(key, exe, appId, NameOf(key, exe, appId), windows, started,
+                processIds.TryGetValue(key, out var ids) ? ids.ToArray() : Array.Empty<uint>()));
         }
         return result;
     }
@@ -408,6 +420,32 @@ public static class RunningAppService
         {
             if (NativeMethods.IsWindow(hwnd))
                 NativeMethods.PostMessage(hwnd, NativeMethods.WM_CLOSE, nint.Zero, nint.Zero);
+        }
+    }
+
+    /// <summary>
+    /// Ends the app's processes outright, as Task Manager does — unsaved work is lost, which is
+    /// the point of the command: an app that won't close. Each process with its children, so a
+    /// browser's helpers go with it. One that refuses (elevated, protected) is logged and skipped.
+    /// </summary>
+    public static void EndTask(RunningApp app)
+    {
+        foreach (var pid in app.ProcessIds ?? Array.Empty<uint>())
+        {
+            if (pid == OwnProcessId)
+                continue;
+            try
+            {
+                using var process = Process.GetProcessById((int)pid);
+                if (ShellProcesses.Contains(Path.GetFileName(process.MainModule?.FileName ?? "")) ||
+                    string.Equals(process.ProcessName, "explorer", StringComparison.OrdinalIgnoreCase))
+                    continue; // never the shell: ending Explorer takes the taskbar and desktop with it
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex)
+            {
+                Diag.Log($"RunningAppService: ending process {pid} failed: {ex.Message}");
+            }
         }
     }
 

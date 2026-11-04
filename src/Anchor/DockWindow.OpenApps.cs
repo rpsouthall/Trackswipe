@@ -219,7 +219,7 @@ public sealed partial class DockWindow
     private void ShowOpenAppMenu(FrameworkElement target, DockItem item, ContextRequestedEventArgs e)
     {
         // The taskbar's menu: jump list, the app, pinning, closing.
-        var menu = new MenuFlyout();
+        var menu = new MenuFlyout { MenuFlyoutPresenterStyle = MenuStyle };
         AddTaskbarSection(menu, item, () => _manager.KeepInDock(this, item, PinnedCount), Loc.Get("Menu.KeepInDock"));
         if (Launcher.SupportsFileLocation(item))
         {
