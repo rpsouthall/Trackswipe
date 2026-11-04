@@ -120,6 +120,36 @@ internal sealed partial class OverlayController
         FramesNeeded?.Invoke();
     }
 
+    /// <summary>
+    /// A dock (Anchor) is about to bring <paramref name="window"/> forward, and it is on another desktop: Windows will
+    /// cut there. Prepared and shown exactly as a taskbar click's slide is, before the dock acts, so the same
+    /// <see cref="PollJump"/> turns the cut into a slide. False (and nothing shown) when busy or there's nowhere to go.
+    /// </summary>
+    public bool PrepareJumpTo(IntPtr window)
+    {
+        _pendingPress = null;
+        _jump = null;
+        if (_switcher is null || Busy) return false;
+        var scene = IdleScene();
+        if (scene.Desktops is not { } desktops) return false;
+        var item = scene.Items.FirstOrDefault(candidate => candidate.Kind == SceneKind.Window && candidate.Window == window);
+        if (item.Window == IntPtr.Zero) return false;
+        var target = item.Desktop;
+        if (target < 0 || target >= desktops.Count || target == scene.Current) return false;
+        var raised = new HashSet<IntPtr> { window };
+        _slide.Begin(scene, _slideSurfaces.Prepare(), target, raised);
+        _slide.Render(0);
+        var jump = new TaskbarJump(scene, target, desktops.Ids[target], new[] { window }, Point.Empty, Clock.Now);
+        foreach (var surface in _slideSurfaces.Prepare()) surface.Show();
+        scene.RaiseKeptAbove();
+        Composition.Flush();
+        jump.ReleasedAt = Clock.Now;
+        _jump = jump;
+        FramesNeeded?.Invoke();
+        Log.Verbose($"Dock jump to a window on desktop {target + 1} (from {scene.Current + 1}): slide up.");
+        return true;
+    }
+
     /// <summary>Each frame after the release: slide once Windows switches to the target; stand down if it doesn't.</summary>
     private void PollJump(double now)
     {

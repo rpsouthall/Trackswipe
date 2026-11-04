@@ -163,6 +163,8 @@ internal sealed partial class TrayApp : IDisposable
         _tray.DoubleClick += ShowMonitor;
         _tray.BalloonClicked += () => _balloonAction?.Invoke();
         _tray.QuitRequested += MessageLoop.Quit;
+        // A dock (Anchor) about to bring forward a window on another desktop: slide there, as a taskbar click does.
+        _tray.JumpRequested += window => _enabled && _compositionThread.Invoke(() => _overlay.PrepareJumpTo(window));
         _tray.TaskbarRecreated += () => ScheduleTaskbarOptions(1500); // a new Explorer: the DLL went with the old one
         var hideTopTaskbar = _hideTopTaskbarItem.Checked;
         _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = hideTopTaskbar);

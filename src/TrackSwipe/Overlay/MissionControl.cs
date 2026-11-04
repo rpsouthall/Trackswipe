@@ -130,6 +130,7 @@ internal sealed partial class MissionControl : IDisposable
         _openness = 0;
         _pendingShow = true;
         _state = State.Tracking;
+        AnnounceToDocks(open: true);
     }
 
     /// <summary>
@@ -199,6 +200,7 @@ internal sealed partial class MissionControl : IDisposable
         if (!_pendingShow) return;
         _pendingShow = false;
         foreach (var plan in _plans) plan.Surface.Show();
+        _scene?.RaiseKeptAbove(); // a dock stays in view over the overview, as on a Mac
     }
 
     /// <summary>Whether there's a desktop <paramref name="step"/> places away to pan to.</summary>
@@ -356,6 +358,7 @@ internal sealed partial class MissionControl : IDisposable
         Unchoose();
         SetHover(null, default);
         _state = State.Hidden;
+        AnnounceToDocks(open: false);
         _pan = 0;
         _closeMotion = null;
         ResetDesktopBar();
@@ -681,6 +684,7 @@ internal sealed partial class MissionControl : IDisposable
             if (!plan.Decoration.IsShown) plan.Decoration.Show();
             Paint(plan);
         }
+        scene.RaiseKeptAbove();
         RemoveStale();
         DisposeSpareTileDecorations();
         SetInteractive(_state == State.Open);
@@ -795,6 +799,63 @@ internal sealed partial class MissionControl : IDisposable
     private bool HidesTaskbar(ThumbnailSurface surface) => _hideTopTaskbar && surface.WorkArea.Top > surface.Monitor.Top;
 
     /// <summary>The area the overview lays out in, in screen coordinates: the work area, or the full height when a top taskbar is hidden.</summary>
+    /// <summary>
+    /// Shrinks the spread's area away from any dock on this monitor (a window on every desktop that stays on top),
+    /// so no window is laid out underneath one. A dock that names where it sits when shown (Anchor's
+    /// "TrackSwipe.DockRect" property) is kept clear of there even if it's tucked away right now — it comes out for
+    /// the overview. Which side it gives up depends on the edge the dock sits along.
+    /// </summary>
+    private static Rectangle KeepClearOfDocks(Rectangle area, DesktopScene scene, ThumbnailSurface surface, int gap)
+    {
+        var screen = new Rectangle(Point.Empty, surface.Monitor.Size);
+        foreach (var dock in scene.KeptAbove)
+        {
+            var rect = DockRect(dock.Window) ?? dock.Frame;
+            rect.Offset(-surface.Monitor.X, -surface.Monitor.Y);
+            rect.Intersect(screen);
+            if (rect.Width <= 0 || rect.Height <= 0) continue;
+            var centre = new Point(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2);
+            // A dock is a thin strip along an edge. Anything thicker, or in the middle of the screen, is a popup or a
+            // palette that happens to stay on top (a flyout, a picture-in-picture video), and is left to fade out.
+            bool horizontal = rect.Width >= rect.Height * 2 && rect.Height <= screen.Height / 8;
+            bool vertical = rect.Height >= rect.Width * 2 && rect.Width <= screen.Width / 8;
+            Rectangle? kept = null;
+            if (horizontal && centre.Y > screen.Height * 3 / 4) kept = Rectangle.FromLTRB(area.Left, area.Top, area.Right, Math.Min(area.Bottom, rect.Top - gap));
+            else if (horizontal && centre.Y < screen.Height / 4) kept = Rectangle.FromLTRB(area.Left, Math.Max(area.Top, rect.Bottom + gap), area.Right, area.Bottom);
+            else if (vertical && centre.X < screen.Width / 4) kept = Rectangle.FromLTRB(Math.Max(area.Left, rect.Right + gap), area.Top, area.Right, area.Bottom);
+            else if (vertical && centre.X > screen.Width * 3 / 4) kept = Rectangle.FromLTRB(area.Left, area.Top, Math.Min(area.Right, rect.Left - gap), area.Bottom);
+            if (kept is not { } narrower) continue;
+            Log.Verbose($"Mission Control: keeping clear of \"{DesktopScene.TitleOf(dock.Window)}\" at {rect} (spread area {area} -> {narrower}).");
+            area = narrower;
+        }
+        return area.Width > 0 && area.Height > 0 ? area : Rectangle.FromLTRB(area.Left, area.Top, area.Left + 1, area.Top + 1);
+    }
+
+    /// <summary>Where a dock says it sits when shown: four signed 16-bit coordinates packed into a window property.</summary>
+    private static Rectangle? DockRect(IntPtr window)
+    {
+        var packed = (long)GetPropW(window, "TrackSwipe.DockRect");
+        if (packed == 0) return null;
+        int left = (short)(packed & 0xFFFF), top = (short)((packed >> 16) & 0xFFFF);
+        int right = (short)((packed >> 32) & 0xFFFF), bottom = (short)((packed >> 48) & 0xFFFF);
+        return right > left && bottom > top ? Rectangle.FromLTRB(left, top, right, bottom) : null;
+    }
+
+    private static readonly uint MissionControlMessage = RegisterWindowMessageW("TrackSwipe.MissionControl");
+
+    /// <summary>Tells docks (Anchor) the overview is opening or has closed, so they come into view and leave again.</summary>
+    private static void AnnounceToDocks(bool open) =>
+        PostMessageW(new IntPtr(0xFFFF) /* HWND_BROADCAST */, MissionControlMessage, new IntPtr(open ? 1 : 0), IntPtr.Zero);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern IntPtr GetPropW(IntPtr hwnd, string name);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern uint RegisterWindowMessageW(string name);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
     private Rectangle LayoutArea(ThumbnailSurface surface) => HidesTaskbar(surface)
         ? Rectangle.FromLTRB(surface.WorkArea.Left, surface.Monitor.Top, surface.WorkArea.Right, surface.WorkArea.Bottom)
         : surface.WorkArea;
@@ -826,7 +887,8 @@ internal sealed partial class MissionControl : IDisposable
             CreateBarLabels(plan);
             top = bar.SpreadTop;
         }
-        var area = Rectangle.FromLTRB(work.Left + margin, top, work.Right - margin, work.Bottom - margin);
+        var area = KeepClearOfDocks(Rectangle.FromLTRB(work.Left + margin, top, work.Right - margin, work.Bottom - margin),
+            scene, surface, (int)(16 * s));
 
         // Wallpaper stays put and dims.
         foreach (var wallpaper in scene.Wallpapers)
@@ -932,6 +994,8 @@ internal sealed partial class MissionControl : IDisposable
         var spread = new List<Part>();
         foreach (var item in scene.WindowsOn(desktop))
         {
+            // A dock on every desktop isn't part of any desktop's spread: the real one stays over the overview.
+            if (item.OnAllDesktops && item.IsTopmost) continue;
             // Minimized windows have no monitor of their own; show them on the primary one.
             var onThisMonitor = item.IsMinimized ? surface.IsPrimary : item.Bounds.IntersectsWith(surface.Monitor);
             if (!onThisMonitor) continue;
