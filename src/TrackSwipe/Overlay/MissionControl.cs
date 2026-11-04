@@ -844,7 +844,7 @@ internal sealed partial class MissionControl : IDisposable
     private static readonly uint MissionControlMessage = RegisterWindowMessageW("TrackSwipe.MissionControl");
 
     /// <summary>Tells docks (Anchor) the overview is opening or has closed, so they come into view and leave again.</summary>
-    private static void AnnounceToDocks(bool open) =>
+    internal static void AnnounceToDocks(bool open) =>
         PostMessageW(new IntPtr(0xFFFF) /* HWND_BROADCAST */, MissionControlMessage, new IntPtr(open ? 1 : 0), IntPtr.Zero);
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]

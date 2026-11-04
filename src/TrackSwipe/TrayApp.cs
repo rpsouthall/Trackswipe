@@ -29,6 +29,8 @@ internal sealed partial class TrayApp : IDisposable
     private readonly IntPtr _iconHandle;
     private readonly TrayMenuItem _enabledItem, _snappyItem, _smoothItem, _startupItem, _adminItem;
     private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem;
+    private readonly TrayMenuItem _dockItem, _dockSettingsItem;
+    private readonly Setup.DockHost _dockHost;
     private UiTimer? _taskbarTimer;
     private int _taskbarAttempts;
     private readonly TrayMenuItem _gestureTitle, _threeFingerItem, _fourFingerItem, _tapOffItem, _tapThreeItem, _tapFourItem;
@@ -135,6 +137,8 @@ internal sealed partial class TrayApp : IDisposable
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideRunningIndicators), Enabled = tapAvailable };
         _largeTrayIconsItem = new TrayMenuItem("Larger taskbar icons and text", () => ToggleOption(GesturePreferences.LargeTrayIcons, _largeTrayIconsItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.LargeTrayIcons), Enabled = tapAvailable };
+        _dockItem = new TrayMenuItem("Show the dock", ToggleDock) { Checked = GesturePreferences.LoadOption(GesturePreferences.ShowDock) };
+        _dockSettingsItem = new TrayMenuItem("Dock settings...", () => _dockHost!.OpenSettings()) { Enabled = _dockItem.Checked };
         _hideTopTaskbarItem = new TrayMenuItem("Hide a top taskbar in Mission Control", () => ToggleOption(GesturePreferences.HideTopTaskbarInMissionControl, _hideTopTaskbarItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTopTaskbarInMissionControl) };
 
@@ -150,6 +154,7 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Input monitor...", ShowMonitor),
             new TrayMenuItem("Touchpad settings...", OpenTouchpadSettings),
             new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem),
+            new TrayMenuItem("Dock", null, _dockItem, _dockSettingsItem),
             TrayMenuItem.Separator,
             _startupItem,
             _adminItem,
@@ -169,6 +174,10 @@ internal sealed partial class TrayApp : IDisposable
         var hideTopTaskbar = _hideTopTaskbarItem.Checked;
         _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = hideTopTaskbar);
         ScheduleTaskbarOptions(0);
+        // The dock: its own process, started (as the signed-in user) and watched from here.
+        _dockHost = new Setup.DockHost((title, text) => Notify(title, text), action => _shellPump.Post(action));
+        _dockHost.Changed += SetDockChecked;
+        if (_dockItem.Checked) _dockHost.TurnOn(askFirst: false);
 
         Log.Write($"Started {AppVersion}{(_elevated ? " as administrator" : "")} on Windows {WindowsBuild.Describe()}: {options.Fingers} fingers, full swipe {options.FullSwipeMm} mm, spring {options.Spring}. Instant desktop switching {_overlay.SwitcherStatus}.");
         if (Setup.NativeGestures.Active(options.Fingers)) Setup.NativeGestures.Claim(options.Fingers);
@@ -218,16 +227,33 @@ internal sealed partial class TrayApp : IDisposable
         if (_disposed) return;
         _disposed = true;
         _shuttingDown = true;
+        _dockHost?.Dispose(); // quitting TrackSwipe quits its dock
         _taskbarClicks?.Dispose();
         _compositionThread.Dispose();
         _shellPump.Dispose();
         _monitor?.Dispose();
         _adminAppWatch?.Dispose();
         _taskbarTimer?.Dispose();
-        if (_hideStartItem.Checked || _hideEdgeItem.Checked || _hideIndicatorsItem.Checked || _largeTrayIconsItem.Checked)
+        if (_hideStartItem.Checked || _hideEdgeItem.Checked || _hideIndicatorsItem.Checked || _largeTrayIconsItem.Checked || _dockItem.Checked)
             Interop.TaskbarTap.Restore(); // the taskbar as Windows draws it
         _tray.Dispose();
         NativeMethods.DestroyIcon(_iconHandle);
+    }
+
+    private void ToggleDock()
+    {
+        SetDockChecked(!_dockItem.Checked);
+        if (_dockItem.Checked) _dockHost.TurnOn(askFirst: true);
+        else _dockHost.TurnOff();
+    }
+
+    private void SetDockChecked(bool on)
+    {
+        _dockItem.Checked = on;
+        _dockSettingsItem.Enabled = on;
+        GesturePreferences.SaveOption(GesturePreferences.ShowDock, on);
+        ScheduleTaskbarOptions(0); // the app name on the taskbar comes and goes with the dock
+        Log.Write($"Dock {(on ? "on" : "off")}.");
     }
 
     private void ToggleOption(string name, TrayMenuItem item)
@@ -258,8 +284,9 @@ internal sealed partial class TrayApp : IDisposable
     private void ApplyTaskbarOptions(object? sender, EventArgs e)
     {
         bool start = _hideStartItem.Checked, edge = _hideEdgeItem.Checked, indicators = _hideIndicatorsItem.Checked, icons = _largeTrayIconsItem.Checked;
+        bool appName = _dockItem.Checked; // with the dock on, the taskbar names the app in front instead of listing buttons
         _taskbarTimer!.Interval = 250;
-        if (Interop.TaskbarTap.Send(start, edge, icons, indicators) || (!start && !edge && !indicators && !icons)) { _taskbarTimer.Stop(); return; }
+        if (Interop.TaskbarTap.Send(start, edge, icons, indicators, appName) || (!start && !edge && !indicators && !icons && !appName)) { _taskbarTimer.Stop(); return; }
         if (_taskbarAttempts++ == 0 && !Interop.TaskbarTap.Load()) { _taskbarTimer.Stop(); return; }
         if (_taskbarAttempts > 40) { Log.Write("Taskbar options: Explorer didn't pick them up."); _taskbarTimer.Stop(); }
     }

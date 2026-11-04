@@ -1,8 +1,10 @@
+using Anchor.Interop;
 using Anchor.Models;
 using Anchor.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Windows.Graphics;
 
 namespace Anchor;
 
@@ -205,6 +207,42 @@ public sealed partial class DockWindow
         for (int i = Items.Count - 1; i >= 0; i--)
             if (Items[i].IsTransient && Items[i].HasLeft)
                 Items.RemoveAt(i);
+    }
+
+    /// <summary>
+    /// Where each icon sits on screen (physical px) when the dock is shown, whether or not it is
+    /// tucked away right now — for TrackSwipe to send windows into. Worked out from the same cell
+    /// extents the layout uses, from the item host's origin in the window.
+    /// </summary>
+    internal IEnumerable<(DockItem Item, RectInt32 Icon)> IconRects()
+    {
+        if (_shownRect.Width <= 0 || ItemsHost.XamlRoot is null)
+            yield break;
+        double scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+        Windows.Foundation.Point origin;
+        try
+        {
+            origin = ItemsHost.TransformToVisual(RootGrid).TransformPoint(new Windows.Foundation.Point(0, 0));
+        }
+        catch
+        {
+            yield break;
+        }
+        bool vertical = IsVertical;
+        double edge = 0, icon = DockMetrics.Icon;
+        foreach (var item in Items)
+        {
+            double extent = item.CellExtent, cross = DockMetrics.Cell;
+            if (!item.IsSeparator && !item.IsPlaceholder)
+            {
+                double along = edge + (extent - icon) / 2, across = (cross - icon) / 2;
+                double x = origin.X + (vertical ? across : along), y = origin.Y + (vertical ? along : across);
+                yield return (item, new RectInt32(
+                    _shownRect.X + (int)Math.Round(x * scale), _shownRect.Y + (int)Math.Round(y * scale),
+                    (int)Math.Round(icon * scale), (int)Math.Round(icon * scale)));
+            }
+            edge += extent + CellSpacing;
+        }
     }
 
     /// <summary>The open apps aren't in the profile, so density and label changes reach them here.</summary>

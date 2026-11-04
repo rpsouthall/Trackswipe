@@ -252,6 +252,16 @@ public sealed partial class SettingsWindow : Window
         // outside Anchor (Task Manager ▸ Startup apps) — and on the packaged build that answer is
         // an async WinRT call, so the switch settles just after the page rather than with it.
         _ = RefreshStartupSwitchAsync();
+        // TrackSwipe starts a dock it hosts; a switch for starting it with Windows would only fight that.
+        if (Hosting.ByTrackSwipe)
+        {
+            // The card is the switch's nearest Border, through the logical tree (the page isn't laid out yet).
+            DependencyObject? element = StartupSwitch;
+            while (element is FrameworkElement { Parent: { } parent } && element is not Border)
+                element = parent;
+            if (element is Border startupCard)
+                startupCard.Visibility = Visibility.Collapsed;
+        }
 
         DensityChoice.SelectedIndex = cfg.Density switch
         {

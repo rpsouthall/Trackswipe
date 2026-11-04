@@ -228,6 +228,8 @@ internal sealed partial class OverlayController : IDisposable
             _peek.Render(0); // place every thumbnail before showing, so the first frame matches the desktop
             foreach (var surface in surfaces) surface.Show();
             scene.RaiseKeptAbove();
+            // Going into the dock: it comes into view (if tucked away) to take them, as for Mission Control.
+            if (DockTargets.Icons is not null) MissionControl.AnnounceToDocks(open: true);
             _mode = Mode.Peek;
         }
         else
@@ -459,6 +461,7 @@ internal sealed partial class OverlayController : IDisposable
     private void HidePeek()
     {
         _peekSurfaces.Hide();
+        if (DockTargets.Icons is not null) MissionControl.AnnounceToDocks(open: false); // the dock can tuck away again
         _peekLanded = null;
         // Windows' own animations back on, so restoring them later animates as usual.
         foreach (var (window, original) in _transitionsDisabled)

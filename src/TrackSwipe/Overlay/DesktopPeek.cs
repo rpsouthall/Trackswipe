@@ -113,6 +113,8 @@ internal sealed class DesktopPeek
     private void LookUpButtons(DesktopScene scene)
     {
         if (_moving.Count == 0) return;
+        // Going into the dock: no need to ask Explorer where the taskbar buttons are.
+        if (DockTargets.Icons is { } dock && _moving.All(part => dock.ContainsKey(part.Window))) return;
         TaskbarButtons.Refresh(scene.Items.Where(item => item.Kind == SceneKind.Window && item.IsAppWindow).Select(item => item.Window));
     }
 
@@ -195,6 +197,12 @@ internal sealed class DesktopPeek
     private RectangleF EndFor(Part part)
     {
         var monitor = part.Surface.Monitor;
+        // With the dock on, a window goes into its app's icon there, as on a Mac, rather than its taskbar button.
+        if (DockTargets.Icons is { } dock && dock.TryGetValue(part.Window, out var icon))
+        {
+            part.Provisional = false;
+            return new RectangleF(icon.X - monitor.X, icon.Y - monitor.Y, icon.Width, icon.Height);
+        }
         // Still heading for a stand-in if the lookup that may find this window's button hasn't finished yet.
         part.Provisional = TaskbarButtons.Looking;
         if (TaskbarButtons.Latest is { } known && known.TryGetValue(part.Window, out var button))

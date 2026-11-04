@@ -63,6 +63,42 @@ public static class TrackSwipeBridge
         }
     }
 
+    /// <summary>Tags the icon map sent with WM_COPYDATA ("TSKD").</summary>
+    private const nint IconMapTag = 0x54534B44;
+
+    /// <summary>
+    /// Tells TrackSwipe which dock icon each open app window belongs to (screen px, as shown), so its
+    /// show-desktop swipe sends windows into their icons on the dock rather than the taskbar. One
+    /// WM_COPYDATA of 24 bytes a window; nothing when TrackSwipe isn't running.
+    /// </summary>
+    public static unsafe void SendIconMap(IReadOnlyList<(nint Window, Windows.Graphics.RectInt32 Icon)> map)
+    {
+        if (TrackSwipeWindow is var trackSwipe && trackSwipe == nint.Zero)
+            return;
+        var data = new long[map.Count * 3];
+        for (int i = 0; i < map.Count; i++)
+        {
+            var (window, icon) = map[i];
+            data[i * 3] = window;
+            data[i * 3 + 1] = (uint)icon.X | ((long)icon.Y << 32);
+            data[i * 3 + 2] = (uint)(icon.X + icon.Width) | ((long)(icon.Y + icon.Height) << 32);
+        }
+        fixed (long* pointer = data)
+        {
+            var copy = new COPYDATASTRUCT { dwData = IconMapTag, cbData = data.Length * sizeof(long), lpData = (nint)pointer };
+            // WM_COPYDATA has to be sent, not posted: the data lives only for the call.
+            SendMessageTimeout(trackSwipe, 0x004A /* WM_COPYDATA */, nint.Zero, (nint)(&copy), 0x0002 /* SMTO_ABORTIFHUNG */, 200, out _);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct COPYDATASTRUCT
+    {
+        public nint dwData;
+        public int cbData;
+        public nint lpData;
+    }
+
     /// <summary>Records where a dock sits when shown (physical px), whether or not it is tucked away right now.</summary>
     public static void PublishDockRect(nint dock, int left, int top, int right, int bottom)
     {

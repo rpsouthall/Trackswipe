@@ -60,10 +60,13 @@
 
     <!-- App identity metadata: shows up in the exe's Details tab, Task Manager, and is required
          for a real Store/installer submission (see docs/microsoft-store-deployment.md). -->
-    <Product>Anchor</Product>
+    <!-- Shown by Task Manager and Explorer: shipped inside TrackSwipe, it is TrackSwipe's dock. The
+         assembly keeps its name, which the compiled XAML's resource paths are tied to. -->
+    <Product>TrackSwipe Dock</Product>
+    <AssemblyTitle>TrackSwipe Dock</AssemblyTitle>
     <Company>Anchor</Company>
     <Authors>Anchor</Authors>
-    <Description>A floating dock for Windows 11.</Description>
+    <Description>TrackSwipe Dock</Description>
     <Version>1.2.5.0</Version>
     <FileVersion>1.2.5.0</FileVersion>
     <AssemblyVersion>1.2.5.0</AssemblyVersion>

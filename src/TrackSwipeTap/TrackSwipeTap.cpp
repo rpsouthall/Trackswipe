@@ -17,9 +17,13 @@
 #undef GetCurrentTime // winbase.h macro; clashes with a XAML method name
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#include <winrt/Windows.UI.Xaml.Input.h>
+#include <winrt/Windows.UI.Text.h>
+#include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.Storage.Streams.h>
@@ -46,6 +50,8 @@
 #include <vector>
 
 #include "Protocol.h"
+
+#pragma comment(lib, "version.lib") // the app name: a program's file description
 
 using namespace winrt;
 using namespace winrt::Windows::UI::Xaml;
@@ -357,7 +363,7 @@ namespace
         return node;
     }
 
-    enum class Part { Start, Edge, Indicator };
+    enum class Part { Start, Edge, Indicator, AppButton };
 
     /// An element kept collapsed while its option is on, even if Explorer makes it visible again.
     struct Collapsible
@@ -441,7 +447,8 @@ namespace
                 auto isIndicator = element.Name && std::wstring_view(element.Name) == L"RunningIndicator";
                 auto isLabel = element.Name && std::wstring_view(element.Name) == L"LabelControl"; // an app button's title
                 auto isAppIcon = type == L"Windows.UI.Xaml.Controls.Image" && element.Name && std::wstring_view(element.Name) == L"Icon";
-                if (!isFrame && !isTrayIcon && !isIndicator && !isLabel && !isAppIcon && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
+                auto isAppButton = type == L"Taskbar.TaskListButton"; // hidden while the app name stands in for them
+                if (!isFrame && !isTrayIcon && !isIndicator && !isLabel && !isAppIcon && !isAppButton && type.find(L"ToggleButton") == std::wstring_view::npos) return S_OK;
                 if (++m_added % 64 == 0) Prune();
                 EnsureControlWindow();
                 Windows::Foundation::IInspectable object;
@@ -452,6 +459,7 @@ namespace
                 else if (isTrayIcon) AddTrayIcon(found);
                 else if (isIndicator) AddIndicator(found);
                 else if (isLabel) { if (auto text = found.try_as<Controls::TextBlock>()) TrackText(text); }
+                else if (isAppButton) AddAppButton(found);
                 else if (isAppIcon) { if (auto image = found.try_as<Controls::Image>()) AddAppIcon(image); }
                 else ConsiderButton(found);
             }
@@ -512,6 +520,67 @@ namespace
             for (auto& item : m_texts) ApplyText(item);
         }
 
+        /// The app name in place of the app buttons (TrackSwipe's dock is on): the name of the app in front, as a
+        /// Mac's menu bar shows it, kept current from a foreground hook. A click on it shows that app's menu from the
+        /// dock; the buttons themselves are collapsed, and given back when this goes off.
+        void SetAppName(bool on)
+        {
+            if (on == m_appName) return;
+            m_appName = on;
+            for (auto& frame : m_frames)
+                if (auto f = frame.get()) FindAppButtons(TopOf(f));
+            std::erase_if(m_appButtons, [](auto& item) { return !item.element.get(); });
+            for (auto& item : m_appButtons) Apply(item, m_appName);
+            if (on)
+            {
+                s_self = this;
+                if (!m_foregroundHook)
+                    m_foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, ForegroundChanged, 0, 0, WINEVENT_OUTOFCONTEXT);
+                OnForeground(GetForegroundWindow());
+                UpdateLabels();
+            }
+            else
+            {
+                if (m_foregroundHook) UnhookWinEvent(m_foregroundHook);
+                m_foregroundHook = nullptr;
+                RemoveLabels();
+            }
+        }
+
+        /// Puts the app name on every taskbar (adding the label to one that hasn't got it yet) and in the right place.
+        void UpdateLabels()
+        {
+            if (!m_appName) return;
+            std::erase_if(m_labels, [](auto& label) { return !label.first.get(); });
+            for (auto& weak : m_frames)
+            {
+                auto frame = weak.get();
+                if (!frame) continue;
+                auto root = FindByName(frame, L"RootGrid").try_as<Controls::Grid>();
+                if (!root) continue;
+                Controls::TextBlock label{ nullptr };
+                for (auto& [owner, existing] : m_labels) if (owner.get() == root) label = existing;
+                if (!label) label = AddLabel(root);
+                if (!label) continue;
+                label.Text(m_frontName);
+                label.FontSize(m_textSize >= 1 ? m_textSize : 14);
+                label.Foreground(Media::SolidColorBrush(frame.ActualTheme() == ElementTheme::Dark
+                    ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xFF, 0xFF, 0xFF) : Windows::UI::ColorHelper::FromArgb(0xE4, 0, 0, 0)));
+                // Where the app buttons began: after the Start button's space (or the padding left while it's hidden).
+                double left = 12;
+                if (auto repeater = FindByName(frame, L"TaskbarFrameRepeater"))
+                {
+                    try { left = repeater.TransformToVisual(root).TransformPoint({ 0, 0 }).X + repeater.Margin().Left; }
+                    catch (...) {}
+                    for (auto& item : m_buttons)
+                        if (auto start = item.element.get(); start && start.Visibility() == Visibility::Visible && TopOf(start) == TopOf(frame))
+                            left += start.ActualWidth();
+                    left += m_padding > 0 ? 0 : 8;
+                }
+                label.Margin({ left, 0, 0, 0 });
+            }
+        }
+
         /// MAKELRESULT(Start buttons tracked, flags): bit 0 Start hidden, bit 1 edge hidden, bits 2+ edge lines tracked.
         LRESULT Query()
         {
@@ -547,7 +616,7 @@ namespace
     private:
         bool Hidden(Part part) const
         {
-            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : m_startHidden;
+            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : part == Part::AppButton ? m_appName : m_startHidden;
         }
 
         /// Collapses or restores one tracked element, watching it the first time so Explorer can't bring it back.
@@ -1016,6 +1085,7 @@ namespace
             std::erase_if(m_buttons, dead);
             std::erase_if(m_edges, dead);
             std::erase_if(m_indicators, dead);
+            std::erase_if(m_appButtons, dead);
             std::erase_if(m_glyphs, dead);
             std::erase_if(m_slots, dead);
             std::erase_if(m_texts, dead);
@@ -1258,6 +1328,173 @@ namespace
             for (int i = 0; i < count; ++i) DumpElement(Media::VisualTreeHelper::GetChild(node, i), frame, depth + 1, out);
         }
 
+        // ---- App name ---------------------------------------------------------------------------------------
+
+        void AddAppButton(FrameworkElement const& element)
+        {
+            Track(m_appButtons, element, Part::AppButton);
+            for (auto& item : m_appButtons) if (item.element.get() == element) Apply(item, m_appName);
+        }
+
+        void FindAppButtons(DependencyObject const& node, int depth = 0)
+        {
+            if (depth > 40) return;
+            if (get_class_name(node) == L"Taskbar.TaskListButton")
+            {
+                if (auto element = node.try_as<FrameworkElement>()) Track(m_appButtons, element, Part::AppButton);
+                return;
+            }
+            auto count = Media::VisualTreeHelper::GetChildrenCount(node);
+            for (int i = 0; i < count; ++i) FindAppButtons(Media::VisualTreeHelper::GetChild(node, i), depth + 1);
+        }
+
+        Controls::TextBlock AddLabel(Controls::Grid const& root)
+        {
+            Controls::TextBlock label;
+            label.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
+            label.VerticalAlignment(VerticalAlignment::Center);
+            label.HorizontalAlignment(HorizontalAlignment::Left);
+            label.TextTrimming(TextTrimming::CharacterEllipsis);
+            label.MaxWidth(360);
+            label.IsHitTestVisible(true);
+            Automation::AutomationProperties::SetName(label, L"App in front");
+            // Its menu either way: a Mac's app name opens a menu on a click, and right-click is the taskbar's habit.
+            label.Tapped([this](auto&&, Input::TappedRoutedEventArgs const& e) { e.Handled(true); ShowAppMenu(); });
+            label.RightTapped([this](auto&&, Input::RightTappedRoutedEventArgs const& e) { e.Handled(true); ShowAppMenu(); });
+            root.Children().Append(label);
+            m_labels.emplace_back(make_weak(root), label);
+            return label;
+        }
+
+        void RemoveLabels()
+        {
+            for (auto& [owner, label] : m_labels)
+                if (auto root = owner.get())
+                {
+                    uint32_t index;
+                    if (root.Children().IndexOf(label, index)) root.Children().RemoveAt(index);
+                }
+            m_labels.clear();
+        }
+
+        static inline Tap* s_self = nullptr;
+
+        static void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWORD, DWORD)
+        {
+            try { if (s_self) s_self->OnForeground(window); }
+            catch (...) {}
+        }
+
+        /// A new app in front: its name on the taskbar. The taskbar itself (clicking the name puts it in front), the
+        /// shell's own surfaces and tool windows (the dock, its menus) leave the name as it was.
+        void OnForeground(HWND window)
+        {
+            if (!window || !m_appName) return;
+            wchar_t cls[128] = {};
+            GetClassNameW(window, cls, ARRAYSIZE(cls));
+            std::wstring_view name(cls);
+            if (name == L"Shell_TrayWnd" || name == L"Shell_SecondaryTrayWnd" || name == L"Windows.UI.Core.CoreWindow" ||
+                name.starts_with(L"XamlExplorerHostIslandWindow") || name == L"TopLevelWindowForOverflowXamlIsland" ||
+                name == L"NotifyIconOverflowWindow" || name == L"ForegroundStaging" || name == L"MultitaskingViewFrame")
+                return;
+            if (GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return;
+            auto owner = GetAncestor(window, GA_ROOTOWNER);
+            m_front = owner ? owner : window;
+            auto text = (name == L"Progman" || name == L"WorkerW") ? std::wstring(L"File Explorer") : AppNameOf(m_front);
+            if (text == m_frontName) return;
+            m_frontName = text;
+            UpdateLabels();
+        }
+
+        /// What the app is called: its name in the Apps folder (Store apps, and desktop apps with an ID of their own),
+        /// else its program's file description, else the program's file name. Remembered per app.
+        std::wstring AppNameOf(HWND window)
+        {
+            auto id = AppIdOf(window);
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            std::wstring path;
+            if (auto process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid))
+            {
+                wchar_t buffer[1024];
+                DWORD length = ARRAYSIZE(buffer);
+                if (QueryFullProcessImageNameW(process, 0, buffer, &length)) path.assign(buffer, length);
+                if (id.empty())
+                {
+                    UINT32 idLength = 0;
+                    if (GetApplicationUserModelId(process, &idLength, nullptr) == ERROR_INSUFFICIENT_BUFFER && idLength > 0)
+                    {
+                        std::wstring packaged(idLength, L'\0');
+                        if (GetApplicationUserModelId(process, &idLength, packaged.data()) == ERROR_SUCCESS) id = packaged.c_str();
+                    }
+                }
+                CloseHandle(process);
+            }
+            auto key = id.empty() ? path : id;
+            if (auto known = m_names.find(key); known != m_names.end()) return known->second;
+
+            std::wstring result;
+            if (!id.empty())
+            {
+                com_ptr<IShellItem> item;
+                PWSTR display = nullptr;
+                if (SUCCEEDED(SHCreateItemInKnownFolder(AppsFolder, 0, id.c_str(), IID_PPV_ARGS(item.put()))) &&
+                    SUCCEEDED(item->GetDisplayName(SIGDN_NORMALDISPLAY, &display)) && display)
+                {
+                    result = display;
+                    CoTaskMemFree(display);
+                }
+            }
+            if (result.empty() && !path.empty())
+            {
+                auto file = path.substr(path.find_last_of(L'\\') + 1);
+                if (_wcsicmp(file.c_str(), L"explorer.exe") == 0) result = L"File Explorer";
+                else result = FileDescription(path);
+                if (result.empty()) result = file.substr(0, file.find_last_of(L'.'));
+            }
+            m_names[key] = result;
+            return result;
+        }
+
+        static std::wstring FileDescription(std::wstring const& path)
+        {
+            DWORD ignored = 0, size = GetFileVersionInfoSizeW(path.c_str(), &ignored);
+            if (!size) return {};
+            std::vector<uint8_t> data(size);
+            if (!GetFileVersionInfoW(path.c_str(), 0, size, data.data())) return {};
+            struct Translation { WORD language, codepage; } *translation = nullptr;
+            UINT length = 0;
+            if (!VerQueryValueW(data.data(), L"\\VarFileInfo\\Translation", reinterpret_cast<void**>(&translation), &length) || length < sizeof(Translation)) return {};
+            auto query = std::format(L"\\StringFileInfo\\{:04x}{:04x}\\FileDescription", translation->language, translation->codepage);
+            wchar_t* text = nullptr;
+            if (!VerQueryValueW(data.data(), query.c_str(), reinterpret_cast<void**>(&text), &length) || !text || !length) return {};
+            std::wstring description(text);
+            while (!description.empty() && iswspace(description.back())) description.pop_back();
+            return description;
+        }
+
+        /// Asks TrackSwipe's dock to show the front app's menu (jump list, pin, close) at the cursor. The dock has the
+        /// menu; this only says which app and where. Lets the dock take the foreground, which its menu needs.
+        void ShowAppMenu()
+        {
+            POINT at{};
+            GetCursorPos(&at);
+            HWND dock = nullptr;
+            EnumWindows([](HWND window, LPARAM found) -> BOOL
+            {
+                wchar_t cls[64] = {};
+                GetClassNameW(window, cls, ARRAYSIZE(cls));
+                if (std::wstring_view(cls).starts_with(L"Anchor.MessageWindow.")) { *reinterpret_cast<HWND*>(found) = window; return FALSE; }
+                return TRUE;
+            }, reinterpret_cast<LPARAM>(&dock));
+            if (!dock || !m_front) return;
+            DWORD pid = 0;
+            GetWindowThreadProcessId(dock, &pid);
+            AllowSetForegroundWindow(pid);
+            static const UINT appMenu = RegisterWindowMessageW(L"TrackSwipe.Dock.AppMenu");
+            PostMessageW(dock, appMenu, reinterpret_cast<WPARAM>(m_front), MAKELPARAM(static_cast<short>(at.x), static_cast<short>(at.y)));
+        }
+
         // ---- Control window -----------------------------------------------------------------------------
 
         // Created on the taskbar's UI thread (the first callback), so commands run where the elements live.
@@ -1281,7 +1518,7 @@ namespace
             }
             catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -1301,6 +1538,7 @@ namespace
                     case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::Retire: tap->m_retired = true; return 1;
+                    case TrackSwipeTap::AppName: tap->SetAppName(wParam != 0); return 1;
                     case ColorsChanged:
                         // Light and dark taskbars show different artwork for some apps.
                         if (auto light = LightTaskbar(); light != tap->m_lightTaskbar)
@@ -1309,6 +1547,7 @@ namespace
                             tap->m_iconCache.clear();
                             for (auto& item : tap->m_appIcons) tap->ApplyAppIcon(item);
                         }
+                        tap->UpdateLabels(); // the app name's colour follows the taskbar's
                         return 1;
                     case TextScaleChanged: for (auto& item : tap->m_texts) tap->ApplyText(item); return 1;
                     case IconReady:
@@ -1360,6 +1599,13 @@ namespace
         std::vector<Watched<FrameworkElement>> m_clockSlots; // the clock's slot
         double m_textSize = 0;   // tray text size, 0 for Explorer's own
         double m_textOffset = 0; // tray text moved down by
+        bool m_appName = false;                // the app name stands in for the app buttons
+        std::vector<Collapsible> m_appButtons; // collapsed meanwhile
+        std::vector<std::pair<weak_ref<Controls::Grid>, Controls::TextBlock>> m_labels; // per taskbar
+        std::map<std::wstring, std::wstring> m_names; // app names, by AppUserModelID or program path
+        HWINEVENTHOOK m_foregroundHook = nullptr;
+        HWND m_front = nullptr;       // the app window in front
+        std::wstring m_frontName;     // and what it's called
         HWND m_control = nullptr;
     };
 

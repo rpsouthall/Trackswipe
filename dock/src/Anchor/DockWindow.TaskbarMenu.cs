@@ -83,6 +83,54 @@ public sealed partial class DockWindow
             menu.Items.Add(TaskbarItem(Loc.Get("Menu.EndTask"), () => _manager.Running.EndTask(item)));
     }
 
+    // ---- The same menu, away from the dock (TrackSwipe's taskbar label) ----------------------
+
+    private static Window? _menuHost;
+    private static Grid? _menuAnchor;
+
+    /// <summary>
+    /// Shows an app's taskbar-style menu at a screen point outside the dock — where TrackSwipe's
+    /// taskbar label (the app in front, by name) was clicked. A WinUI menu opens from an element in
+    /// a window, so it opens from a one-pixel borderless window moved to that point, made once and
+    /// hidden again when the menu closes.
+    /// </summary>
+    internal void ShowTaskbarMenuAt(DockItem item, int x, int y)
+    {
+        var owner = _manager.Docks.FirstOrDefault(dock => dock.AllItems.Contains(item));
+        var menu = new MenuFlyout { MenuFlyoutPresenterStyle = MenuStyle };
+        if (owner is not null)
+            AddTaskbarSection(menu, item, () => owner.RemoveDockItem(item), Loc.Get("Menu.RemoveFromDock"));
+        else
+            AddTaskbarSection(menu, item, () => _manager.KeepInDock(this, item, PinnedCount), Loc.Get("Menu.KeepInDock"));
+        AddCloseSection(menu, item);
+
+        var host = MenuHost();
+        if (_menuAnchor is null)
+            return;
+        _menuAnchor.RequestedTheme = RootGrid.ActualTheme;
+        host.AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, 1, 1));
+        host.AppWindow.Show();
+        host.Activate(); // a menu needs its window in front to close when clicked away from
+        menu.Closed += (_, _) => host.AppWindow.Hide();
+        menu.ShowAt(_menuAnchor, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions
+        {
+            Position = new Windows.Foundation.Point(0, 0),
+        });
+    }
+
+    private static Window MenuHost()
+    {
+        if (_menuHost is not null)
+            return _menuHost;
+        _menuAnchor = new Grid { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        _menuHost = new Window { Content = _menuAnchor, Title = "TrackSwipe Dock menu" };
+        _menuHost.ExtendsContentIntoTitleBar = true;
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_menuHost);
+        WindowChrome.MakeBorderlessToolWindow(_menuHost.AppWindow, hwnd);
+        WindowChrome.StripFrame(hwnd);
+        return _menuHost;
+    }
+
     private static MenuFlyoutItem TaskbarItem(string text, Action onClick)
     {
         var item = new MenuFlyoutItem { Text = Shorten(text) };

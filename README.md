@@ -76,6 +76,12 @@ Right-click the tray icon for:
   - **Hide a top taskbar in Mission Control** (a taskbar moved to the top of the screen slides away as Mission Control opens, and the overview uses its space, as the menu bar does on a Mac).
 
   All but the last work inside Explorer: TrackSwipe loads a small helper into it only once one of them is on, changes only how those parts look, and puts the taskbar back when they're turned off or TrackSwipe quits.
+- **Dock** (off unless you turn it on): a Mac-style dock along the bottom of the screen. Pinned apps, then the apps that are open but not pinned (joining as they open, leaving as they close, with a dot under each open one), magnification, auto-hide that dodges the window in front, a launch animation, and each app's taskbar menu (jump list, pin, close, end task) on right-click. With the dock on:
+  - the show-desktop swipe sends windows into their icons on the dock rather than the taskbar, and a swipe back brings them out again;
+  - the taskbar shows the name of the app in front instead of the app buttons, as a Mac's menu bar does; a click on the name opens that app's menu;
+  - a swipe between desktops, Mission Control and a click on an app on another desktop all keep the dock where it is.
+
+  **Dock settings** opens its own settings (density, labels, auto-hide, groups and more). The dock is a separate download of about 95 MB, fetched the first time it's turned on (TrackSwipe asks first, and checks it against the copy this version was built with); it runs as its own process, so it can never slow a swipe, and TrackSwipe starts, stops and updates it.
 
 ## Uninstall
 
@@ -105,13 +111,14 @@ This runs the tests, builds the small C++ helper the taskbar options load into E
 src/TrackSwipe        the app: touchpad input, overlay, Mission Control, tray, setup
 src/TrackSwipe.Core   the gesture engine and layout maths (no Windows APIs)
 src/TrackSwipeTap     C++ helper loaded into Explorer for the taskbar options (adapted from HideStart)
+dock/                 the dock (WinUI 3, .NET 10; adapted from Anchor, MIT): its own process, downloaded on demand
 tests/                unit tests
 assets/               icon and screenshots
 ```
 
 ## Privacy
 
-Touch data stays in memory and is never stored. The log in `%LOCALAPPDATA%\TrackSwipe` records start-up settings, the touchpad model and errors. No network access, no telemetry.
+Touch data stays in memory and is never stored. The log in `%LOCALAPPDATA%\TrackSwipe` records start-up settings, the touchpad model and errors. No telemetry. The only network access is downloading the dock from this project's GitHub release, once, when you turn it on.
 
 ## Limits
 

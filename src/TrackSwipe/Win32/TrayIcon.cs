@@ -45,7 +45,7 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         // A hidden top-level window rather than message-only: menus need a window that can be foreground.
         CreateHandle(new CreateParams { Caption = "TrackSwipe tray", Style = unchecked((int)0x80000000) /* WS_POPUP */ });
         // Running as administrator, Windows drops messages from Explorer and the installer unless allowed.
-        foreach (var message in new[] { (uint)WM_TRAY, _taskbarCreated, _quit, _jump })
+        foreach (var message in new[] { (uint)WM_TRAY, _taskbarCreated, _quit, _jump, 0x004Au /* WM_COPYDATA: the dock's icon map */ })
             ChangeWindowMessageFilterEx(Handle, message, 1 /* MSGFLT_ALLOW */, IntPtr.Zero);
         _icon = icon;
         _text = text;
@@ -102,6 +102,13 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         if (m.Msg == (int)_quit)
         {
             QuitRequested?.Invoke();
+            return;
+        }
+        if (m.Msg == 0x004A /* WM_COPYDATA */)
+        {
+            var copy = System.Runtime.InteropServices.Marshal.PtrToStructure<Overlay.DockTargets.COPYDATASTRUCT>(m.LParam);
+            if ((long)copy.dwData == Overlay.DockTargets.Tag) Overlay.DockTargets.Receive(copy.lpData, copy.cbData);
+            m.Result = 1;
             return;
         }
         if (m.Msg == (int)_jump)

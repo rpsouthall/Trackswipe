@@ -40,6 +40,9 @@ internal static class GesturePreferences
     public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl",
         LargeTrayIcons = "LargeTrayIcons", HideRunningIndicators = "HideRunningIndicators";
 
+    /// <summary>TrackSwipe's dock (pinned and open apps along the bottom of the screen). Off unless turned on.</summary>
+    public const string ShowDock = "ShowDock";
+
     private const string TapFingersValue = "TapForStartFingers", OldThreeFingerTapValue = "ThreeFingerTapForStart";
 
     /// <summary>The fingers whose tap opens (or closes) Start: 3 or 4, or 0 for off (the default).</summary>

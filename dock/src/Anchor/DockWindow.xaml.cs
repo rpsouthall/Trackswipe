@@ -682,6 +682,7 @@ public sealed partial class DockWindow : Window
         _shownRect = new RectInt32(x, y, w, h);
         // Where it shows, for TrackSwipe's Mission Control to keep its windows clear of.
         TrackSwipeBridge.PublishDockRect(_hwnd, x, y, x + w, y + h);
+        _manager.PublishIconsSoon(); // icons may have moved
         _work = work;
         // Placed where it is now rather than where it would show: tucked away, it is resized
         // there, instead of flashing into view for a moment on every relayout (which the open-apps
@@ -1097,7 +1098,10 @@ public sealed partial class DockWindow : Window
         menu.Items.Add(new MenuFlyoutSeparator());
 
         menu.Items.Add(MenuItem(Loc.Get("Menu.Restart"), _manager.Restart));
-        menu.Items.Add(MenuItem(Loc.Get("Menu.Quit"), _manager.Quit));
+        // Hosted by TrackSwipe, the dock is turned off from TrackSwipe's menu, which would only
+        // start it again after a quit from here.
+        if (!Hosting.ByTrackSwipe)
+            menu.Items.Add(MenuItem(Loc.Get("Menu.Quit"), _manager.Quit));
 
         // Same reasoning as the per-item menu: keep the dock put while this one is open.
         PauseAutoHideForDrag();

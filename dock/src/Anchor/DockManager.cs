@@ -228,13 +228,40 @@ public sealed class DockManager
             _messageWindow = new MessageWindow();
             // TrackSwipe's Mission Control: keep every dock in view for as long as it is open, as the
             // Mac's Dock stays through Mission Control (TrackSwipe keeps its windows clear of it).
-            _messageWindow.MessageReceived += (msg, wParam, _) =>
+            _messageWindow.MessageReceived += (msg, wParam, lParam) =>
             {
-                if (msg != TrackSwipeBridge.MissionControlMessage)
-                    return;
-                foreach (var dock in _docks)
-                    dock.HoldInView(wParam != 0);
+                if (msg == TrackSwipeBridge.MissionControlMessage)
+                {
+                    foreach (var dock in _docks)
+                        dock.HoldInView(wParam != 0);
+                }
+                else if (msg == Hosting.AppMenuMessage)
+                {
+                    ShowAppMenu(wParam, (short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
+                }
+                else if (msg == Hosting.CommandMessage && Hosting.ByTrackSwipe)
+                {
+                    // TrackSwipe's menu: turning the dock off, its settings, showing it.
+                    switch ((int)wParam)
+                    {
+                        case Hosting.QuitCommand: Quit(); break;
+                        case Hosting.SettingsCommand: OpenSettings(); break;
+                        case Hosting.ShowCommand: BringToFront(); break;
+                    }
+                }
             };
+
+            // TrackSwipe's own notification-area icon is the way in to a dock it hosts; a second
+            // icon for the same app would be one too many.
+            if (Hosting.ByTrackSwipe)
+            {
+                _hotkeys = new HotkeyService(_messageWindow);
+                _hotkeys.Pressed += OnHotkeyPressed;
+                ApplyHotkey();
+                ApplySearchHotkey();
+                ApplyItemHotkeys();
+                return;
+            }
 
             _tray = new TrayIconService(_messageWindow)
             {
@@ -773,7 +800,7 @@ public sealed class DockManager
     /// there at all.
     /// </para>
     /// </summary>
-    public static bool UpdateChecksSupported => !PackagedRuntime.IsPackaged;
+    public static bool UpdateChecksSupported => !PackagedRuntime.IsPackaged && !Hosting.ByTrackSwipe; // hosted, it updates with TrackSwipe
 
     /// <summary>Raised when a release should be shown to the user. The Settings window listens
     /// and renders it as a banner on its General page.</summary>
@@ -1167,6 +1194,65 @@ public sealed class DockManager
         // none so a dock that stops being first gives its section up.
         for (int i = 0; i < _docks.Count; i++)
             _docks[i].SetOpenApps(i == 0 ? section : Array.Empty<DockItem>());
+        PublishIconsSoon();
+    }
+
+    /// <summary>
+    /// The menu for the app owning <paramref name="window"/> (TrackSwipe's taskbar label was clicked),
+    /// at a screen point: its dock icon's menu if it has one, otherwise the same menu for the open app.
+    /// </summary>
+    private void ShowAppMenu(nint window, int x, int y)
+    {
+        if (_docks.Count == 0)
+            return;
+        var root = NativeMethods.GetAncestor(window, 3 /* GA_ROOTOWNER */);
+        var app = Running.Apps.FirstOrDefault(a => a.Windows.Contains(window) || a.Windows.Contains(root));
+        DockItem? item = null;
+        if (app is not null)
+        {
+            item = Config.Docks.SelectMany(p => p.Items)
+                       .FirstOrDefault(i => !i.Hidden && !i.IsGroup && Running.Find(i)?.Key == app.Key)
+                   ?? _openAppItems.GetValueOrDefault(app.Key)
+                   ?? DockItem.CreateOpenApp(app.Name, app.LaunchTarget, app.Key);
+        }
+        if (item is not null)
+            _docks[0].ShowTaskbarMenuAt(item, x, y);
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _iconMapTimer;
+
+    /// <summary>
+    /// Tells TrackSwipe (if running) where each open app's icon is, shortly after anything that moves
+    /// icons or changes which apps are open: a burst of changes (an animation's frames) is one message.
+    /// </summary>
+    public void PublishIconsSoon()
+    {
+        if (_shuttingDown)
+            return;
+        if (_iconMapTimer is null)
+        {
+            _iconMapTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+            _iconMapTimer.Interval = TimeSpan.FromMilliseconds(150);
+            _iconMapTimer.IsRepeating = false;
+            _iconMapTimer.Tick += (_, _) => PublishIcons();
+        }
+        _iconMapTimer.Stop();
+        _iconMapTimer.Start();
+    }
+
+    private void PublishIcons()
+    {
+        var map = new List<(nint, Windows.Graphics.RectInt32)>();
+        foreach (var dock in _docks)
+        {
+            foreach (var (item, icon) in dock.IconRects())
+            {
+                if (Running.Find(item) is { } app)
+                    foreach (var window in app.Windows)
+                        map.Add((window, icon));
+            }
+        }
+        TrackSwipeBridge.SendIconMap(map);
     }
 
     /// <summary>Turns the divider between pinned icons and open apps on or off.</summary>
