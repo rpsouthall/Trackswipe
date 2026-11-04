@@ -51,6 +51,8 @@
 
 #include "Protocol.h"
 
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib") // cloaked windows (other desktops) aren't the app in front
 #pragma comment(lib, "version.lib") // the app name: a program's file description
 
 using namespace winrt;
@@ -537,6 +539,22 @@ namespace
                 if (!m_foregroundHook)
                     m_foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, ForegroundChanged, 0, 0, WINEVENT_OUTOFCONTEXT);
                 OnForeground(GetForegroundWindow());
+                // Nothing usable in front (the taskbar itself, just after Explorer started): start from the topmost
+                // app window instead, so the name is never blank.
+                if (m_frontName.empty())
+                {
+                    EnumWindows([](HWND window, LPARAM self) -> BOOL
+                    {
+                        auto tap = reinterpret_cast<Tap*>(self);
+                        int cloaked = 0;
+                        if (!IsWindowVisible(window) || IsIconic(window) || GetWindow(window, GW_OWNER) || !GetWindowTextLengthW(window) ||
+                            (GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) ||
+                            (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked))
+                            return TRUE;
+                        tap->OnForeground(window);
+                        return tap->m_frontName.empty();
+                    }, reinterpret_cast<LPARAM>(this));
+                }
                 UpdateLabels();
             }
             else
