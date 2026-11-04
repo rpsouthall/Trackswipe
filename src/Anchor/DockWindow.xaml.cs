@@ -1126,6 +1126,13 @@ public sealed partial class DockWindow : Window
         ApplyAutoHide();
     }
 
+    public void SetDodgeWindows(bool on)
+    {
+        _profile.DodgeWindows = on;
+        SaveConfig();
+        ApplyAutoHide();
+    }
+
     public void SetAlwaysOnTop(bool on)
     {
         _profile.AlwaysOnTop = on;

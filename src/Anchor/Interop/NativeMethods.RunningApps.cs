@@ -22,6 +22,18 @@ internal static partial class NativeMethods
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmGetWindowAttribute(nint hwnd, int attribute, out int value, int size);
 
+    /// <summary>A window's visible frame, without the invisible resize borders GetWindowRect includes.</summary>
+    public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    public static partial int DwmGetWindowRect(nint hwnd, int attribute, out RECT value, int size);
+
     [ComImport]
     [Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")]
     public class VirtualDesktopManager { }

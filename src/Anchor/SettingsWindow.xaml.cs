@@ -858,6 +858,10 @@ public sealed partial class SettingsWindow : Window
             Switch(profile.AutoHide, Loc.Get("Settings.AutoHide"), on => dock?.SetAutoHide(on))));
 
         panel.Children.Add(Row(
+            Loc.Get("Settings.DodgeWindows"), Loc.Get("Settings.DodgeWindowsDesc"),
+            Switch(profile.DodgeWindows, Loc.Get("Settings.DodgeWindows"), on => dock?.SetDodgeWindows(on))));
+
+        panel.Children.Add(Row(
             Loc.Get("Settings.AlwaysOnTop"), Loc.Get("Settings.AlwaysOnTopDesc"),
             Switch(profile.AlwaysOnTop, Loc.Get("Settings.AlwaysOnTop"), on => dock?.SetAlwaysOnTop(on))));
 

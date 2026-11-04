@@ -254,6 +254,10 @@ public sealed partial class DockWindow
 
         bool overDock = inX && inY;
 
+        // Dodging, the dock only gives way to a window in front that would otherwise cover it;
+        // with nothing over it, it stays (or comes back) in view without needing the cursor.
+        bool covered = !_profile.DodgeWindows || IsCoveredByFrontApp();
+
         var now = DateTime.UtcNow;
         if (atHotZone || (overDock && _revealed))
         {
@@ -261,10 +265,77 @@ public sealed partial class DockWindow
             if (!_revealed)
                 SetRevealed(true);
         }
+        else if (!covered)
+        {
+            if (!_revealed)
+                SetRevealed(true);
+        }
         else if (_revealed && now - _lastInside > HideDelay && now >= _suppressHideUntil)
         {
             SetRevealed(false);
         }
+    }
+
+    // ---- Dodging windows ----------------------------------------------------
+    //
+    // Dash to Dock's default "intelligent autohide": what matters is the app in front. Its windows
+    // overlapping where the dock shows push the dock away; windows behind it don't, so switching to
+    // an app that leaves the dock clear brings it straight back. Checked on the same 100 ms poll as
+    // the cursor — one walk over the top-level windows, comparing a process id before anything else.
+
+    /// <summary>The last window in front that wasn't one of Anchor's own (the dock, Settings).</summary>
+    private nint _frontWindow;
+
+    private static readonly HashSet<string> DesktopClasses = new(StringComparer.Ordinal)
+    {
+        "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+    };
+
+    private bool IsCoveredByFrontApp()
+    {
+        nint front = NativeMethods.GetForegroundWindow();
+        if (front != nint.Zero &&
+            NativeMethods.GetWindowThreadProcessId(front, out uint frontPid) != 0 && frontPid != Environment.ProcessId)
+            _frontWindow = front;
+        front = _frontWindow;
+        if (front == nint.Zero || !NativeMethods.IsWindow(front) ||
+            NativeMethods.GetWindowThreadProcessId(front, out uint pid) == 0)
+            return false;
+        // The desktop or the taskbar in front: nothing to make room for. (They're Explorer's, so
+        // the walk below would otherwise count a File Explorer window behind them too.)
+        if (IsDesktopWindow(front))
+            return false;
+
+        var dock = _shownRect;
+        bool covered = false;
+        NativeMethods.EnumWindows((hwnd, _) =>
+        {
+            if (NativeMethods.GetWindowThreadProcessId(hwnd, out uint owner) == 0 || owner != pid)
+                return true;
+            if (!NativeMethods.IsWindowVisible(hwnd) || NativeMethods.IsIconic(hwnd) || IsDesktopWindow(hwnd))
+                return true;
+            long ex = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE);
+            if ((ex & NativeMethods.WS_EX_TOOLWINDOW) != 0 && (ex & NativeMethods.WS_EX_APPWINDOW) == 0)
+                return true; // helper surfaces, not something the user sees as the app's window
+            if (NativeMethods.DwmGetWindowAttribute(hwnd, NativeMethods.DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0)
+                return true; // on another desktop
+            if (NativeMethods.DwmGetWindowRect(hwnd, NativeMethods.DWMWA_EXTENDED_FRAME_BOUNDS, out var r,
+                    System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.RECT>()) != 0)
+                return true;
+            if (r.Left < dock.X + dock.Width && r.Right > dock.X && r.Top < dock.Y + dock.Height && r.Bottom > dock.Y)
+            {
+                covered = true;
+                return false; // one is enough
+            }
+            return true;
+        }, nint.Zero);
+        return covered;
+    }
+
+    private static bool IsDesktopWindow(nint hwnd)
+    {
+        var cls = new System.Text.StringBuilder(32);
+        return NativeMethods.GetClassName(hwnd, cls, cls.Capacity) > 0 && DesktopClasses.Contains(cls.ToString());
     }
 
     private void SetRevealed(bool reveal)

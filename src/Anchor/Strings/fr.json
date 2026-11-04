@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "Masquer automatiquement une fois ancré",
   "Settings.AutoHideDesc": "Se glisse derrière le bord ; réapparaît au survol.",
+  "Settings.DodgeWindows": "Esquiver les fenêtres",
+  "Settings.DodgeWindowsDesc": "Rester visible jusqu'à ce qu'une fenêtre de l'app active recouvre le Dock.",
 
   "Settings.AlwaysOnTop": "Toujours au premier plan",
   "Settings.AlwaysOnTopDesc": "Garder le dock flottant au-dessus des autres fenêtres.",

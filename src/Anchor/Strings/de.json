@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "Angedockt automatisch ausblenden",
   "Settings.AutoHideDesc": "Hinter dem Rand verschwinden; bei Hover erscheinen.",
+  "Settings.DodgeWindows": "Fenstern ausweichen",
+  "Settings.DodgeWindowsDesc": "Sichtbar bleiben, bis ein Fenster der aktiven App das Dock verdeckt.",
 
   "Settings.AlwaysOnTop": "Immer im Vordergrund",
   "Settings.AlwaysOnTopDesc": "Das schwebende Dock über anderen Fenstern halten.",

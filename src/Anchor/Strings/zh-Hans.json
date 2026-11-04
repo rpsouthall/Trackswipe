@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "贴靠时自动隐藏",
   "Settings.AutoHideDesc": "滑到边缘后隐藏；悬停时显示。",
+  "Settings.DodgeWindows": "避开窗口",
+  "Settings.DodgeWindowsDesc": "保持显示，直到前台应用的窗口遮住程序坞。",
 
   "Settings.AlwaysOnTop": "始终置顶",
   "Settings.AlwaysOnTopDesc": "让浮动的程序坞保持在其他窗口之上。",

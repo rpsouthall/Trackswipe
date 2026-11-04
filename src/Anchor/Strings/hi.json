@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "किनारे पर लगे होने पर अपने आप छिपाएँ",
   "Settings.AutoHideDesc": "किनारे के पीछे सरके; होवर पर दिखे।",
+  "Settings.DodgeWindows": "विंडो से बचें",
+  "Settings.DodgeWindowsDesc": "तब तक दिखता रहे जब तक सामने वाले ऐप की कोई विंडो डॉक को न ढक दे।",
 
   "Settings.AlwaysOnTop": "हमेशा सबसे ऊपर",
   "Settings.AlwaysOnTopDesc": "फ़्लोटिंग डॉक को दूसरी विंडो के ऊपर रखें।",

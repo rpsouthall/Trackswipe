@@ -51,6 +51,14 @@ public sealed class DockProfile
     public bool AutoHide { get; set; } = true;
 
     /// <summary>
+    /// How <see cref="AutoHide"/> decides to hide, as Dash to Dock's "intelligent autohide" does:
+    /// the dock stays in view until a window of the app in front overlaps it, and comes back as
+    /// soon as none does (hovering the edge still reveals it). Off, it hides whenever the cursor
+    /// leaves. On by default.
+    /// </summary>
+    public bool DodgeWindows { get; set; } = true;
+
+    /// <summary>
     /// Keep the dock above other windows while it is <b>floating</b> (not snapped). When snapped
     /// the dock is always topmost regardless, so the auto-hide reveal works over other windows.
     /// </summary>

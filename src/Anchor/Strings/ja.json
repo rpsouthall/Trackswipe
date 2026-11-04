@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "固定時に自動的に隠す",
   "Settings.AutoHideDesc": "端の裏に滑り込み、ホバーで表示します。",
+  "Settings.DodgeWindows": "ウィンドウを避ける",
+  "Settings.DodgeWindowsDesc": "前面のアプリのウィンドウがDockに重なるまで表示したままにします。",
 
   "Settings.AlwaysOnTop": "常に最前面",
   "Settings.AlwaysOnTopDesc": "フローティング中のドックを他のウィンドウより前面に保ちます。",

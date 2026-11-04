@@ -16,6 +16,11 @@ not necessarily when it shipped in a release.
   in among the pinned icons) and **Quit**; pinned apps that are open get **Quit** too. Clicking an
   open app's icon while it is in front minimizes it, as the taskbar does. Settings ▸ General ▸
   **Open apps in the dock** turns it off.
+- **Dodge windows, as Dash to Dock does.** An auto-hiding dock now stays in view until a window
+  of the app in front overlaps it, and slides back as soon as none does — switching to an app
+  that leaves it clear, or restoring a maximized window, brings it back without reaching for the
+  edge (which still reveals it). Settings ▸ Docks ▸ **Dodge windows**, on by default; off, the
+  dock hides whenever the cursor leaves, as before.
 
 #### Fixed
 

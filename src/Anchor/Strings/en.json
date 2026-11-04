@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "Auto-hide when snapped",
   "Settings.AutoHideDesc": "Slide behind the edge; reveal on hover.",
+  "Settings.DodgeWindows": "Dodge windows",
+  "Settings.DodgeWindowsDesc": "Stay in view until a window of the app in front covers the dock.",
 
   "Settings.AlwaysOnTop": "Always on top",
   "Settings.AlwaysOnTopDesc": "Keep the floating dock above other windows.",

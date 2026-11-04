@@ -166,6 +166,8 @@
 
   "Settings.AutoHide": "Ocultar automáticamente al acoplar",
   "Settings.AutoHideDesc": "Se desliza tras el borde; aparece al pasar el cursor.",
+  "Settings.DodgeWindows": "Esquivar ventanas",
+  "Settings.DodgeWindowsDesc": "Seguir visible hasta que una ventana de la app activa tape el Dock.",
 
   "Settings.AlwaysOnTop": "Siempre visible",
   "Settings.AlwaysOnTopDesc": "Mantiene el dock flotante por encima de otras ventanas.",

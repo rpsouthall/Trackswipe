@@ -26,6 +26,7 @@ public class DockConfigTests
         Assert.Null(dock.FreeX);
         Assert.Null(dock.FreeY);
         Assert.True(dock.AutoHide);
+        Assert.True(dock.DodgeWindows);
         Assert.True(dock.AlwaysOnTop);
         Assert.False(dock.VerticalWhenSideSnapped);
 
