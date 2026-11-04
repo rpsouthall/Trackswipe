@@ -107,7 +107,11 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         if (m.Msg == 0x004A /* WM_COPYDATA */)
         {
             var copy = System.Runtime.InteropServices.Marshal.PtrToStructure<Overlay.DockTargets.COPYDATASTRUCT>(m.LParam);
-            if ((long)copy.dwData == Overlay.DockTargets.Tag) Overlay.DockTargets.Receive(copy.lpData, copy.cbData);
+            if ((long)copy.dwData == Overlay.DockTargets.Tag)
+            {
+                Overlay.DockTargets.Receive(copy.lpData, copy.cbData);
+                Interop.TaskbarTap.ForwardDockIcons(m.LParam); // minimize targets, in Explorer
+            }
             m.Result = 1;
             return;
         }

@@ -18,7 +18,10 @@ internal static class DockTargets
     /// <summary>The latest map, or null while the dock is off (or hasn't said yet).</summary>
     public static IReadOnlyDictionary<IntPtr, Rectangle>? Icons => _icons;
 
-    public static void Clear() => _icons = null;
+    /// <summary>The map as the dock sent it, for Explorer's copy of the taskbar helper when it (re)loads.</summary>
+    public static byte[]? Raw { get; private set; }
+
+    public static void Clear() { _icons = null; Raw = null; }
 
     /// <summary>Reads a map: per window, its handle then the icon's left/top and right/bottom, each pair in one 64-bit value.</summary>
     public static unsafe void Receive(IntPtr data, int bytes)
@@ -35,6 +38,7 @@ internal static class DockTargets
             if (right > left && bottom > top) map[window] = Rectangle.FromLTRB(left, top, right, bottom);
         }
         _icons = map;
+        Raw = new ReadOnlySpan<byte>((void*)data, count * 24).ToArray();
         Log.Verbose($"Dock: icons for {map.Count} windows.");
     }
 

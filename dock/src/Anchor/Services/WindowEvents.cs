@@ -74,8 +74,20 @@ public sealed class WindowEvents : IDisposable
                 return;
             if (eventType == NativeMethods.EVENT_OBJECT_LOCATIONCHANGE)
             {
-                if (NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT) == hwnd)
-                    FrontWindowMoved?.Invoke();
+                // Chromium-based apps (browsers, Electron) report their window "moved" many times a second while
+                // their content changes, at the same place. Only a real change of place or size is news: the
+                // window's frame is compared with the last one seen, which is nearly free, before anyone is told.
+                if (NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT) != hwnd ||
+                    NativeMethods.DwmGetWindowRect(hwnd, NativeMethods.DWMWA_EXTENDED_FRAME_BOUNDS, out var frame,
+                        System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.RECT>()) != 0)
+                    return;
+                if (_frames.TryGetValue(hwnd, out var last) &&
+                    last.Left == frame.Left && last.Top == frame.Top && last.Right == frame.Right && last.Bottom == frame.Bottom)
+                    return;
+                _frames[hwnd] = frame;
+                if (Probe.Enabled)
+                    Probe.Count("frontWindowMoved");
+                FrontWindowMoved?.Invoke();
                 return;
             }
             // A destroyed window can't be asked about its parent any more; let it through.
@@ -97,6 +109,9 @@ public sealed class WindowEvents : IDisposable
         WatchMovesOf(pid);
         ForegroundChanged?.Invoke(hwnd);
     }
+
+    /// <summary>Where the front app's windows last were, to tell a real move from a report of the same place.</summary>
+    private readonly Dictionary<nint, NativeMethods.RECT> _frames = new();
 
     private readonly HashSet<object> _moveWatchers = new();
 
@@ -132,6 +147,7 @@ public sealed class WindowEvents : IDisposable
         if (_moveHook != nint.Zero)
             NativeMethods.UnhookWinEvent(_moveHook);
         _moveHookProcess = pid;
+        _frames.Clear(); // another app in front: only its windows are compared from now on
         _moveHook = NativeMethods.SetWinEventHook(
             NativeMethods.EVENT_OBJECT_LOCATIONCHANGE, NativeMethods.EVENT_OBJECT_LOCATIONCHANGE, nint.Zero, _callback,
             pid, 0, NativeMethods.WINEVENT_OUTOFCONTEXT);

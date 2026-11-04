@@ -35,6 +35,7 @@
 #include <wincodec.h>
 #include <format>
 #include <limits>
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -52,6 +53,8 @@
 #include "Protocol.h"
 
 #include <dwmapi.h>
+#include <commctrl.h>
+#pragma comment(lib, "comctl32.lib") // SetWindowSubclass: the minimize targets
 #pragma comment(lib, "dwmapi.lib") // cloaked windows (other desktops) aren't the app in front
 #pragma comment(lib, "version.lib") // the app name: a program's file description
 
@@ -562,6 +565,9 @@ namespace
                 if (m_foregroundHook) UnhookWinEvent(m_foregroundHook);
                 m_foregroundHook = nullptr;
                 RemoveLabels();
+                WatchFront(nullptr);
+                m_front = nullptr;
+                m_frontName.clear();
             }
         }
 
@@ -1415,13 +1421,136 @@ namespace
                 name.starts_with(L"XamlExplorerHostIslandWindow") || name == L"TopLevelWindowForOverflowXamlIsland" ||
                 name == L"NotifyIconOverflowWindow" || name == L"ForegroundStaging" || name == L"MultitaskingViewFrame")
                 return;
+            // The desktop in front: no app is, so no name (as when the last window closes).
+            if (name == L"Progman" || name == L"WorkerW") { SetFront(nullptr, L""); return; }
             if (GetWindowLongW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return;
             auto owner = GetAncestor(window, GA_ROOTOWNER);
-            m_front = owner ? owner : window;
-            auto text = (name == L"Progman" || name == L"WorkerW") ? std::wstring(L"File Explorer") : AppNameOf(m_front);
+            if (!owner) owner = window;
+            SetFront(owner, AppNameOf(owner));
+        }
+
+        void SetFront(HWND window, std::wstring const& text)
+        {
+            m_front = window;
+            WatchFront(window);
             if (text == m_frontName) return;
             m_frontName = text;
             UpdateLabels();
+        }
+
+        /// The app in front closing, hiding or minimizing its window often leaves nothing in front, which raises no
+        /// foreground event: so that one app's windows are watched for those, and the name looked at again after.
+        /// Only its process's events are delivered, so this costs nothing elsewhere.
+        void WatchFront(HWND window)
+        {
+            DWORD pid = 0;
+            if (window) GetWindowThreadProcessId(window, &pid);
+            if (pid == m_frontProcess) return;
+            for (auto& hook : m_frontHooks) if (hook) UnhookWinEvent(hook);
+            m_frontHooks = {};
+            m_frontProcess = pid;
+            if (!pid) return;
+            m_frontHooks[0] = SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, nullptr, FrontEvent, pid, 0, WINEVENT_OUTOFCONTEXT);
+            m_frontHooks[1] = SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZESTART, nullptr, FrontEvent, pid, 0, WINEVENT_OUTOFCONTEXT);
+        }
+
+        static void CALLBACK FrontEvent(HWINEVENTHOOK, DWORD event, HWND window, LONG object, LONG, DWORD, DWORD)
+        {
+            try
+            {
+                auto tap = s_self;
+                if (!tap || object != OBJID_WINDOW || window != tap->m_front || event == EVENT_OBJECT_SHOW) return;
+                // A moment later, once Windows has settled what's in front now.
+                SetTimer(tap->m_control, RecheckTimer, 150, nullptr);
+            }
+            catch (...) {}
+        }
+
+        /// After the app in front closed, hid or minimized its window: the name of whatever app is in front now, or
+        /// none if nothing (or only the desktop) is.
+        void Recheck()
+        {
+            KillTimer(m_control, RecheckTimer);
+            auto front = GetForegroundWindow();
+            if (front && front != m_front && IsWindowVisible(front) && !IsIconic(front)) OnForeground(front);
+            if (m_front && (!IsWindow(m_front) || !IsWindowVisible(m_front) || IsIconic(m_front))) SetFront(nullptr, L"");
+        }
+
+        static constexpr UINT_PTR RecheckTimer = 31;
+
+        // ---- Minimize targets: the dock's icons --------------------------------------------------------------
+        //
+        // When a window minimizes or comes back, Windows asks the shell where its taskbar button is (the shell hook's
+        // HSHELL_GETMINRECT) and animates it to and from there. With the dock on, those buttons are hidden, so the
+        // answer is the window's icon on the dock instead: the taskbar answers first, then the dock's icon (from the
+        // map the dock keeps TrackSwipe up to date with, passed on here) replaces it. Windows' own animation then
+        // goes into the dock and out of it, from a dock click, the title bar's button or the keyboard alike.
+
+        std::map<HWND, RECT> m_dockIcons;
+        bool m_subclassed = false;
+
+        /// The dock's icon map, from TrackSwipe: per window, its handle then the icon's left/top and right/bottom.
+        void ReceiveDockIcons(COPYDATASTRUCT const* copy)
+        {
+            if (!copy || copy->dwData != 0x54534B44 /* "TSKD" */) return;
+            auto values = static_cast<long long const*>(copy->lpData);
+            m_dockIcons.clear();
+            for (DWORD i = 0; i < copy->cbData / 24; ++i)
+            {
+                auto window = reinterpret_cast<HWND>(static_cast<intptr_t>(values[i * 3]));
+                long long topLeft = values[i * 3 + 1], bottomRight = values[i * 3 + 2];
+                RECT icon{ static_cast<LONG>(topLeft & 0xFFFFFFFF), static_cast<LONG>(topLeft >> 32),
+                           static_cast<LONG>(bottomRight & 0xFFFFFFFF), static_cast<LONG>(bottomRight >> 32) };
+                if (icon.right > icon.left && icon.bottom > icon.top) m_dockIcons[window] = icon;
+            }
+            SubclassShellHookWindows();
+        }
+
+        /// Explorer answers the shell hook on its taskbar windows (which one varies by build): each of them, on this
+        /// thread, gets a look at the answer.
+        void SubclassShellHookWindows()
+        {
+            if (m_subclassed) return;
+            m_subclassed = true;
+            s_self = this;
+            auto tray = FindWindowW(L"Shell_TrayWnd", nullptr);
+            if (!tray) return;
+            auto mine = GetCurrentThreadId();
+            auto hook = [&](HWND window)
+            {
+                if (window && GetWindowThreadProcessId(window, nullptr) == mine) SetWindowSubclass(window, ShellHookProc, 1, 0);
+            };
+            hook(tray);
+            EnumChildWindows(tray, [](HWND child, LPARAM mineParam) -> BOOL
+            {
+                wchar_t cls[64] = {};
+                GetClassNameW(child, cls, ARRAYSIZE(cls));
+                std::wstring_view name(cls);
+                if ((name == L"MSTaskSwWClass" || name == L"MSTaskListWClass") && GetWindowThreadProcessId(child, nullptr) == static_cast<DWORD>(mineParam))
+                    SetWindowSubclass(child, ShellHookProc, 1, 0);
+                return TRUE;
+            }, static_cast<LPARAM>(mine));
+            if (GetWindowThreadProcessId(tray, nullptr) != mine)
+                Note(L"the taskbar's windows are on another thread: minimize targets stay on the taskbar");
+        }
+
+        static LRESULT CALLBACK ShellHookProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR)
+        {
+            static const UINT shellHook = RegisterWindowMessageW(L"SHELLHOOK");
+            if (message != shellHook || (wParam & 0x7FFF) != HSHELL_GETMINRECT) return DefSubclassProc(window, message, wParam, lParam);
+            auto result = DefSubclassProc(window, message, wParam, lParam);
+            try
+            {
+                auto tap = s_self;
+                auto info = reinterpret_cast<SHELLHOOKINFO*>(lParam);
+                if (!tap || !tap->m_appName || !info) return result;
+                auto found = tap->m_dockIcons.find(info->hwnd);
+                if (found == tap->m_dockIcons.end()) found = tap->m_dockIcons.find(GetAncestor(info->hwnd, GA_ROOTOWNER));
+                if (found == tap->m_dockIcons.end()) return result;
+                info->rc = found->second;
+                return TRUE;
+            }
+            catch (...) { return result; }
         }
 
         /// What the app is called: its name in the Apps folder (Store apps, and desktop apps with an ID of their own),
@@ -1536,7 +1665,7 @@ namespace
             }
             catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName, static_cast<UINT>(WM_COPYDATA) })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -1557,6 +1686,8 @@ namespace
                     case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::Retire: tap->m_retired = true; return 1;
                     case TrackSwipeTap::AppName: tap->SetAppName(wParam != 0); return 1;
+                    case WM_COPYDATA: tap->ReceiveDockIcons(reinterpret_cast<COPYDATASTRUCT const*>(lParam)); return 1;
+                    case WM_TIMER: if (wParam == RecheckTimer) { tap->Recheck(); return 0; } break;
                     case ColorsChanged:
                         // Light and dark taskbars show different artwork for some apps.
                         if (auto light = LightTaskbar(); light != tap->m_lightTaskbar)
@@ -1623,6 +1754,8 @@ namespace
         std::map<std::wstring, std::wstring> m_names; // app names, by AppUserModelID or program path
         HWINEVENTHOOK m_foregroundHook = nullptr;
         HWND m_front = nullptr;       // the app window in front
+        DWORD m_frontProcess = 0;     // whose windows are watched for closing, hiding, minimizing
+        std::array<HWINEVENTHOOK, 2> m_frontHooks{};
         std::wstring m_frontName;     // and what it's called
         HWND m_control = nullptr;
     };

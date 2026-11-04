@@ -9,7 +9,8 @@ namespace Anchor.Services;
 /// </summary>
 public static class Probe
 {
-    public static readonly bool Enabled = Environment.GetEnvironmentVariable("ANCHOR_PROBE") == "1";
+    public static readonly bool Enabled = Environment.GetEnvironmentVariable("ANCHOR_PROBE") == "1" ||
+        Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\TrackSwipe", "DockProbe", 0) is 1; // for a dock TrackSwipe starts
     private static readonly ConcurrentDictionary<string, int> Counts = new();
     private static long _since = Environment.TickCount64;
 

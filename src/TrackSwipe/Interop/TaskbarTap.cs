@@ -11,8 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 30;
-    private const string WindowClass = "TrackSwipe.Tap.30"; // "TrackSwipe.Tap.{Version}"
+    private const int Version = 31;
+    private const string WindowClass = "TrackSwipe.Tap.31"; // "TrackSwipe.Tap.{Version}"
 
     /// <summary>
     /// Space before the first app button while Start is hidden, in hundredths of an effective pixel, on a left-aligned
@@ -69,9 +69,28 @@ internal static unsafe class TaskbarTap
         SendMessageTimeoutW(window, TrayTextMessage, largeTrayIcons ? TrayTextSize : 0, largeTrayIcons ? TrayTextOffset : 0, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, IndicatorsMessage, hideIndicators ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, AppNameMessage, appName ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _); // the app in front, by name, for the buttons
+        if (appName && Overlay.DockTargets.Raw is { } icons) ForwardDockIcons(icons); // where windows minimize to
         return true;
     }
 
+    /// <summary>
+    /// Passes the dock's icon map (as the dock sent it: WM_COPYDATA) on to Explorer's copy, which answers Windows'
+    /// "where does this window minimize to?" with its dock icon while the app name stands in for the buttons.
+    /// </summary>
+    public static void ForwardDockIcons(byte[] map)
+    {
+        fixed (byte* data = map)
+        {
+            var copy = new Overlay.DockTargets.COPYDATASTRUCT { dwData = (IntPtr)Overlay.DockTargets.Tag, cbData = map.Length, lpData = (IntPtr)data };
+            ForwardDockIcons((IntPtr)(&copy));
+        }
+    }
+
+    public static void ForwardDockIcons(IntPtr copyData)
+    {
+        var window = Window;
+        if (window != IntPtr.Zero) SendMessageTimeoutW(window, 0x004A /* WM_COPYDATA */, 0, copyData, 0x0002, 500, out _);
+    }
     /// <summary>Puts the taskbar back as Explorer draws it, if the DLL (this version or an earlier one) is there to ask.</summary>
     public static void Restore()
     {
