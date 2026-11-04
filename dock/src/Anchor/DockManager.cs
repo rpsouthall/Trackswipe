@@ -69,6 +69,19 @@ public sealed class DockManager
         bool firstRun = !Config.Seeded;
         Config.Seeded = true;
 
+        // TrackSwipe's dock starts the way a Mac's does: along the bottom, out of the way of the window in front
+        // (auto-hide that dodges, which only applies to a dock snapped to an edge), rather than floating.
+        if (firstRun && Hosting.ByTrackSwipe)
+        {
+            foreach (var profile in Config.Docks)
+            {
+                profile.Snapped = true;
+                profile.Edge = DockEdge.Bottom;
+                profile.AutoHide = true;
+                profile.DodgeWindows = true;
+            }
+        }
+
         // Settle the geometry before the first window is built: the item template binds to it,
         // and a dock that lays out at the default density and then re-sizes reads as a flicker.
         DockMetrics.SetDensity(Config.Density);
