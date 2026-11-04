@@ -10,24 +10,30 @@ namespace Anchor.Services;
 /// <para>
 /// Windows announces every window shown, hidden, destroyed, cloaked or uncloaked (WinEvents), so
 /// an app appears in the dock as soon as its first window does and leaves as soon as its last one
-/// goes; a slow poll backs that up for anything the events miss, such as a window gaining its
-/// title. The walk itself (<see cref="RunningAppService.Snapshot"/>) runs off the UI thread and
+/// goes; a window shown untitled is looked at again until it names itself, and a once-a-minute
+/// poll backs up anything else the events miss. The walk itself (<see cref="RunningAppService.Snapshot"/>) runs off the UI thread and
 /// the result is published back on it. One monitor serves every dock — the answer is a property
 /// of the machine, not of a strip.
 /// </para>
 /// </summary>
 public sealed class RunningAppMonitor : IDisposable
 {
-    // The fallback poll: the events carry the work, so this only has to catch what they don't
-    // (chiefly a window that was shown untitled and named itself later). A walk is ~2 ms.
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    // The backstop poll: the events carry the work, and a window shown untitled is watched for its
+    // title on its own (below), so this only catches what neither sees. A walk is ~2 ms.
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
+
+    // A window shown without a title (it names itself a moment later) is looked at again this often,
+    // for this long: the taskbar only lists titled windows, so nor does the dock until then.
+    private static readonly TimeSpan TitleCheck = TimeSpan.FromSeconds(1);
+    private const long TitleWaitMs = 15_000;
 
     // A burst of window events (an app opening shows a dozen surfaces) becomes one walk.
     private static readonly TimeSpan EventSettle = TimeSpan.FromMilliseconds(120);
 
     private readonly DispatcherQueue _dispatcher;
     private readonly WindowEvents _events;
-    private DispatcherQueueTimer? _timer, _settleTimer;
+    private DispatcherQueueTimer? _timer, _settleTimer, _titleTimer;
+    private readonly Dictionary<nint, long> _untitled = new(); // window -> when it was shown
     private IReadOnlyList<RunningApp> _apps = Array.Empty<RunningApp>();
     private Dictionary<string, RunningApp> _byExe = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, RunningApp> _byAppId = new(StringComparer.OrdinalIgnoreCase);
@@ -60,6 +66,8 @@ public sealed class RunningAppMonitor : IDisposable
         {
             _timer?.Stop();
             _settleTimer?.Stop();
+            _titleTimer?.Stop();
+            _untitled.Clear();
             _events.WindowChanged -= OnWindowChanged;
             Publish(Array.Empty<RunningApp>());
             return;
@@ -93,9 +101,48 @@ public sealed class RunningAppMonitor : IDisposable
             : _appWindows.Contains(hwnd);
         if (!relevant)
             return;
+        if (eventType == NativeMethods.EVENT_OBJECT_SHOW && NativeMethods.GetWindowTextLength(hwnd) == 0)
+            WaitForTitle(hwnd);
         _settleTimer ??= CreateTimer(EventSettle, repeat: false);
         _settleTimer.Stop();
         _settleTimer.Start();
+    }
+
+    private void WaitForTitle(nint hwnd)
+    {
+        _untitled[hwnd] = Environment.TickCount64;
+        if (_titleTimer is null)
+        {
+            _titleTimer = _dispatcher.CreateTimer();
+            _titleTimer.Interval = TitleCheck;
+            _titleTimer.IsRepeating = false;
+            _titleTimer.Tick += (_, _) => CheckTitles();
+        }
+        if (!_titleTimer.IsRunning)
+            _titleTimer.Start();
+    }
+
+    /// <summary>Refreshes once a window that was shown untitled has named itself; gives up on it after a while.</summary>
+    private void CheckTitles()
+    {
+        long now = Environment.TickCount64;
+        bool named = false;
+        foreach (var (hwnd, shown) in _untitled.ToArray())
+        {
+            if (!NativeMethods.IsWindow(hwnd) || !NativeMethods.IsWindowVisible(hwnd))
+                _untitled.Remove(hwnd);
+            else if (NativeMethods.GetWindowTextLength(hwnd) > 0)
+            {
+                _untitled.Remove(hwnd);
+                named = true;
+            }
+            else if (now - shown > TitleWaitMs)
+                _untitled.Remove(hwnd);
+        }
+        if (named)
+            Refresh();
+        if (_untitled.Count > 0 && IsEnabled)
+            _titleTimer?.Start();
     }
 
     private static bool CouldBeAppWindow(nint hwnd)
@@ -265,6 +312,9 @@ public sealed class RunningAppMonitor : IDisposable
         _timer = null;
         _settleTimer?.Stop();
         _settleTimer = null;
+        _titleTimer?.Stop();
+        _titleTimer = null;
+        _untitled.Clear();
         _events.WindowChanged -= OnWindowChanged;
         IsEnabled = false;
     }
