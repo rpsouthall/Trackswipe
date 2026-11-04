@@ -78,7 +78,7 @@ public static class IconService
     /// 200%). The caller supplies it because the scale belongs to the dock's own monitor, and
     /// two docks on a mixed-DPI setup want different ones.
     /// </summary>
-    public static async Task<ImageSource?> LoadIconAsync(DockItem item, double rasterizationScale)
+    public static async Task<ImageSource?> LoadIconAsync(DockItem item, double rasterizationScale, bool lightBackground = false)
     {
         int decodeSize = TargetDecodeSize(rasterizationScale);
         try
@@ -108,9 +108,18 @@ public static class IconService
                     if (await ProbeAsync(item.Target, directory: false))
                         return await ShellIconAsync(item.Target, decodeSize);
                     // A Start-menu app has no file behind it to ask about — its icon is reached
-                    // through the item ID list the shell resolves its AppUserModelID to.
+                    // through the item ID list the shell resolves its AppUserModelID to. A Store app's
+                    // own artwork comes first, in the variant made for a light or a dark background:
+                    // the shell's image list picks one variant once and keeps it, whatever the theme
+                    // turns to later, so a white logo stayed white on a light dock.
                     if (DockItemFactory.IsAppsFolderTarget(item.Target))
+                    {
+                        var appId = item.Target[DockItemFactory.AppsFolderPrefix.Length..];
+                        if (PackageLogo(appId, decodeSize, lightBackground) is { } logo &&
+                            await FromFileAsync(logo, decodeSize) is { } themed)
+                            return themed;
                         return await ShellIconFromParsingNameAsync(item.Target, decodeSize);
+                    }
                     break;
 
                 case DockItemKind.Folder:
@@ -128,6 +137,89 @@ public static class IconService
         }
         return null;
     }
+
+    /// <summary>
+    /// A Store app's own taskbar artwork for its AppUserModelID ("family!app"), at about
+    /// <paramref name="px"/> pixels, in the variant Windows shows on a light or dark taskbar
+    /// (<c>altform-lightunplated</c> / <c>altform-unplated</c>); null if it has none. Read from the
+    /// package: its manifest names the app's Square44x44Logo, and the files beside it are the sizes
+    /// and variants. Among them: the theme's variant first, then the other unplated one, then the
+    /// plain one; the smallest at least <paramref name="px"/>, else the largest.
+    /// </summary>
+    private static unsafe string? PackageLogo(string appId, int px, bool light)
+    {
+        try
+        {
+            int bang = appId.IndexOf('!');
+            if (bang <= 0)
+                return null;
+            string family = appId[..bang], app = appId[(bang + 1)..];
+            uint count = 0, length = 0;
+            if (GetPackagesByPackageFamily(family, ref count, null, ref length, null) != 122 /* ERROR_INSUFFICIENT_BUFFER */ || count == 0)
+                return null;
+            var names = new nint[count];
+            var buffer = new char[length];
+            unsafe
+            {
+                fixed (char* chars = buffer)
+                {
+                    if (GetPackagesByPackageFamily(family, ref count, names, ref length, chars) != 0)
+                        return null;
+                }
+            }
+            var fullName = Marshal.PtrToStringUni(names[0]);
+            uint pathLength = 1024;
+            var path = new System.Text.StringBuilder((int)pathLength);
+            if (fullName is null || GetPackagePathByFullName(fullName, ref pathLength, path) != 0)
+                return null;
+            var folder = path.ToString();
+
+            var manifest = File.ReadAllText(Path.Combine(folder, "AppxManifest.xml"));
+            int at = manifest.IndexOf($"Id=\"{app}\"", StringComparison.Ordinal);
+            at = manifest.IndexOf("Square44x44Logo=\"", Math.Max(0, at), StringComparison.Ordinal);
+            if (at < 0)
+                return null;
+            at += "Square44x44Logo=\"".Length;
+            int end = manifest.IndexOf('"', at);
+            if (end < 0)
+                return null;
+            var logo = manifest[at..end].Replace('/', '\\');
+            var dir = Path.Combine(folder, Path.GetDirectoryName(logo) ?? "");
+            var stem = Path.GetFileNameWithoutExtension(logo);
+            if (!Directory.Exists(dir))
+                return null;
+
+            var pattern = new System.Text.RegularExpressions.Regex(
+                @"^\.targetsize-(\d+)(_altform-(lightunplated|unplated))?\.png$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            string? best = null;
+            int bestRank = 99, bestSize = 0;
+            foreach (var file in Directory.EnumerateFiles(dir, stem + ".targetsize-*.png"))
+            {
+                var match = pattern.Match(Path.GetFileName(file)[stem.Length..]);
+                if (!match.Success)
+                    continue; // high-contrast variants and the like
+                int size = int.Parse(match.Groups[1].Value);
+                var form = match.Groups[3].Value.ToLowerInvariant();
+                int rank = form == (light ? "lightunplated" : "unplated") ? 0 : form.Length > 0 ? 1 : 2;
+                bool better = rank < bestRank ||
+                    (rank == bestRank && ((size >= px && (bestSize < px || size < bestSize)) || (size < px && bestSize < px && size > bestSize)));
+                if (better)
+                    (best, bestRank, bestSize) = (file, rank, size);
+            }
+            return best;
+        }
+        catch (Exception ex)
+        {
+            Diag.Log($"IconService: package logo for {appId}: {ex.Message}");
+            return null;
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern unsafe int GetPackagesByPackageFamily(string family, ref uint count, nint[]? names, ref uint length, char* buffer);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetPackagePathByFullName(string fullName, ref uint length, System.Text.StringBuilder path);
 
     /// <summary>Clears any cached favicon for a web link so the next load re-fetches it.</summary>
     public static void ClearCachedIcon(DockItem item)

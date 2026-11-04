@@ -99,7 +99,7 @@ public sealed partial class DockWindow : Window
         // theme changes — either the user's choice, or the OS light/dark setting while in System
         // mode (ActualThemeChanged covers both).
         ApplyWindowChrome();
-        RootGrid.ActualThemeChanged += (_, _) => ApplyWindowChrome();
+        RootGrid.ActualThemeChanged += (_, _) => { ApplyWindowChrome(); ReloadIconsForTheme(); };
 
         DockItemAnimations.ReducedMotion = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
         DockItemAnimations.HighContrast = IsHighContrast();
@@ -1145,9 +1145,25 @@ public sealed partial class DockWindow : Window
     /// </summary>
     private async Task LoadOneIconAsync(DockItem item)
     {
-        var icon = await IconService.LoadIconAsync(item, NativeMethods.GetDpiForWindow(_hwnd) / 96.0);
+        // Store apps have artwork made for light and for dark backgrounds: the one for how the dock looks now.
+        var icon = await IconService.LoadIconAsync(item, NativeMethods.GetDpiForWindow(_hwnd) / 96.0,
+            lightBackground: RootGrid.ActualTheme == ElementTheme.Light);
         if (icon is not null)
             item.IconImage = icon;
+    }
+
+    /// <summary>
+    /// The dock turned light or dark (its own setting, or Windows' when it follows the system): every
+    /// icon again, so Store apps show the artwork made for the new background.
+    /// </summary>
+    private void ReloadIconsForTheme()
+    {
+        if (_closed)
+            return;
+        _ = LoadIconsAsync();
+        foreach (var item in Items)
+            if (item.IsTransient && !item.IsSeparator)
+                _ = LoadOneIconAsync(item);
     }
 
     // ---- Separators & custom icons ----------------------------------------
