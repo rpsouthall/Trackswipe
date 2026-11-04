@@ -114,6 +114,7 @@ internal sealed partial class OverlayController
             return;
         }
         foreach (var surface in _slideSurfaces.Prepare()) surface.Show();
+        jump.Scene.RaiseKeptAbove();
         Composition.Flush();
         jump.ReleasedAt = Clock.Now;
         FramesNeeded?.Invoke();

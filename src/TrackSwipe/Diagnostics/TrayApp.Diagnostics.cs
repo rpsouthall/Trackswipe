@@ -138,6 +138,7 @@ internal sealed partial class TrayApp
         var start = Clock.Now;
         var fingers = _engine.Options.Fingers;
         var reach = _engine.Options.FullSwipeMm * 0.7;
+        var keptAboveLogged = false;
         var timer = new UiTimer { Interval = 8 };
         timer.Tick += (_, _) =>
         {
@@ -156,6 +157,13 @@ internal sealed partial class TrayApp
             }
             var returning = roundTrip && t >= secondSwipe;
             var sampleTime = returning ? t - secondSwipe : t;
+            // Mid-swipe, with the overlay up: windows on every desktop (a dock) should be above it, not in the slide.
+            if (!returning && !keptAboveLogged && sampleTime >= swipe)
+            {
+                keptAboveLogged = true;
+                var overlay = _overlay;
+                Log.Write($"Desktop slide: kept above the overlay: {_compositionThread.Invoke(() => overlay.DescribeKeptAbove())}.");
+            }
             if (sampleTime > swipe + 0.02) return;
             var lifted = sampleTime > swipe;
             var travel = -direction * (returning ? -1 : 1) * reach * Math.Min(sampleTime / swipe, 1);

@@ -75,6 +75,7 @@ internal sealed class DesktopPeek
             foreach (var taskbar in scene.Taskbars) AddStill(surface, taskbar, order);
             foreach (var window in scene.WindowsOn(scene.Current).Where(item => !item.IsMinimized && DesktopScene.IsShown(item.Window) != false))
             {
+                if (window.OnAllDesktops && window.IsTopmost) continue; // the real window is kept above the overlay
                 if (window.IsAppWindow) AddMoving(surface, window, order);
                 else AddStill(surface, window, order);
             }

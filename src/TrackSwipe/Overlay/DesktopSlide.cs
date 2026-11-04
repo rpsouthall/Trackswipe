@@ -57,10 +57,14 @@ internal sealed class DesktopSlide(Swatches swatches)
                 if (!HasDesktop(layer)) continue;
                 foreach (var wallpaper in scene.Wallpapers) Add(surface, wallpaper, layer);
             }
-            var windows = scene.Items.Where(item => item.Kind == SceneKind.Window && !item.IsMinimized && LayerOf(item) is not null).ToList();
+            // Windows on every desktop don't slide: Windows leaves them where they are when the desktop changes.
+            var windows = scene.Items.Where(item => item.Kind == SceneKind.Window && !item.IsMinimized && !item.OnAllDesktops && LayerOf(item) is not null).ToList();
             foreach (var window in windows.Where(item => !raised.Contains(item.Window)).Concat(windows.Where(item => raised.Contains(item.Window))))
                 Add(surface, window, LayerOf(window)!.Value);
             foreach (var taskbar in scene.Taskbars) Add(surface, taskbar, Fixed);
+            // Ones that stay on top are the real windows, kept above the overlay (DesktopScene.RaiseKeptAbove); the
+            // rest can't be above it without being made topmost, so they're mirrored in place, like the taskbar.
+            foreach (var shared in scene.Items.Where(item => item.OnAllDesktops && !item.IsTopmost)) Add(surface, shared, Fixed);
         }
         foreach (var stale in reusable.Values)
         {

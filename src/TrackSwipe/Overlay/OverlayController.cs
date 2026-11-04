@@ -194,6 +194,7 @@ internal sealed partial class OverlayController : IDisposable
             _slide.Begin(_scene, surfaces); // usually already done, hidden, as the fingers landed
             _slide.Render(0); // place every thumbnail before showing, so the first frame matches the desktop
             foreach (var surface in surfaces) surface.Show();
+            _scene.RaiseKeptAbove(); // a dock on every desktop stays where it is, over the slide
             _mode = Mode.Slide;
             return;
         }
@@ -226,6 +227,7 @@ internal sealed partial class OverlayController : IDisposable
             _engine.CanGoNegative = true;
             _peek.Render(0); // place every thumbnail before showing, so the first frame matches the desktop
             foreach (var surface in surfaces) surface.Show();
+            scene.RaiseKeptAbove();
             _mode = Mode.Peek;
         }
         else

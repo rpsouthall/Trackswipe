@@ -15,9 +15,11 @@ internal enum SceneKind { Wallpaper, Window, Taskbar }
 /// <see cref="IsDark"/> says whether the app draws in dark mode, which picks its backing colour.
 /// <see cref="IsTopmost"/> windows (always on top, or some full-screen apps) stay above any window that's activated.
 /// <see cref="NeedsBacking"/> windows leave parts of themselves to a system backdrop that thumbnails don't include.
+/// <see cref="OnAllDesktops"/> windows belong to no desktop and Windows never cloaks them on a switch (a dock, a widget, a flyout):
+/// they're listed on the current desktop, but a desktop switch leaves them where they are, as it does the taskbar.
 /// </summary>
 internal readonly record struct SceneItem(IntPtr Window, Rectangle Bounds, Rectangle Frame, SceneKind Kind, int Desktop, bool IsAppWindow,
-    bool IsMinimized = false, bool IsDark = true, bool IsTopmost = false, bool NeedsBacking = false);
+    bool IsMinimized = false, bool IsDark = true, bool IsTopmost = false, bool NeedsBacking = false, bool OnAllDesktops = false);
 
 /// <summary>
 /// Every desktop's windows as one bottom-to-top list. Windows on other desktops are cloaked by
@@ -51,6 +53,23 @@ internal sealed class DesktopScene
     public IEnumerable<SceneItem> Wallpapers => Items.Where(item => item.Kind == SceneKind.Wallpaper);
 
     public IEnumerable<SceneItem> Taskbars => Items.Where(item => item.Kind == SceneKind.Taskbar);
+
+    /// <summary>
+    /// Windows on every desktop that stay above everything (a dock). Rather than mirror them, a switch keeps the real
+    /// windows over its overlay: they don't move, and their glass, which thumbnails leave out, stays live.
+    /// </summary>
+    public IEnumerable<SceneItem> KeptAbove => Items.Where(item => item.OnAllDesktops && item.IsTopmost);
+
+    /// <summary>
+    /// Raises <see cref="KeptAbove"/> over an overlay that has just been shown. Asynchronously: they belong to other
+    /// apps, and one whose thread is busy must not hold up the gesture.
+    /// </summary>
+    public void RaiseKeptAbove()
+    {
+        foreach (var item in KeptAbove)
+            if (IsWindow(item.Window))
+                SetWindowPos(item.Window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    }
 
     /// <summary>All of a desktop's windows, bottom to top, including minimized ones.</summary>
     public IEnumerable<SceneItem> WindowsOn(int desktop) =>
@@ -177,8 +196,12 @@ internal sealed class DesktopScene
 
             var exStyle = GetWindowLongW(window, GWL_EXSTYLE);
             var appWindow = IsAppWindow(window);
+            // On screen with no desktop of its own, nor an owner's: the virtual desktop manager doesn't track it, so it
+            // stays put through every switch. App windows always have a desktop; this is docks, widgets and the like.
+            var onAllDesktops = known && cloaked == 0 && (id is null || id == Guid.Empty) && !appWindow && !minimized;
             items.Add(new SceneItem(window, bounds, frame, SceneKind.Window, desktop, appWindow, minimized, IsDark(window, appsDark),
-                IsTopmost: (exStyle & WS_EX_TOPMOST) != 0, NeedsBacking: appWindow && UsesSystemBackdrop(window, exStyle, className.ToString())));
+                IsTopmost: (exStyle & WS_EX_TOPMOST) != 0, NeedsBacking: appWindow && UsesSystemBackdrop(window, exStyle, className.ToString()),
+                OnAllDesktops: onAllDesktops));
         }
 
         var stats = $"shell-cloaked {shellCloaked} (desktop unknown {unknownDesktop}), otherwise cloaked {otherCloaked}, fully transparent (skipped) {transparent}";
