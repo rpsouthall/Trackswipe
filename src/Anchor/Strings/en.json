@@ -32,6 +32,8 @@
   "Menu.ShortcutClear": "Remove the shortcut",
   "Menu.Hide": "Hide",
   "Menu.Remove": "Remove",
+  "Menu.KeepInDock": "Keep in dock",
+  "Menu.QuitApp": "Quit",
   "Menu.AddNew": "Add New…",
   "Menu.Search": "Search…",
   "Menu.AddSeparator": "Add separator",
@@ -170,6 +172,8 @@
 
   "Settings.RunningIndicators": "Running-app indicators",
   "Settings.RunningIndicatorsDesc": "Mark running apps; click focuses instead of relaunching.",
+  "Settings.RunningApps": "Open apps in the dock",
+  "Settings.RunningAppsDesc": "Apps you haven't pinned join the first dock while they're open, and leave when they close.",
 
   "Settings.Startup": "Start with Windows",
   "Settings.StartupDesc": "Launch Anchor when you sign in.",

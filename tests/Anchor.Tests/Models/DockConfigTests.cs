@@ -33,6 +33,7 @@ public class DockConfigTests
         Assert.False(cfg.LaunchAtStartup);
         Assert.Equal(DockTheme.Dark, cfg.Theme);
         Assert.True(cfg.ShowRunningIndicators);
+        Assert.True(cfg.ShowRunningApps);
         Assert.False(cfg.Seeded);
         Assert.Equal(string.Empty, cfg.Language); // follow the Windows display language
         Assert.True(cfg.HotkeyEnabled);
@@ -380,6 +381,28 @@ public class DockConfigTests
     }
 
     [Fact]
+    public void Config_saved_before_the_open_apps_option_still_loads_with_it_on()
+    {
+        var cfg = JsonSerializer.Deserialize<DockConfig>("{ \"Seeded\": true }", Options);
+
+        Assert.NotNull(cfg);
+        Assert.True(cfg!.ShowRunningApps);
+    }
+
+    [Fact]
+    public void An_open_app_is_never_written_into_a_saved_dock()
+    {
+        // The open-apps section lives only on the strip; were one to reach a profile, it must not
+        // come back as a pinned icon on the next launch.
+        var profile = new DockProfile();
+        profile.Items.Add(DockItem.CreateOpenApp("Notepad", @"C:\Windows\notepad.exe", @"C:\Windows\notepad.exe"));
+        var json = JsonSerializer.Serialize(profile, Options);
+
+        Assert.DoesNotContain("IsTransient", json);
+        Assert.DoesNotContain("RunningAppKey", json);
+    }
+
+    [Fact]
     public void Config_saved_before_the_theme_option_still_loads_as_Dark()
     {
         // An existing config file has no "Theme" field. It must deserialize to Dark so the app
@@ -441,6 +464,7 @@ public class DockConfigTests
             GroupOpenOnHover = false,
             LaunchAtStartup = true,
             ShowRunningIndicators = false,
+            ShowRunningApps = false,
             CheckForUpdates = true,
             SkippedUpdate = "9.9.9",
             Seeded = true,
@@ -463,6 +487,7 @@ public class DockConfigTests
         Assert.False(target.GroupOpenOnHover);
         Assert.True(target.LaunchAtStartup);
         Assert.False(target.ShowRunningIndicators);
+        Assert.False(target.ShowRunningApps);
         Assert.True(target.CheckForUpdates);
         Assert.Equal("9.9.9", target.SkippedUpdate);
 

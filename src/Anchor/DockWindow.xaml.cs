@@ -190,6 +190,7 @@ public sealed partial class DockWindow : Window
         foreach (var it in _profile.Items)
             if (!it.Hidden)
                 Items.Add(it);
+        SyncOpenApps();
     }
 
     /// <summary>
@@ -201,7 +202,7 @@ public sealed partial class DockWindow : Window
     {
         // The drop shell is a visual, not an item: it lives in the visible collection for the
         // life of a drag (see DockWindow.DropTargets) and has nothing to write back.
-        var q = new Queue<DockItem>(Items.Where(i => !i.IsPlaceholder));
+        var q = new Queue<DockItem>(Items.Where(i => !i.IsPlaceholder && !i.IsTransient));
         for (int i = 0; i < _profile.Items.Count && q.Count > 0; i++)
             if (!_profile.Items[i].Hidden)
                 _profile.Items[i] = q.Dequeue();
@@ -218,11 +219,13 @@ public sealed partial class DockWindow : Window
     /// </summary>
     public void InsertDockItem(int visibleIndex, DockItem item)
     {
-        visibleIndex = Math.Clamp(visibleIndex, 0, Items.Count);
+        // Never into the open-apps section: that stays the strip's tail.
+        int pinned = PinnedCount;
+        visibleIndex = Math.Clamp(visibleIndex, 0, pinned);
 
         // Past the last visible item means the end of the master list, hidden tail and all;
         // otherwise the new item goes exactly where the visible item it displaces sits.
-        int master = visibleIndex < Items.Count ? _profile.Items.IndexOf(Items[visibleIndex]) : -1;
+        int master = visibleIndex < pinned ? _profile.Items.IndexOf(Items[visibleIndex]) : -1;
         _profile.Items.Insert(master < 0 ? _profile.Items.Count : master, item);
 
         if (!item.Hidden)
@@ -450,6 +453,7 @@ public sealed partial class DockWindow : Window
             foreach (var child in item.Children)
                 child.RefreshMetrics();
         }
+        RefreshOpenAppMetrics();
     }
 
     /// <summary>Re-applies the density (and re-sizes the window for it). Called by
@@ -493,6 +497,7 @@ public sealed partial class DockWindow : Window
             foreach (var child in item.Children)
                 child.RefreshMetrics();
         }
+        RefreshOpenAppMetrics();
         QueueRelayout();
     }
 
@@ -767,6 +772,14 @@ public sealed partial class DockWindow : Window
         var target = (FrameworkElement)sender;
         if (target.Tag is not DockItem item)
             return;
+        if (item.IsTransient)
+        {
+            // An open app's icon has its own, Mac-like menu; the section's divider has none, so
+            // the press falls through to the dock's.
+            if (!item.IsSeparator)
+                ShowOpenAppMenu(target, item, e);
+            return;
+        }
 
         int index = Items.IndexOf(item);
         var menu = new MenuFlyout();
@@ -838,12 +851,19 @@ public sealed partial class DockWindow : Window
         menu.Items.Add(moveLeft);
 
         var moveRight = Mi(Loc.Get("Menu.MoveRight"), () => MoveItem(item, +1));
-        moveRight.IsEnabled = index >= 0 && index < Items.Count - 1;
+        moveRight.IsEnabled = index >= 0 && index < PinnedCount - 1;
         menu.Items.Add(moveRight);
 
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(Mi(Loc.Get("Menu.Hide"), () => SetItemHidden(item, true)));
         menu.Items.Add(Mi(Loc.Get("Menu.Remove"), () => RemoveDockItem(item)));
+
+        // A pinned app that is open can be quit from its icon, as on a Mac.
+        if (!item.IsGroup && _manager.Running.IsRunning(item))
+        {
+            menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(Mi(Loc.Get("Menu.QuitApp"), () => _manager.Running.Quit(item)));
+        }
 
         // The cursor is about to sit over the menu, off the dock's own bounds; hold auto-hide out
         // while it is up (same pattern as ShowPanelFlyout) so the dock doesn't slide away mid-click.
@@ -868,7 +888,7 @@ public sealed partial class DockWindow : Window
     {
         int i = Items.IndexOf(item);
         int j = i + direction;
-        if (i < 0 || j < 0 || j >= Items.Count)
+        if (i < 0 || j < 0 || j >= PinnedCount)
             return;
         Items.Move(i, j);
         SyncMasterFromVisible();
@@ -1319,6 +1339,10 @@ public sealed partial class DockWindow : Window
         // Did the press land on a dock item? If so this gesture is an item reorder, not a
         // window move — "don't allow dragging of the dock when moving the apps / items".
         _reorderItem = FindItemFromSource(e.OriginalSource);
+        // The open-apps divider isn't something to move; a press on it moves the dock, like any
+        // other bit of background.
+        if (_reorderItem is { IsTransient: true, IsSeparator: true })
+            _reorderItem = null;
         if (_reorderItem is null)
             _dragStartWindow = _appWindow.Position;
 
@@ -1365,6 +1389,7 @@ public sealed partial class DockWindow : Window
                     EndItemReorder(dragged);
                 else
                     SetDropTarget(null);
+                CatchUpOpenApps();
                 return;
             }
 
@@ -1434,6 +1459,8 @@ public sealed partial class DockWindow : Window
         // cue at all for which icon was actually being held.
         _reorderItem?.SetMagnification(DragItemSwell);
         EnsureVisualAnimationRunning();
+        _openAppHome = _reorderItem is { IsTransient: true } ? Items.IndexOf(_reorderItem) : -1;
+        _pinSlot = -1;
 
         if (_reorderItem is not null)
             ShowDragGhost(_reorderItem);
@@ -1523,7 +1550,22 @@ public sealed partial class DockWindow : Window
         if (overGroup is not null)
             return; // the drop will file it into the group; don't shuffle the strip underneath
 
-        int target = Math.Clamp(SlotAt(rel, _reorderItem), 0, count - 1);
+        int slot = SlotAt(rel, _reorderItem);
+        int pinned = PinnedCount;
+        int target;
+        if (_reorderItem.IsTransient)
+        {
+            // An open app dragged among the pinned icons (up to the divider) is kept there when
+            // it's let go, as on a Mac; anywhere else, it goes back to its place in the section.
+            _pinSlot = slot <= pinned ? slot : -1;
+            target = _pinSlot >= 0 ? _pinSlot : _openAppHome;
+        }
+        else
+        {
+            // A pinned icon stays among the pinned ones: the section after them is the apps'.
+            target = Math.Clamp(slot, 0, pinned - 1);
+        }
+        target = Math.Clamp(target, 0, count - 1);
         if (target != from)
             Items.Move(from, target);
     }
@@ -1593,7 +1635,19 @@ public sealed partial class DockWindow : Window
         EnsureVisualAnimationRunning();
         HideDragGhost(dragged);
 
-        if (group is not null && dragged is not null && !ReferenceEquals(group, dragged))
+        if (dragged is { IsTransient: true })
+        {
+            // The section goes back exactly as the manager last described it, and the app is
+            // pinned at the slot it was dropped in, if any — which then takes it out of the
+            // section, since it is no longer unpinned.
+            int pinAt = _pinSlot;
+            _pinSlot = _openAppHome = -1;
+            Items.Remove(dragged);
+            SyncOpenApps();
+            if (pinAt >= 0)
+                _manager.KeepInDock(this, dragged, pinAt);
+        }
+        else if (group is not null && dragged is not null && !ReferenceEquals(group, dragged))
         {
             MoveItemToGroup(dragged, group);
         }

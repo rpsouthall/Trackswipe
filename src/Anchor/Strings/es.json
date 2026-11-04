@@ -32,6 +32,8 @@
   "Menu.ShortcutClear": "Quitar el atajo",
   "Menu.Hide": "Ocultar",
   "Menu.Remove": "Quitar",
+  "Menu.KeepInDock": "Mantener en el Dock",
+  "Menu.QuitApp": "Salir",
   "Menu.AddNew": "Añadir…",
   "Menu.Search": "Buscar…",
   "Menu.AddSeparator": "Añadir separador",
@@ -170,6 +172,8 @@
 
   "Settings.RunningIndicators": "Indicadores de apps en ejecución",
   "Settings.RunningIndicatorsDesc": "Marca apps abiertas; el clic las enfoca en vez de relanzarlas.",
+  "Settings.RunningApps": "Apps abiertas en el Dock",
+  "Settings.RunningAppsDesc": "Las apps no ancladas aparecen en el primer Dock mientras están abiertas y se van al cerrarlas.",
 
   "Settings.Startup": "Iniciar con Windows",
   "Settings.StartupDesc": "Abre Anchor al iniciar sesión.",

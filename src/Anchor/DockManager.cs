@@ -77,7 +77,7 @@ public sealed class DockManager
         // available handle on a running Anchor — and, with the global shortcut, the way back to a
         // dock that is tucked behind a screen edge.
         SetUpTrayAndHotkey();
-        Running.SetEnabled(Config.ShowRunningIndicators);
+        Running.SetEnabled(Config.ShowRunningIndicators || Config.ShowRunningApps);
 
         foreach (var dock in _docks)
             dock.Activate();
@@ -593,7 +593,10 @@ public sealed class DockManager
     /// </summary>
     public void LaunchOrFocus(DockItem item, bool forceNewInstance)
     {
-        if (!forceNewInstance && Running.TryFocus(item))
+        // A pinned app focuses its window only with the indicators on (the switch promises
+        // "click focuses instead of relaunching"); an open app's own icon always does — that is
+        // all it is there for.
+        if (!forceNewInstance && (item.IsTransient || Config.ShowRunningIndicators) && Running.TryFocus(item))
         {
             Diag.Log("LaunchOrFocus: focused the existing window instead of launching");
             return;
@@ -641,7 +644,17 @@ public sealed class DockManager
     {
         Config.ShowRunningIndicators = on;
         Save();
-        Running.SetEnabled(on);
+        Running.SetEnabled(Config.ShowRunningIndicators || Config.ShowRunningApps);
+        ApplyRunningState();
+    }
+
+    /// <summary>Turns the macOS-style section of open, unpinned apps on or off.</summary>
+    public void SetShowRunningApps(bool on)
+    {
+        Config.ShowRunningApps = on;
+        Save();
+        Running.SetEnabled(Config.ShowRunningIndicators || Config.ShowRunningApps);
+        ApplyRunningState();
     }
 
     /// <summary>Changes the icon/cell size of every dock at once.</summary>
@@ -811,7 +824,7 @@ public sealed class DockManager
         // Not awaited: an import rebuilds every window, and the startup entry is a side effect of
         // it rather than something the rebuild waits on. Failures are logged by the service.
         _ = StartupService.SetEnabledAsync(Config.LaunchAtStartup);
-        Running.SetEnabled(Config.ShowRunningIndicators);
+        Running.SetEnabled(Config.ShowRunningIndicators || Config.ShowRunningApps);
 
         RebuildWindows();
 
@@ -1055,21 +1068,83 @@ public sealed class DockManager
 
     // ---- Running-app state -------------------------------------------------
 
-    /// <summary>Pushes the latest poll result onto every item on every dock, children included.</summary>
+    /// <summary>
+    /// The open-apps section's items by app key, in the order they joined it. Kept between
+    /// refreshes so an app that stays open keeps its icon, its place and its cell rather than
+    /// being rebuilt every time anything else opens or closes.
+    /// </summary>
+    private readonly Dictionary<string, DockItem> _openAppItems = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _openAppOrder = new();
+
+    /// <summary>
+    /// Pushes the latest snapshot onto every item on every dock, children included, and gives the
+    /// first dock its section of open apps that aren't pinned.
+    /// </summary>
     private void ApplyRunningState()
     {
+        if (_shuttingDown)
+            return;
+
         // Resolved once per pass: the status text is identical for every item, and looking it up
         // per item would hit the string table dozens of times a second across a full dock.
         string status = Loc.Get("Dock.Running");
+        bool dots = Config.ShowRunningIndicators;
 
+        // An app counts as pinned when a visible top-level icon on any dock starts it. One filed
+        // in a group or hidden still gets a section icon: otherwise an open app could be on screen
+        // with nothing on any strip to show it or switch to it.
+        var pinned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var profile in Config.Docks)
         {
             foreach (var item in profile.Items)
             {
-                item.SetRunning(Running.IsRunning(item), status);
+                var app = Running.Find(item);
+                item.SetRunning(dots && app is not null, status);
+                if (app is not null && !item.Hidden && !item.IsGroup)
+                    pinned.Add(app.Key);
                 foreach (var child in item.Children)
-                    child.SetRunning(Running.IsRunning(child), status);
+                    child.SetRunning(dots && Running.IsRunning(child), status);
             }
         }
+
+        var open = Config.ShowRunningApps
+            ? Running.Apps.Where(app => !pinned.Contains(app.Key)).ToList()
+            : new List<RunningApp>();
+
+        // Leavers go; newcomers join at the end, as on a Mac. Several arriving in one pass (the
+        // apps already open when Anchor starts) line up in the order they were started.
+        var still = open.Select(app => app.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var gone in _openAppOrder.Where(key => !still.Contains(key)).ToList())
+        {
+            _openAppOrder.Remove(gone);
+            _openAppItems.Remove(gone);
+        }
+        foreach (var app in open.Where(app => !_openAppItems.ContainsKey(app.Key)).OrderBy(app => app.Started))
+        {
+            _openAppItems[app.Key] = DockItem.CreateOpenApp(app.Name, app.LaunchTarget, app.Key);
+            _openAppOrder.Add(app.Key);
+        }
+
+        var section = _openAppOrder.Select(key => _openAppItems[key]).ToList();
+        foreach (var item in section)
+            item.SetRunning(dots, status);
+
+        // One section, on the first dock, as the Mac has one Dock; the others are told they have
+        // none so a dock that stops being first gives its section up.
+        for (int i = 0; i < _docks.Count; i++)
+            _docks[i].SetOpenApps(i == 0 ? section : Array.Empty<DockItem>());
+    }
+
+    /// <summary>Pins an open app from the section: a real item on its dock, at the given visible slot.</summary>
+    public void KeepInDock(DockWindow dock, DockItem openApp, int visibleIndex)
+    {
+        dock.InsertDockItem(visibleIndex, new DockItem
+        {
+            Kind = DockItemKind.Application,
+            DisplayName = openApp.DisplayName,
+            Target = openApp.Target,
+            // Shown straight away rather than blank until the icon lookup the insert starts.
+            IconImage = openApp.IconImage,
+        });
     }
 }

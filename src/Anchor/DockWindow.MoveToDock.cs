@@ -67,7 +67,7 @@ public sealed partial class DockWindow
     {
         _profile.Items.Add(item);
         if (!item.Hidden)
-            Items.Add(item);
+            Items.Insert(PinnedCount, item); // ahead of the open-apps section
         item.RefreshMetrics();
         QueueRelayout();
     }

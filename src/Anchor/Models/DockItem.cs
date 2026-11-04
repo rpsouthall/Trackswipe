@@ -271,6 +271,33 @@ public sealed class DockItem : INotifyPropertyChanged
     public static DockItem CreatePlaceholder() =>
         new() { Kind = DockItemKind.File, IsPlaceholder = true };
 
+    /// <summary>
+    /// True for the dock's open-apps section, as on a Mac: an app that isn't pinned, shown only
+    /// while it has a window open (and the divider in front of them). Never persisted and never in
+    /// a profile's item list — the dock appends these to the tail of its <em>visible</em>
+    /// collection and keeps them there (see <c>DockWindow.RunningApps</c>).
+    /// </summary>
+    [JsonIgnore]
+    public bool IsTransient { get; private init; }
+
+    /// <summary>The key of the open app a transient item stands for (see <c>RunningApp.Key</c>).</summary>
+    [JsonIgnore]
+    public string? RunningAppKey { get; private init; }
+
+    /// <summary>Creates an open app's icon for the dock's open-apps section.</summary>
+    public static DockItem CreateOpenApp(string name, string target, string key) => new()
+    {
+        Kind = DockItemKind.Application,
+        DisplayName = name,
+        Target = target,
+        IsTransient = true,
+        RunningAppKey = key,
+    };
+
+    /// <summary>Creates the divider between the pinned icons and the open-apps section.</summary>
+    public static DockItem CreateOpenAppsDivider() =>
+        new() { Kind = DockItemKind.Separator, IsTransient = true };
+
     /// <summary>True when the user has pinned an icon of their own onto this item — either a
     /// custom image file or a built-in glyph chosen from the icon picker.</summary>
     [JsonIgnore]

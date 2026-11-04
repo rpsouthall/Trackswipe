@@ -24,7 +24,7 @@ public sealed partial class DockWindow
         _profile.Items.Where(i => i.IsGroup).ToList();
 
     /// <summary>True for an item that can be filed into a group: not a group, not a separator.</summary>
-    private static bool CanBeGrouped(DockItem item) => !item.IsGroup && !item.IsSeparator;
+    private static bool CanBeGrouped(DockItem item) => !item.IsGroup && !item.IsSeparator && !item.IsTransient;
 
     // ---- Creating and dissolving ------------------------------------------
 

@@ -244,6 +244,7 @@ public sealed partial class SettingsWindow : Window
         HotkeySwitch.IsOn = cfg.HotkeyEnabled;
 
         RunningIndicatorsSwitch.IsOn = cfg.ShowRunningIndicators;
+        RunningAppsSwitch.IsOn = cfg.ShowRunningApps;
 
         // Asked of Windows rather than read from the config, because the user can change it
         // outside Anchor (Task Manager ▸ Startup apps) — and on the packaged build that answer is
@@ -369,6 +370,13 @@ public sealed partial class SettingsWindow : Window
         if (_initializing)
             return;
         _manager.SetShowRunningIndicators(RunningIndicatorsSwitch.IsOn);
+    }
+
+    private void RunningAppsSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing)
+            return;
+        _manager.SetShowRunningApps(RunningAppsSwitch.IsOn);
     }
 
     private async void StartupSwitch_Toggled(object sender, RoutedEventArgs e)

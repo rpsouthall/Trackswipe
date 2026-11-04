@@ -4,6 +4,25 @@ All notable changes to Anchor are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); dates are when the change was made,
 not necessarily when it shipped in a release.
 
+## [Unreleased]
+
+#### Added
+
+- **Open apps join the dock, as on a Mac.** An app that isn't pinned appears at the end of the
+  first dock, after a divider, as soon as it opens a window, and leaves as soon as its last window
+  closes. Windows announces windows coming and going, so this follows within a moment rather than
+  waiting on a poll. Store apps are named and launched from their Start menu entries, and windows
+  on other virtual desktops still count as open. Right-click one for **Keep in dock** (or drag it
+  in among the pinned icons) and **Quit**; pinned apps that are open get **Quit** too. Clicking an
+  open app's icon while it is in front minimizes it, as the taskbar does. Settings ▸ General ▸
+  **Open apps in the dock** turns it off.
+
+#### Fixed
+
+- **Notepad and Calculator never showed as running.** The dock's starter icons point at the
+  `System32` launchers, which start the Store versions under a different exe; an icon whose exe
+  doesn't match now falls back to the open app's name.
+
 ## [v1.2.5]
 
 #### Changed

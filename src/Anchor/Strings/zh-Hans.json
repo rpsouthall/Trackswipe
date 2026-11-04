@@ -32,6 +32,8 @@
   "Menu.ShortcutClear": "移除快捷键",
   "Menu.Hide": "隐藏",
   "Menu.Remove": "移除",
+  "Menu.KeepInDock": "在程序坞中保留",
+  "Menu.QuitApp": "退出",
   "Menu.AddNew": "添加…",
   "Menu.Search": "搜索…",
   "Menu.AddSeparator": "添加分隔线",
@@ -170,6 +172,8 @@
 
   "Settings.RunningIndicators": "运行中应用指示点",
   "Settings.RunningIndicatorsDesc": "标记正在运行的应用；点击聚焦而非重新启动。",
+  "Settings.RunningApps": "在程序坞中显示打开的应用",
+  "Settings.RunningAppsDesc": "未固定的应用在打开期间会出现在第一个程序坞中，关闭后消失。",
 
   "Settings.Startup": "开机时启动",
   "Settings.StartupDesc": "登录时启动 Anchor。",

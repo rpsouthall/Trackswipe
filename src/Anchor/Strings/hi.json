@@ -32,6 +32,8 @@
   "Menu.ShortcutClear": "शॉर्टकट हटाएँ",
   "Menu.Hide": "छिपाएँ",
   "Menu.Remove": "हटाएँ",
+  "Menu.KeepInDock": "डॉक में रखें",
+  "Menu.QuitApp": "बंद करें",
   "Menu.AddNew": "जोड़ें…",
   "Menu.Search": "खोजें…",
   "Menu.AddSeparator": "विभाजक जोड़ें",
@@ -170,6 +172,8 @@
 
   "Settings.RunningIndicators": "चल रहे ऐप के संकेतक",
   "Settings.RunningIndicatorsDesc": "चल रहे ऐप्स को चिह्नित करें; क्लिक से फिर से शुरू करने के बजाय फ़ोकस हो।",
+  "Settings.RunningApps": "डॉक में खुले ऐप्स",
+  "Settings.RunningAppsDesc": "जिन ऐप्स को आपने पिन नहीं किया है, वे खुले रहने तक पहले डॉक में दिखते हैं और बंद होने पर हट जाते हैं।",
 
   "Settings.Startup": "Windows के साथ शुरू करें",
   "Settings.StartupDesc": "साइन इन करते ही Anchor शुरू करें।",

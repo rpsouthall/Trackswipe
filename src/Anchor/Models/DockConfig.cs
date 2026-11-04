@@ -53,9 +53,16 @@ public sealed class DockConfig
     /// <summary>
     /// Show a dot under an app that is already running, and make clicking it focus that window
     /// instead of starting a second copy (Shift+click still starts a new instance). On by
-    /// default. Turning it off also stops the poll that looks for those windows.
+    /// default. With <see cref="ShowRunningApps"/> also off, it stops the watch for those windows.
     /// </summary>
     public bool ShowRunningIndicators { get; set; } = true;
+
+    /// <summary>
+    /// The macOS Dock's open-apps section: an app that isn't pinned to any dock appears at the end
+    /// of the first dock while it has a window open, and leaves when its last window closes. On by
+    /// default.
+    /// </summary>
+    public bool ShowRunningApps { get; set; } = true;
 
     /// <summary>
     /// The language Anchor's own UI uses, as a BCP-47 code from <c>Loc.Available</c> (e.g.
@@ -278,6 +285,7 @@ public sealed class DockConfig
         LaunchAtStartup = other.LaunchAtStartup;
         Theme = other.Theme;
         ShowRunningIndicators = other.ShowRunningIndicators;
+        ShowRunningApps = other.ShowRunningApps;
         Language = other.Language;
         Hotkey = other.Hotkey;
         HotkeyEnabled = other.HotkeyEnabled;

@@ -290,7 +290,7 @@ public sealed partial class DockWindow
 
         _dropShell.SetPlaceholderMuted(false);
         int from = Items.IndexOf(_dropShell);
-        slot = Math.Clamp(slot, 0, Items.Count - 1);
+        slot = Math.Clamp(slot, 0, PinnedCount - 1); // the shell counts as pinned; the open apps stay after it
         if (from >= 0 && from != slot)
             Items.Move(from, slot);
     }
@@ -299,7 +299,7 @@ public sealed partial class DockWindow
     {
         _dropShell = DockItem.CreatePlaceholder();
         _dropShell.SetFlowVertical(IsVertical);
-        Items.Insert(Math.Clamp(slot, 0, Items.Count), _dropShell);
+        Items.Insert(Math.Clamp(slot, 0, PinnedCount), _dropShell);
 
         // The strip just grew by a cell, so the window has to grow with it or the shell is drawn
         // outside the glass. Auto-hide is held off for the length of the drag for the same reason
@@ -318,6 +318,7 @@ public sealed partial class DockWindow
 
         Items.Remove(_dropShell);
         _dropShell = null;
+        CatchUpOpenApps();
         QueueRelayout();
         ResumeAutoHideAfterDrag();
     }

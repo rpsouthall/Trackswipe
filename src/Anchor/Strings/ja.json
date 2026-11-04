@@ -32,6 +32,8 @@
   "Menu.ShortcutClear": "ショートカットを削除",
   "Menu.Hide": "非表示",
   "Menu.Remove": "削除",
+  "Menu.KeepInDock": "Dockに保持",
+  "Menu.QuitApp": "終了",
   "Menu.AddNew": "追加…",
   "Menu.Search": "検索…",
   "Menu.AddSeparator": "区切りを追加",
@@ -170,6 +172,8 @@
 
   "Settings.RunningIndicators": "実行中アプリのインジケーター",
   "Settings.RunningIndicatorsDesc": "起動中のアプリに印を付け、クリックで再起動せずフォーカスします。",
+  "Settings.RunningApps": "開いているアプリをDockに表示",
+  "Settings.RunningAppsDesc": "ピン留めしていないアプリは、開いている間だけ最初のDockに表示され、閉じると消えます。",
 
   "Settings.Startup": "Windows と一緒に起動",
   "Settings.StartupDesc": "サインイン時に Anchor を起動します。",

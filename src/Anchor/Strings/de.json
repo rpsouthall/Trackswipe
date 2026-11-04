@@ -32,6 +32,8 @@
   "Menu.ShortcutClear": "Tastenkombination entfernen",
   "Menu.Hide": "Ausblenden",
   "Menu.Remove": "Entfernen",
+  "Menu.KeepInDock": "Im Dock behalten",
+  "Menu.QuitApp": "Beenden",
   "Menu.AddNew": "Hinzufügen…",
   "Menu.Search": "Suchen…",
   "Menu.AddSeparator": "Trenner hinzufügen",
@@ -170,6 +172,8 @@
 
   "Settings.RunningIndicators": "Anzeige laufender Apps",
   "Settings.RunningIndicatorsDesc": "Laufende Apps markieren; Klick fokussiert statt neu zu starten.",
+  "Settings.RunningApps": "Geöffnete Apps im Dock",
+  "Settings.RunningAppsDesc": "Nicht angeheftete Apps erscheinen im ersten Dock, solange sie geöffnet sind, und verschwinden beim Schließen.",
 
   "Settings.Startup": "Mit Windows starten",
   "Settings.StartupDesc": "Anchor bei der Anmeldung starten.",
