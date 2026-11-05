@@ -267,6 +267,12 @@ public static class IconService
     /// </summary>
     private static async Task<ImageSource?> ShellIconAsync(string path, int decodeSize)
     {
+        // The UAC prompt's program has no icon of its own (Explorer draws a blank window for it); its window shows the
+        // shield, as its taskbar button does, and so does the dock — at the shell's largest size, like every icon here.
+        if (string.Equals(Path.GetFileName(path), "consent.exe", StringComparison.OrdinalIgnoreCase) &&
+            StockIcon(NativeMethods.SIID_SHIELD) is not 0 and var shield)
+            return await FromIconHandleAsync(shield, decodeSize);
+
         nint hIcon = TryGetShellIcon(path, NativeMethods.SHIL_JUMBO);
         if (hIcon == nint.Zero)
             hIcon = TryGetShellIcon(path, NativeMethods.SHIL_EXTRALARGE);
@@ -349,6 +355,16 @@ public static class IconService
             pidl, 0, ref info, (uint)Marshal.SizeOf<NativeMethods.SHFILEINFO>(),
             NativeMethods.SHGFI_PIDL | NativeMethods.SHGFI_SYSICONINDEX);
         return listHandle == nint.Zero ? nint.Zero : IconFromSystemImageList(info.iIcon, imageList);
+    }
+
+    /// <summary>One of the shell's stock icons, from the system image list at its largest size.</summary>
+    private static nint StockIcon(int id)
+    {
+        var info = new NativeMethods.SHSTOCKICONINFO { cbSize = (uint)Marshal.SizeOf<NativeMethods.SHSTOCKICONINFO>() };
+        if (NativeMethods.SHGetStockIconInfo(id, NativeMethods.SHGSI_SYSICONINDEX, ref info) != 0)
+            return nint.Zero;
+        nint icon = IconFromSystemImageList(info.iSysImageIndex, NativeMethods.SHIL_JUMBO);
+        return icon != nint.Zero ? icon : IconFromSystemImageList(info.iSysImageIndex, NativeMethods.SHIL_EXTRALARGE);
     }
 
     private static nint IconFromSystemImageList(int index, int imageList)

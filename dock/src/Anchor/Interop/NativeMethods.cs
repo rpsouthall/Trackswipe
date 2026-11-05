@@ -139,6 +139,23 @@ internal static partial class NativeMethods
 
     public static readonly Guid IID_IImageList = new("46EB5926-582E-4017-9FDF-E8998DAA0950");
 
+    // ---- Stock shell icons (the UAC shield) ----------------------------------
+    public const int SIID_SHIELD = 77;
+    public const uint SHGSI_SYSICONINDEX = 0x4000;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct SHSTOCKICONINFO
+    {
+        public uint cbSize;
+        public nint hIcon;
+        public int iSysImageIndex;
+        public int iIcon;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szPath;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHGetStockIconInfo(int siid, uint flags, ref SHSTOCKICONINFO info);
+
     [ComImport]
     [Guid("46EB5926-582E-4017-9FDF-E8998DAA0950")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
