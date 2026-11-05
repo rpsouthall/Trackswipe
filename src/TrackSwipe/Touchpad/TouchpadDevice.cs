@@ -40,6 +40,9 @@ internal sealed class TouchpadDevice : IDisposable
     }
 
     public int SlotCount => _slots.Length;
+
+    /// <summary>Whether reports carry the device's own scan time, so they keep their true timing when read late.</summary>
+    public bool HasScanTime => _scanCollection is not null;
     public double WidthMm { get; }
     public double HeightMm { get; }
 

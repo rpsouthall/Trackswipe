@@ -19,6 +19,7 @@ internal sealed class TouchpadThread : IDisposable
     private volatile bool _forwardAll;
     private bool _engaged; // touchpad thread only
     private double _touchStarted; // touchpad thread only: when the current touch's first finger landed, 0 between touches
+    private bool _quiet; // touchpad thread only: fingers down, fewer than a gesture's, nothing waiting on them
 
     private volatile int _gestureFingers = 3;
 
@@ -96,9 +97,37 @@ internal sealed class TouchpadThread : IDisposable
         {
             NativeMethods.TranslateMessage(ref message);
             NativeMethods.DispatchMessageW(ref message);
+            ReadInBatches(touchpad);
         }
         touchpad.Dispose();
     }
+
+    /// <summary>
+    /// While fingers are down but fewer than a gesture uses — moving the pointer, scrolling: nearly all touchpad use —
+    /// nothing here is waiting on them, so rather than waking for each of the ~120 reports a second, the thread lets
+    /// them gather and reads each batch in one go. Every report is still read, with its true time (the touchpad stamps
+    /// its scans). It ends the moment the fingers lift (no more reports) or a gesture's fingers land, and the cost is
+    /// only that fingers added to one that was already moving are noticed up to a batch later.
+    /// </summary>
+    private void ReadInBatches(RawInputTouchpad touchpad)
+    {
+        while (_quiet && !_forwardAll && touchpad.Timestamped)
+        {
+            Thread.Sleep(BatchMilliseconds);
+            try
+            {
+                if (touchpad.ReadBuffered() == 0) return; // lifted: back to waiting for the next touch
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Write($"Touchpad reports skipped: {ex.Message}");
+                return;
+            }
+        }
+    }
+
+    /// <summary>How long reports gather between reads while nothing needs them promptly.</summary>
+    private const int BatchMilliseconds = 32;
 
     /// <summary>
     /// An idle engine reacts only to the gesture's finger count. The report where the count falls below it is
@@ -111,6 +140,7 @@ internal sealed class TouchpadThread : IDisposable
         if (active == 0) _touchStarted = 0;
         else if (_touchStarted == 0) _touchStarted = frame.Time;
         if (TouchFilter.Deliver(active, _gestureFingers, _forwardAll, ref _engaged)) Enqueue(frame with { TouchStarted = _touchStarted });
+        _quiet = active > 0 && !_engaged && !_forwardAll;
     }
 
     private static int ActiveCount(TouchFrame frame)

@@ -116,6 +116,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern uint GetRawInputData(IntPtr rawInput, uint command, IntPtr data, ref uint size, uint headerSize);
 
+    /// <summary>Takes every raw input report waiting in the thread's queue (up to <paramref name="size"/> bytes) in one call.</summary>
+    [DllImport("user32.dll")]
+    public static extern uint GetRawInputBuffer(IntPtr data, ref uint size, uint headerSize);
+
     [DllImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW")]
     public static extern uint GetRawInputDeviceInfo(IntPtr device, uint command, IntPtr data, ref uint size);
 
