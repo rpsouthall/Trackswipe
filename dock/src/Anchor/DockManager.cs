@@ -251,8 +251,9 @@ public sealed class DockManager
     {
         if (window == 0 || window == NativeMethods.GetForegroundWindow())
             return; // already in front: a flash for nobody
+        if (window != _attentionWindow)
+            Diag.Log($"Attention: window 0x{window:X} flashed"); // once: it goes on flashing every second until answered
         _attentionWindow = window;
-        Diag.Log($"Attention: window 0x{window:X} flashed");
         foreach (var dock in _docks)
             dock.SetAttention(window);
     }

@@ -456,7 +456,17 @@ public static class RunningAppService
         try
         {
             if (NativeMethods.IsIconic(hwnd))
+            {
                 NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+                // Windows refuses that for a window of a program running with more rights than the dock — the UAC
+                // prompt waiting for an app in the background is one, minimized off-screen — but switches to it the
+                // way Alt+Tab and the taskbar do, which is what brings that prompt up.
+                if (NativeMethods.IsIconic(hwnd))
+                {
+                    NativeMethods.SwitchToThisWindow(hwnd, true);
+                    return true;
+                }
+            }
             // Allowed without the usual foreground restrictions because Anchor is the foreground
             // process at this point: the click that got us here activated the dock.
             return NativeMethods.SetForegroundWindow(hwnd);

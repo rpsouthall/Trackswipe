@@ -59,6 +59,10 @@ internal static partial class NativeMethods
 
     public const uint GA_ROOTOWNER = 3;
 
+    /// <summary>Switches to a window as Alt+Tab does, restoring it if minimized — allowed even for a more privileged program's window.</summary>
+    [DllImport("user32.dll")]
+    public static extern void SwitchToThisWindow(nint hwnd, [MarshalAs(UnmanagedType.Bool)] bool altTab);
+
     // ---- Shell hook: windows asking for attention ---------------------------------
     //
     // What makes a taskbar button flash orange: a window calling FlashWindowEx (a UAC prompt for an app in the
