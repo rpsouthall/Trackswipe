@@ -1,4 +1,4 @@
-// TrackSwipeTap.dll: loaded into explorer.exe through XAML Diagnostics (InitializeXamlDiagnosticsEx) when one of
+﻿// TrackSwipeTap.dll: loaded into explorer.exe through XAML Diagnostics (InitializeXamlDiagnosticsEx) when one of
 // TrackSwipe's taskbar options is on. It watches the taskbar's XAML tree and can
 //   - collapse the Start button (automation ID "StartButton") and keep it collapsed;
 //   - collapse the taskbar's edge line (BackgroundStroke), the hairline where it meets the desktop;
@@ -1488,12 +1488,14 @@ namespace
 
         std::map<HWND, RECT> m_dockIcons;
         bool m_subclassed = false;
+        int m_minRectNotes = 0; // what the minimize-target path does, logged for its first few
 
         /// The dock's icon map, from TrackSwipe: per window, its handle then the icon's left/top and right/bottom.
         void ReceiveDockIcons(COPYDATASTRUCT const* copy)
         {
             if (!copy || copy->dwData != 0x54534B44 /* "TSKD" */) return;
             auto values = static_cast<long long const*>(copy->lpData);
+            auto before = m_dockIcons.size();
             m_dockIcons.clear();
             for (DWORD i = 0; i < copy->cbData / 24; ++i)
             {
@@ -1502,6 +1504,12 @@ namespace
                 RECT icon{ static_cast<LONG>(topLeft & 0xFFFFFFFF), static_cast<LONG>(topLeft >> 32),
                            static_cast<LONG>(bottomRight & 0xFFFFFFFF), static_cast<LONG>(bottomRight >> 32) };
                 if (icon.right > icon.left && icon.bottom > icon.top) m_dockIcons[window] = icon;
+            }
+            if (m_dockIcons.size() != before && m_minRectNotes < 12)
+            {
+                ++m_minRectNotes;
+                auto first = m_dockIcons.empty() ? RECT{} : m_dockIcons.begin()->second;
+                Note(std::format(L"dock icons: {} windows (first at {},{},{},{})", m_dockIcons.size(), first.left, first.top, first.right, first.bottom));
             }
             SubclassShellHookWindows();
         }
@@ -1518,7 +1526,8 @@ namespace
             auto mine = GetCurrentThreadId();
             auto hook = [&](HWND window)
             {
-                if (window && GetWindowThreadProcessId(window, nullptr) == mine) SetWindowSubclass(window, ShellHookProc, 1, 0);
+                if (window && GetWindowThreadProcessId(window, nullptr) == mine)
+                    Note(std::format(L"minimize targets: watching Shell_TrayWnd ({})", SetWindowSubclass(window, ShellHookProc, 1, 0) ? L"ok" : L"failed"));
             };
             hook(tray);
             EnumChildWindows(tray, [](HWND child, LPARAM mineParam) -> BOOL
@@ -1527,9 +1536,12 @@ namespace
                 GetClassNameW(child, cls, ARRAYSIZE(cls));
                 std::wstring_view name(cls);
                 if ((name == L"MSTaskSwWClass" || name == L"MSTaskListWClass") && GetWindowThreadProcessId(child, nullptr) == static_cast<DWORD>(mineParam))
-                    SetWindowSubclass(child, ShellHookProc, 1, 0);
+                    Note(std::format(L"minimize targets: watching {} ({})", name, SetWindowSubclass(child, ShellHookProc, 1, 0) ? L"ok" : L"failed"));
                 return TRUE;
             }, static_cast<LPARAM>(mine));
+            using GetTaskmanWindowFn = HWND(WINAPI*)();
+            if (auto taskman = reinterpret_cast<GetTaskmanWindowFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetTaskmanWindow")))
+                Note(std::format(L"minimize targets: taskman window is 0x{:X}", reinterpret_cast<uintptr_t>(taskman())));
             if (GetWindowThreadProcessId(tray, nullptr) != mine)
                 Note(L"the taskbar's windows are on another thread: minimize targets stay on the taskbar");
         }
@@ -1543,11 +1555,34 @@ namespace
             {
                 auto tap = s_self;
                 auto info = reinterpret_cast<SHELLHOOKINFO*>(lParam);
-                if (!tap || !tap->m_appName || !info) return result;
+                if (!tap || !info) return result;
+                auto said = info->rc;
+                auto saidShort = reinterpret_cast<SHORT const*>(&said);
                 auto found = tap->m_dockIcons.find(info->hwnd);
                 if (found == tap->m_dockIcons.end()) found = tap->m_dockIcons.find(GetAncestor(info->hwnd, GA_ROOTOWNER));
-                if (found == tap->m_dockIcons.end()) return result;
-                info->rc = found->second;
+                bool answer = tap->m_appName && found != tap->m_dockIcons.end();
+                if (tap->m_minRectNotes < 12)
+                {
+                    ++tap->m_minRectNotes;
+                    wchar_t cls[64] = {};
+                    GetClassNameW(window, cls, ARRAYSIZE(cls));
+                    Note(std::format(L"GETMINRECT for 0x{:X} at {}: taskbar said {},{},{},{} as 16-bit (returned {}); app name {}, {} dock icons, {}",
+                        reinterpret_cast<uintptr_t>(info->hwnd), cls, saidShort[0], saidShort[1], saidShort[2], saidShort[3], static_cast<long long>(result),
+                        tap->m_appName ? L"on" : L"off", tap->m_dockIcons.size(),
+                        answer ? std::format(L"answering {},{},{},{}", found->second.left, found->second.top, found->second.right, found->second.bottom) : std::wstring(L"not answering")));
+                }
+                if (!answer) return result;
+                // Windows reads the answer as four 16-bit numbers (left, top, right, bottom) in the RECT's place, not as
+                // a RECT — the taskbar's own, read that way, is its button's place (108,0,109,48 on a taskbar at the
+                // top) — and a RECT written here reads as an empty, inverted box: the window just vanished, and came
+                // back from nowhere. Measured on Windows 11: written as 16-bit, it shrinks into the dock icon and grows
+                // back out of it.
+                auto const& icon = found->second;
+                auto out = reinterpret_cast<SHORT*>(&info->rc);
+                out[0] = static_cast<SHORT>(icon.left);
+                out[1] = static_cast<SHORT>(icon.top);
+                out[2] = static_cast<SHORT>(icon.right);
+                out[3] = static_cast<SHORT>(icon.bottom);
                 return TRUE;
             }
             catch (...) { return result; }

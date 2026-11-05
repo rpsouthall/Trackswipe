@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace TrackSwipe.Interop;
 
@@ -11,8 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 31;
-    private const string WindowClass = "TrackSwipe.Tap.31"; // "TrackSwipe.Tap.{Version}"
+    private const int Version = 34;
+    private const string WindowClass = "TrackSwipe.Tap.34"; // "TrackSwipe.Tap.{Version}"
 
     /// <summary>
     /// Space before the first app button while Start is hidden, in hundredths of an effective pixel, on a left-aligned
