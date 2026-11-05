@@ -260,6 +260,20 @@
                                         IsHitTestVisible="False"
                                         AutomationProperties.AccessibilityView="Raw" />
 
+                                <!-- The same dot in amber while the app asks for attention (its window
+                                     flashed, as a taskbar button turns orange): a UAC prompt waiting for an
+                                     app in the background, say. -->
+                                <Border Visibility="{x:Bind AttentionIndicatorVisibility, Mode=OneWay}"
+                                        Width="5"
+                                        Height="5"
+                                        CornerRadius="2.5"
+                                        Margin="0,0,0,1"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Bottom"
+                                        Background="{ThemeResource SystemFillColorCautionBrush}"
+                                        IsHitTestVisible="False"
+                                        AutomationProperties.AccessibilityView="Raw" />
+
                                 <!-- Separator: the same hairline treatment as the gear divider
                                      below, so a user-placed divider and the built-in one read as
                                      one design rather than two. -->

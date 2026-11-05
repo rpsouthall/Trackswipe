@@ -80,7 +80,8 @@ public static class RunningAppService
     /// <summary>Names already worked out, by app key: the lookup reads version resources or the shell namespace.</summary>
     private static readonly ConcurrentDictionary<string, string> Names = new(StringComparer.OrdinalIgnoreCase);
 
-    private sealed record ProcessInfo(string? Path, string? AppId, long Started);
+    /// <param name="Restricted">Found without opening the process (it runs as SYSTEM or another user).</param>
+    private sealed record ProcessInfo(string? Path, string? AppId, long Started, bool Restricted = false);
 
     /// <summary>
     /// What is open now, one entry per app, ordered by its most recently used window. Safe to call
@@ -133,10 +134,15 @@ public static class RunningAppService
                     else
                     {
                         if (OwnerOf(hwnd, processes) is not { Path: not null } owner)
-                            return true; // our own, or a protected process we can't attribute
+                            return true; // our own, or one whose program can't be found at all
                         if (ShellProcesses.Contains(Path.GetFileName(owner.Path)))
                             return true;
                         (exe, appId, started) = (owner.Path, owner.AppId, owner.Started);
+                        // A program running as another user (the UAC prompt's consent.exe runs as SYSTEM) has no
+                        // name of its own worth showing ("Consent UI for administrative applications"); the
+                        // taskbar shows its window's title ("User Account Control"), and so does the dock.
+                        if (owner.Restricted && !Names.ContainsKey(exe) && WindowTitle(hwnd) is { Length: > 0 } title)
+                            Names.TryAdd(exe, title);
                     }
 
                     if (appId is null && exe is null)
@@ -256,8 +262,67 @@ public static class RunningAppService
                 NativeMethods.CloseHandle(handle);
             }
         }
-        processes[pid] = info; // unreadable (protected, elevated) is remembered too
+        else if (ImagePathWithoutOpening(pid) is { } path)
+        {
+            // Not ours to open — a program running as SYSTEM or another user. The taskbar lists its windows all the
+            // same, and one of them matters a great deal: a UAC prompt for an app in the background waits as a
+            // flashing taskbar button (consent.exe's), and with the taskbar's buttons hidden the dock is where it shows.
+            info = new ProcessInfo(path, null, 0, Restricted: true);
+        }
+        processes[pid] = info; // unreadable (protected) is remembered too
         return info;
+    }
+
+    /// <summary>
+    /// A process's image path without opening it, the way Task Manager reads it for processes it may not open: by
+    /// process ID from the system's process list, then from a device path (\Device\HarddiskVolume3\…) to a drive letter.
+    /// </summary>
+    private static unsafe string? ImagePathWithoutOpening(uint pid)
+    {
+        const int SystemProcessIdInformation = 0x58;
+        const int Capacity = 1024;
+        char* buffer = stackalloc char[Capacity];
+        var query = new NativeMethods.SYSTEM_PROCESS_ID_INFORMATION
+        {
+            ProcessId = (nint)pid,
+            MaximumLength = Capacity * sizeof(char),
+            Buffer = (nint)buffer,
+        };
+        if (NativeMethods.NtQuerySystemInformation(SystemProcessIdInformation, &query,
+                (uint)sizeof(NativeMethods.SYSTEM_PROCESS_ID_INFORMATION), out _) != 0 || query.Length == 0)
+            return null;
+        var devicePath = new string(buffer, 0, query.Length / sizeof(char));
+        foreach (var (device, drive) in DriveDevices())
+            if (devicePath.StartsWith(device, StringComparison.OrdinalIgnoreCase) && devicePath.Length > device.Length && devicePath[device.Length] == '\\')
+                return drive + devicePath[device.Length..];
+        return null;
+    }
+
+    private static volatile (string Device, string Drive)[]? _driveDevices;
+
+    /// <summary>Each drive letter's device ("C:" is \Device\HarddiskVolume3), read once.</summary>
+    private static unsafe (string Device, string Drive)[] DriveDevices()
+    {
+        if (_driveDevices is { } known)
+            return known;
+        var list = new List<(string, string)>();
+        char* target = stackalloc char[512];
+        foreach (var root in Environment.GetLogicalDrives())
+        {
+            var drive = root.TrimEnd('\\');
+            if (NativeMethods.QueryDosDevice(drive, target, 512) > 0 && new string(target) is { Length: > 0 } device)
+                list.Add((device, drive));
+        }
+        return _driveDevices = list.ToArray();
+    }
+
+    private static string? WindowTitle(nint hwnd)
+    {
+        int length = NativeMethods.GetWindowTextLength(hwnd);
+        if (length <= 0)
+            return null;
+        var text = new StringBuilder(length + 1);
+        return NativeMethods.GetWindowText(hwnd, text, text.Capacity) > 0 ? text.ToString() : null;
     }
 
     /// <summary>The AppUserModelID of a packaged process, or null for an ordinary desktop one.</summary>

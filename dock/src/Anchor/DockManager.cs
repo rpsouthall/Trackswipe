@@ -168,6 +168,8 @@ public sealed class DockManager
     {
         _tray?.Dispose();
         _hotkeys?.Dispose();
+        if (_messageWindow is { Handle: not 0 } window && _shellHookMessage != 0)
+            NativeMethods.DeregisterShellHookWindow(window.Handle);
         _messageWindow?.Dispose();
         _tray = null;
         _hotkeys = null;
@@ -234,6 +236,62 @@ public sealed class DockManager
         Application.Current.Exit();
     }
 
+    // ---- Attention ---------------------------------------------------------------
+
+    private uint _shellHookMessage;
+
+    /// <summary>The window asking for the user (it flashed its taskbar button), until it gets them or goes away.</summary>
+    private nint _attentionWindow;
+
+    /// <summary>
+    /// A window asked for attention — a UAC prompt for an app in the background waits like this, as does a chat
+    /// message or a finished download. Its app's icon bounces and a hidden dock comes out, as a Mac's Dock does.
+    /// </summary>
+    private void RequestAttention(nint window)
+    {
+        if (window == 0 || window == NativeMethods.GetForegroundWindow())
+            return; // already in front: a flash for nobody
+        _attentionWindow = window;
+        Diag.Log($"Attention: window 0x{window:X} flashed");
+        foreach (var dock in _docks)
+            dock.SetAttention(window);
+    }
+
+    /// <summary>Switching to the app that asked is the answer: its icon settles.</summary>
+    private void OnForegroundForAttention(nint front)
+    {
+        if (_attentionWindow == 0)
+            return;
+        if (front == _attentionWindow || SameProcess(front, _attentionWindow))
+            ClearAttention();
+    }
+
+    /// <summary>After each refresh of the open apps: the icon may only now exist, or the window may be gone.</summary>
+    private void RefreshAttention()
+    {
+        if (_attentionWindow == 0)
+            return;
+        if (!NativeMethods.IsWindow(_attentionWindow) || !NativeMethods.IsWindowVisible(_attentionWindow))
+        {
+            ClearAttention();
+            return;
+        }
+        foreach (var dock in _docks)
+            dock.SetAttention(_attentionWindow);
+    }
+
+    private void ClearAttention()
+    {
+        _attentionWindow = 0;
+        foreach (var dock in _docks)
+            dock.SetAttention(0);
+    }
+
+    private static bool SameProcess(nint a, nint b) =>
+        NativeMethods.GetWindowThreadProcessId(a, out uint first) != 0 &&
+        NativeMethods.GetWindowThreadProcessId(b, out uint second) != 0 &&
+        first == second;
+
     private void SetUpTrayAndHotkey()
     {
         try
@@ -252,6 +310,11 @@ public sealed class DockManager
                 {
                     ShowAppMenu(wParam, (short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));
                 }
+                else if (msg == _shellHookMessage && _shellHookMessage != 0)
+                {
+                    if ((int)wParam == NativeMethods.HSHELL_FLASH)
+                        RequestAttention(lParam);
+                }
                 else if (msg == Hosting.CommandMessage && Hosting.ByTrackSwipe)
                 {
                     // TrackSwipe's menu: turning the dock off, its settings, showing it.
@@ -263,6 +326,16 @@ public sealed class DockManager
                     }
                 }
             };
+
+            // Windows asking for attention (what flashes a taskbar button): with the taskbar's buttons hidden behind
+            // the dock, the dock is the only place left to show one.
+            _shellHookMessage = NativeMethods.RegisterWindowMessage("SHELLHOOK");
+            if (_messageWindow.Handle == 0 || !NativeMethods.RegisterShellHookWindow(_messageWindow.Handle))
+            {
+                Diag.Log("Shell hook: couldn't register; apps asking for attention won't show on the dock");
+                _shellHookMessage = 0;
+            }
+            Events.ForegroundChanged += OnForegroundForAttention;
 
             // TrackSwipe's own notification-area icon is the way in to a dock it hosts; a second
             // icon for the same app would be one too many.
@@ -1208,6 +1281,7 @@ public sealed class DockManager
         for (int i = 0; i < _docks.Count; i++)
             _docks[i].SetOpenApps(i == 0 ? section : Array.Empty<DockItem>());
         PublishIconsSoon();
+        RefreshAttention();
     }
 
     /// <summary>

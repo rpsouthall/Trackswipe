@@ -206,7 +206,23 @@ public sealed class DockItem : INotifyPropertyChanged
     /// <summary>The dot under the icon: only for a running, launchable item.</summary>
     [JsonIgnore]
     public Visibility RunningIndicatorVisibility =>
-        _isRunning && !IsSeparator && !IsGroup ? Visibility.Visible : Visibility.Collapsed;
+        _isRunning && !_needsAttention && !IsSeparator && !IsGroup ? Visibility.Visible : Visibility.Collapsed;
+
+    private bool _needsAttention;
+
+    /// <summary>One of the app's windows is asking for the user (it flashed its taskbar button): the dot turns amber.</summary>
+    public void SetNeedsAttention(bool needed)
+    {
+        if (_needsAttention == needed)
+            return;
+        _needsAttention = needed;
+        OnPropertyChanged(nameof(RunningIndicatorVisibility));
+        OnPropertyChanged(nameof(AttentionIndicatorVisibility));
+    }
+
+    /// <summary>The amber dot that stands in for the running one while the app asks for attention.</summary>
+    [JsonIgnore]
+    public Visibility AttentionIndicatorVisibility => _needsAttention ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>
     /// Announced by Narrator alongside the item's name (AutomationProperties.ItemStatus), so the

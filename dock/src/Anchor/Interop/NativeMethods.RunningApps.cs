@@ -57,6 +57,23 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     public static extern nint GetAncestor(nint hwnd, uint flags);
 
+    public const uint GA_ROOTOWNER = 3;
+
+    // ---- Shell hook: windows asking for attention ---------------------------------
+    //
+    // What makes a taskbar button flash orange: a window calling FlashWindowEx (a UAC prompt for an app in the
+    // background, a chat message, a finished download) is announced as HSHELL_FLASH to every window registered here.
+
+    public const int HSHELL_FLASH = 0x8006;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool RegisterShellHookWindow(nint hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DeregisterShellHookWindow(nint hwnd);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern nint FindWindowEx(nint parent, nint childAfter, string? className, string? windowName);
 
@@ -77,6 +94,24 @@ internal static partial class NativeMethods
     public static extern bool GetProcessTimes(nint process, out long creation, out long exit, out long kernel, out long user);
 
     public const uint SHGFI_DISPLAYNAME = 0x200;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(nint hwnd, System.Text.StringBuilder text, int max);
+
+    /// <summary>SystemProcessIdInformation: a process's image name by ID, for any process, without opening it.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SYSTEM_PROCESS_ID_INFORMATION
+    {
+        public nint ProcessId;
+        public ushort Length, MaximumLength; // a UNICODE_STRING the caller provides the buffer for
+        public nint Buffer;
+    }
+
+    [LibraryImport("ntdll.dll")]
+    public static unsafe partial int NtQuerySystemInformation(int infoClass, void* info, uint length, out uint returned);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", StringMarshalling = StringMarshalling.Utf16)]
+    public static unsafe partial uint QueryDosDevice(string device, char* target, uint max);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct PROPERTYKEY
