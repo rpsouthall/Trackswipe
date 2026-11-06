@@ -78,10 +78,6 @@ public static class WindowChrome
             hwnd, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref immersiveDark, sizeof(int));
     }
 
-    /// <summary>Sets DWM's corner treatment outright (a <c>DWMWCP_</c> value).</summary>
-    public static void SetCornerPreference(nint hwnd, int preference) =>
-        NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
-
     /// <summary>Applies the Windows 11 rounded-corner treatment to the window.</summary>
     public static void SetRoundedCorners(nint hwnd, bool small = false)
     {

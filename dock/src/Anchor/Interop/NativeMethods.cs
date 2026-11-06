@@ -20,17 +20,6 @@ internal static partial class NativeMethods
     public const int DWMWCP_ROUND = 2;       // full ~8px Win11 window radius
     public const int DWMWCP_ROUNDSMALL = 3;  // subtle ~4px radius (menus/tooltips)
 
-    // A window's shape (the dock's rounded outline).
-    [DllImport("gdi32.dll")]
-    public static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int widthEllipse, int heightEllipse);
-
-    [DllImport("user32.dll")]
-    public static extern int SetWindowRgn(nint hwnd, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
-
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool DeleteObject(nint obj);
-
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
 

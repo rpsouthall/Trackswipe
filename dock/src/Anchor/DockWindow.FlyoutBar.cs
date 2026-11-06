@@ -211,7 +211,7 @@ public sealed partial class DockWindow
         style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
         style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(StripPadX, StripPadY, StripPadX, StripPadY)));
-        style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(GlassCorner))); // as the dock's own glass
+        style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(10)));
         style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
         style.Setters.Add(new Setter(Control.BackgroundProperty, BarBackground()));
         // The bar is a strip of icons, not a scrollable document: its own ScrollViewer (below)

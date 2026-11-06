@@ -81,7 +81,7 @@ public sealed partial class DockWindow : Window
         // activation because DWM otherwise restores the default (contrasting) rim.
         WindowChrome.MakeBorderlessToolWindow(_appWindow, _hwnd);
         WindowChrome.StripFrame(_hwnd);
-        WindowChrome.SetCornerPreference(_hwnd, NativeMethods.DWMWCP_DONOTROUND); // the outline is the region (ApplyShape)
+        WindowChrome.EnsureRoundedCorners(_hwnd, small: false);
         Activated += OnActivated;
 
         // Seed the starter items only on the very first run — never after the user has
@@ -438,7 +438,6 @@ public sealed partial class DockWindow : Window
     internal static double DividerLength => DockMetrics.DividerLength; // Divider long side
     internal const double CellSpacing = 4;    // StackLayout + Strip Spacing
     internal const double DividerWidth = 1;   // Divider Rectangle thickness (short side)
-    // The same all round, so the glass's corner can run parallel to a cell's (see ApplyShape).
     internal const double StripPadX = 6;      // DockStrip Padding (left/right)
     internal const double StripPadY = 6;      // DockStrip Padding (top/bottom)
     internal const double AddNewWidth = 116;  // "+ Add New" empty-state pill: minimum width
@@ -696,7 +695,6 @@ public sealed partial class DockWindow : Window
         // there, instead of flashing into view for a moment on every relayout (which the open-apps
         // animation does each frame).
         _appWindow.MoveAndResize(PlacementFor(_shownRect));
-        ApplyShape(w, h, scale);
         ApplyTopmost();
         ApplyWindowChrome();
         OnRelayoutApplied();
@@ -704,28 +702,6 @@ public sealed partial class DockWindow : Window
 
     /// <summary>How far a snapped dock stands off its edge, in DIPs.</summary>
     internal const double FloatGap = 6;
-
-    /// <summary>The glass's corner radius in DIPs: a cell's hover corner plus the padding around it, so the two curves run parallel.</summary>
-    internal static double GlassCorner => DockMetrics.CellCorner + StripPadY;
-
-    private (int W, int H, int R) _shape;
-
-    /// <summary>
-    /// The dock's outline: a rounded rectangle whose corner is a hovered cell's corner plus the padding around the
-    /// cell (<see cref="GlassCorner"/>), so the highlight's curve and the glass's run parallel, as on a Mac. DWM's own
-    /// window rounding is a fixed 8 px, too tight for that, so the window is given this shape as its region — which
-    /// clips the glass too. Set only when the size or radius changes.
-    /// </summary>
-    private void ApplyShape(int w, int h, double scale)
-    {
-        int r = (int)Math.Round(GlassCorner * scale);
-        if (_shape == (w, h, r))
-            return;
-        _shape = (w, h, r);
-        nint region = NativeMethods.CreateRoundRectRgn(0, 0, w + 1, h + 1, 2 * r, 2 * r);
-        if (region != 0 && NativeMethods.SetWindowRgn(_hwnd, region, true) == 0)
-            NativeMethods.DeleteObject(region); // the window took it only if the call succeeded
-    }
 
     /// <summary>Total DIPs the visible cells occupy along the strip's flow (gaps excluded).</summary>
     private double ItemsExtent()
@@ -1385,7 +1361,7 @@ public sealed partial class DockWindow : Window
     private void ApplyWindowChrome()
     {
         ApplyWindowBorder();
-        WindowChrome.SetCornerPreference(_hwnd, NativeMethods.DWMWCP_DONOTROUND); // the region draws the corners
+        WindowChrome.EnsureRoundedCorners(_hwnd, small: false);
     }
 
     // The dock is topmost while snapped (so the auto-hide reveal shows over other windows), and
