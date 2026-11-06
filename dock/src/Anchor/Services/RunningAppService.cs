@@ -315,7 +315,8 @@ public static class RunningAppService
         return _driveDevices = list.ToArray();
     }
 
-    private static string? WindowTitle(nint hwnd)
+    /// <summary>A window's title, or null if it has none.</summary>
+    internal static string? WindowTitle(nint hwnd)
     {
         int length = NativeMethods.GetWindowTextLength(hwnd);
         if (length <= 0)

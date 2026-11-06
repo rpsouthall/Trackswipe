@@ -1,3 +1,4 @@
+using Anchor.Interop;
 using Anchor.Models;
 using Anchor.Services;
 using Microsoft.UI.Text;
@@ -33,6 +34,7 @@ public sealed partial class DockWindow
     {
         menu.MenuFlyoutPresenterStyle = MenuStyle;
         var running = _manager.Running.Find(item);
+        AddWindowsSection(menu, running);
         var categories = JumpLists.AppIdFor(item, running) is { } appId
             ? JumpLists.Read(appId)
             : new List<JumpCategory>();
@@ -65,6 +67,41 @@ public sealed partial class DockWindow
             menu.Closed += (_, _) => DispatcherQueue.TryEnqueue(
                 Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => JumpLists.Release(categories));
         }
+    }
+
+    // A menu, not a scrolling list: an app with dozens of windows shows its most recently used.
+    private const int MaxListedWindows = 12;
+
+    /// <summary>
+    /// The app's open windows, as a Mac's Dock lists them: how many there are, then each by title, most recently used
+    /// first — the one in front checked, a minimized one marked — and a click on one switches to it (sliding to its
+    /// desktop, through TrackSwipe, if it's on another). What a dock icon can't say on its own.
+    /// </summary>
+    private void AddWindowsSection(MenuFlyout menu, RunningApp? running)
+    {
+        if (running is not { Windows.Count: > 0 } app)
+            return;
+        var windows = app.Windows;
+        menu.Items.Add(new MenuFlyoutItem
+        {
+            Text = windows.Count == 1 ? Loc.Get("Menu.OneWindow") : Loc.Format("Menu.Windows", windows.Count),
+            IsEnabled = false,
+            FontWeight = FontWeights.SemiBold,
+        });
+        foreach (var hwnd in windows.Take(MaxListedWindows))
+        {
+            var line = TaskbarItem(RunningAppService.WindowTitle(hwnd) ?? app.Name, () =>
+            {
+                TrackSwipeBridge.PrepareJumpTo(hwnd);
+                RunningAppService.Activate(hwnd);
+            });
+            if (hwnd == _manager.Events.Foreground)
+                line.Icon = new FontIcon { Glyph = "\uE73E" }; // the window in front
+            else if (NativeMethods.IsIconic(hwnd))
+                line.Icon = new FontIcon { Glyph = "\uE921" }; // minimized
+            menu.Items.Add(line);
+        }
+        menu.Items.Add(new MenuFlyoutSeparator());
     }
 
     /// <summary>

@@ -38,6 +38,8 @@
   "Menu.CloseWindow": "ウィンドウを閉じる",
   "Menu.CloseAllWindows": "すべてのウィンドウを閉じる",
   "Menu.EndTask": "タスクの終了",
+  "Menu.OneWindow": "1 個のウインドウ",
+  "Menu.Windows": "{0} 個のウインドウ",
   "Jump.Recent": "最近使ったもの",
   "Jump.Frequent": "よく使うもの",
   "Jump.Tasks": "タスク",

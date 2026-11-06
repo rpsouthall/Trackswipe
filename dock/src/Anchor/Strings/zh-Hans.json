@@ -38,6 +38,8 @@
   "Menu.CloseWindow": "关闭窗口",
   "Menu.CloseAllWindows": "关闭所有窗口",
   "Menu.EndTask": "结束任务",
+  "Menu.OneWindow": "1 个窗口",
+  "Menu.Windows": "{0} 个窗口",
   "Jump.Recent": "最近",
   "Jump.Frequent": "常用",
   "Jump.Tasks": "任务",

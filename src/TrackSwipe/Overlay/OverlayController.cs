@@ -239,12 +239,53 @@ internal sealed partial class OverlayController : IDisposable
             _engine.CanGoNegative = false; // a swipe that starts upwards stays Mission Control; down is its own gesture
             var started = Clock.Now;
             var scene = TakeScene(out var prewarmed);
+            // Swiped up over an app's dock icon or taskbar button: App Exposé, that app's windows only (if it has any here).
+            if (AppUnderPointer() is { } app && scene.WindowsOn(scene.Current).Any(item => item.IsAppWindow && app.Contains(item.Window)))
+            {
+                scene = scene.ForApp(app);
+                Log.Write($"App Exposé: {app.Count} windows of the app under the pointer.");
+            }
             var captured = Clock.Now;
             BeginMission(scene);
             Log.Verbose($"Mission Control start: scene {(captured - started) * 1000:0} ms{(prewarmed ? " (captured as fingers landed)" : "")}, " +
                 $"overview {(Clock.Now - captured) * 1000:0} ms ({_mission.LastBuildCost}), {_missionSurfaces.Prepare().Sum(surface => surface.SpriteCount)} thumbnails");
             _mode = Mode.MissionOpening;
         }
+    }
+
+    /// <summary>
+    /// The windows of the app whose dock icon or taskbar button is under the pointer, or null if it isn't over one. The
+    /// dock says where its icons are (window by window: every window of an app shares its icon), and the taskbar's
+    /// buttons are looked up the same way; the window under the pointer must be the dock or the taskbar itself, so a
+    /// dock that's tucked away doesn't count.
+    /// </summary>
+    private static HashSet<IntPtr>? AppUnderPointer()
+    {
+        if (!Interop.NativeMethods.GetCursorPos(out var cursor)) return null;
+        var point = new Point(cursor.X, cursor.Y);
+        var under = Interop.NativeMethods.GetAncestor(Interop.NativeMethods.WindowFromPoint(cursor), 2 /* GA_ROOT */);
+        IReadOnlyDictionary<IntPtr, Rectangle>? icons =
+            Interop.NativeMethods.GetPropW(under, "TrackSwipe.DockRect") != IntPtr.Zero ? DockTargets.Icons // a dock (Anchor) names itself so
+            : IsTaskbar(under) ? Interop.TaskbarButtons.Latest
+            : null;
+        if (icons is null) return null;
+        foreach (var (_, icon) in icons)
+        {
+            if (!icon.Contains(point)) continue;
+            var windows = icons.Where(entry => entry.Value == icon).Select(entry => entry.Key).ToHashSet();
+            return windows.Count > 0 ? windows : null;
+        }
+        return null;
+    }
+
+    private static bool IsTaskbar(IntPtr window) =>
+        DesktopSceneClass(window) is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
+
+    private static string DesktopSceneClass(IntPtr window)
+    {
+        var name = new System.Text.StringBuilder(64);
+        Interop.NativeMethods.GetClassNameW(window, name, name.Capacity);
+        return name.ToString();
     }
 
     /// <summary>Returns false when the caller should perform the action with a keyboard shortcut instead.</summary>

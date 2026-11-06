@@ -189,6 +189,21 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out POINT point);
 
+
+    [DllImport("user32.dll")]
+
+    public static extern IntPtr WindowFromPoint(POINT point);
+
+
+    [DllImport("user32.dll")]
+
+    public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+
+    public static extern IntPtr GetPropW(IntPtr hwnd, string name);
+
     [DllImport("user32.dll")]
     public static extern IntPtr SetCapture(IntPtr hwnd);
 

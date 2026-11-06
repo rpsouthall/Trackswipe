@@ -30,13 +30,26 @@ internal sealed class DesktopScene
     private const int DWM_CLOAKED_SHELL = 2;
     private static readonly RestoreFrameHistory RestoreFrames = new();
 
-    private DesktopScene(IReadOnlyList<SceneItem> items, VirtualDesktopInfo? desktops, int current, string stats)
+    private DesktopScene(IReadOnlyList<SceneItem> items, VirtualDesktopInfo? desktops, int current, string stats, IReadOnlySet<IntPtr>? app = null)
     {
         Items = items;
         Desktops = desktops;
         Current = current;
         Stats = stats;
+        App = app;
     }
+
+    /// <summary>
+    /// For App Exposé: the one app whose windows spread out (the rest fade, and there's no desktop bar), or null for
+    /// the whole of Mission Control.
+    /// </summary>
+    public IReadOnlySet<IntPtr>? App { get; }
+
+    /// <summary>The same scene with only <paramref name="windows"/> (one app's) spreading out: App Exposé.</summary>
+    public DesktopScene ForApp(IReadOnlySet<IntPtr> windows) => new(Items, Desktops, Current, Stats, windows);
+
+    /// <summary>Whether this window spreads out in the overview: every app window, or in App Exposé only the app's.</summary>
+    public bool Spreads(SceneItem item) => item.IsAppWindow && (App is null || App.Contains(item.Window));
 
     public IReadOnlyList<SceneItem> Items { get; }
 
@@ -83,7 +96,7 @@ internal sealed class DesktopScene
         VisibleWindowsOn(desktop).LastOrDefault(item => item.IsAppWindow).Window;
 
     /// <summary>The same windows, seen from another desktop (after switching to it underneath the overlay).</summary>
-    public DesktopScene WithCurrent(int desktop) => new(Items, Desktops, desktop, Stats);
+    public DesktopScene WithCurrent(int desktop) => new(Items, Desktops, desktop, Stats, App);
 
     /// <summary>
     /// A layered window faded to nothing: invisible on screen, but DWM thumbnails ignore a window's layered

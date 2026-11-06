@@ -163,6 +163,7 @@ internal sealed partial class MissionControl : IDisposable
     }
 
     private static bool SameScene(DesktopScene a, DesktopScene b) => a.Current == b.Current && a.Items.SequenceEqual(b.Items) &&
+        (a.App is null ? b.App is null : b.App is not null && a.App.SetEquals(b.App)) && // App Exposé is laid out differently
         (a.Desktops?.Ids ?? Array.Empty<Guid>()).SequenceEqual(b.Desktops?.Ids ?? Array.Empty<Guid>()) &&
         (a.Desktops?.Names ?? Array.Empty<string?>()).SequenceEqual(b.Desktops?.Names ?? Array.Empty<string?>());
 
@@ -205,7 +206,7 @@ internal sealed partial class MissionControl : IDisposable
 
     /// <summary>Whether there's a desktop <paramref name="step"/> places away to pan to.</summary>
     public bool CanPan(int step) =>
-        _state == State.Open && _scene is { } scene && scene.Current + step >= 0 && scene.Current + step < scene.DesktopCount;
+        _state == State.Open && _scene is { App: null } scene && scene.Current + step >= 0 && scene.Current + step < scene.DesktopCount;
 
     /// <summary>A sideways swipe started while open: stop taking clicks until it ends.</summary>
     public void BeginPan()
@@ -869,9 +870,9 @@ internal sealed partial class MissionControl : IDisposable
         var s = surface.Scale;
         var margin = (int)(40 * s);
 
-        // Desktop bar along the top of the primary monitor.
+        // Desktop bar along the top of the primary monitor (not in App Exposé, which is about one app, not desktops).
         var top = work.Top + margin;
-        if (surface.IsPrimary)
+        if (surface.IsPrimary && scene.App is null)
         {
             var count = scene.DesktopCount;
             var bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, _switcher is not null && scene.Desktops is not null);
@@ -901,7 +902,7 @@ internal sealed partial class MissionControl : IDisposable
         // side, so a sideways swipe can pan to them while the bar stays put.
         // The neighbours are off-screen until a pan, so with a deferred build they come in over the first frames.
         BuildSpread(plan, scene, scene.Current, 0, area, isCurrent: true);
-        foreach (var layer in new[] { -1, 1 })
+        foreach (var layer in scene.App is null ? new[] { -1, 1 } : Array.Empty<int>())
         {
             var desktop = scene.Current + layer;
             if (desktop >= 0 && desktop < scene.DesktopCount) Step(() => BuildSpread(plan, scene, desktop, layer * screen.Width, area, isCurrent: false));
@@ -1002,7 +1003,7 @@ internal sealed partial class MissionControl : IDisposable
             var backing = AcquireBacking(surface, item, "spread");
             if (Acquire(surface, item, "spread") is not { } sprite) continue;
             var centre = new Point(sprite.Home.X + sprite.Home.Width / 2, sprite.Home.Y + sprite.Home.Height / 2);
-            var spreads = item.IsAppWindow && (item.IsMinimized || screen.Contains(centre));
+            var spreads = scene.Spreads(item) && (item.IsMinimized || screen.Contains(centre));
             var from = sprite.Home;
             from.Offset(shift, 0);
             var viewport = screen;

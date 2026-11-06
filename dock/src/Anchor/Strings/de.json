@@ -38,6 +38,8 @@
   "Menu.CloseWindow": "Fenster schließen",
   "Menu.CloseAllWindows": "Alle Fenster schließen",
   "Menu.EndTask": "Task beenden",
+  "Menu.OneWindow": "1 Fenster",
+  "Menu.Windows": "{0} Fenster",
   "Jump.Recent": "Zuletzt verwendet",
   "Jump.Frequent": "Häufig verwendet",
   "Jump.Tasks": "Aufgaben",
