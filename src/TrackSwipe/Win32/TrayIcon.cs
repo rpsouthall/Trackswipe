@@ -37,6 +37,8 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
     private readonly uint _jump = RegisterWindowMessageW("TrackSwipe.JumpToWindow");
     /// <summary>Posted by the taskbar helper when its desktop indicator is clicked: open (or close) Mission Control.</summary>
     private readonly uint _overview = RegisterWindowMessageW("TrackSwipe.Overview");
+    /// <summary>Sent by a dock clicked while Mission Control is open: wParam is the window to close onto (zero: just close).</summary>
+    private readonly uint _choose = RegisterWindowMessageW("TrackSwipe.Choose");
     private IntPtr _icon;
     private string _text = "";
     private bool _added;
@@ -47,7 +49,7 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         // A hidden top-level window rather than message-only: menus need a window that can be foreground.
         CreateHandle(new CreateParams { Caption = "TrackSwipe tray", Style = unchecked((int)0x80000000) /* WS_POPUP */ });
         // Running as administrator, Windows drops messages from Explorer and the installer unless allowed.
-        foreach (var message in new[] { (uint)WM_TRAY, _taskbarCreated, _quit, _jump, _overview, 0x004Au /* WM_COPYDATA: the dock's icon map */ })
+        foreach (var message in new[] { (uint)WM_TRAY, _taskbarCreated, _quit, _jump, _overview, _choose, 0x004Au /* WM_COPYDATA: the dock's icon map */ })
             ChangeWindowMessageFilterEx(Handle, message, 1 /* MSGFLT_ALLOW */, IntPtr.Zero);
         _icon = icon;
         _text = text;
@@ -62,6 +64,8 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
     public event Func<IntPtr, bool>? JumpRequested;
     /// <summary>The taskbar's desktop indicator was clicked (GNOME's Activities): Mission Control, open or closed.</summary>
     public event Action? OverviewRequested;
+    /// <summary>A dock was clicked in Mission Control; returns whether it closed onto that window.</summary>
+    public event Func<IntPtr, bool>? ChooseRequested;
     /// <summary>Explorer restarted (the taskbar was recreated); the icon is already back.</summary>
     public event Action? TaskbarRecreated;
 
@@ -127,6 +131,11 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         if (m.Msg == (int)_overview)
         {
             OverviewRequested?.Invoke();
+            return;
+        }
+        if (m.Msg == (int)_choose)
+        {
+            m.Result = ChooseRequested?.Invoke(m.WParam) == true ? 1 : 0;
             return;
         }
         if (m.Msg == (int)_taskbarCreated) // Explorer restarted: the icon is gone

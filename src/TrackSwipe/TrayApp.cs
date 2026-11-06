@@ -196,6 +196,8 @@ internal sealed partial class TrayApp : IDisposable
         _tray.TaskbarRecreated += () => ScheduleTaskbarOptions(1500); // a new Explorer: the DLL went with the old one
         // The taskbar's desktop indicator, clicked: Mission Control, as GNOME's opens Activities.
         _tray.OverviewRequested += () => _compositionThread.Post(ToggleMissionControl);
+        // A dock icon clicked in Mission Control: close onto that app's window, as its thumbnail would.
+        _tray.ChooseRequested += window => _enabled && _compositionThread.Invoke(() => _overlay.ChooseInMissionControl(window));
         var hideTopTaskbar = _hideTopTaskbarItem.Checked;
         _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = hideTopTaskbar);
         ScheduleTaskbarOptions(0);

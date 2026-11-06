@@ -17,6 +17,21 @@ public static class TrackSwipeBridge
 {
     /// <summary>Sent to TrackSwipe, wParam the window about to be brought forward: "a jump to its desktop is coming".</summary>
     private static readonly uint JumpMessage = NativeMethods.RegisterWindowMessage("TrackSwipe.JumpToWindow");
+    private static readonly uint ChooseMessage = NativeMethods.RegisterWindowMessage("TrackSwipe.Choose");
+
+    /// <summary>TrackSwipe's Mission Control is open (from its broadcast), so a click on the dock goes to it first.</summary>
+    public static bool MissionControlOpen { get; set; }
+
+    /// <summary>
+    /// Asks TrackSwipe's open Mission Control to close onto <paramref name="window"/>, as clicking its thumbnail does.
+    /// True if it did; false if that window isn't in view (or Mission Control isn't open). Zero just closes it.
+    /// </summary>
+    public static bool ChooseInMissionControl(nint window)
+    {
+        if (TrackSwipeWindow is var trackSwipe && trackSwipe == nint.Zero)
+            return false;
+        return SendMessageTimeout(trackSwipe, ChooseMessage, window, nint.Zero, 0x0002 /* SMTO_ABORTIFHUNG */, 250, out var result) != 0 && result != 0;
+    }
 
     /// <summary>Broadcast by TrackSwipe as Mission Control opens (wParam 1) and once it has closed (0).</summary>
     public static readonly uint MissionControlMessage = NativeMethods.RegisterWindowMessage("TrackSwipe.MissionControl");

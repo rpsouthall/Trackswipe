@@ -366,6 +366,19 @@ internal sealed partial class OverlayController : IDisposable
     /// <summary>Mission Control is fully open (not opening, closing or busy with its desktop bar).</summary>
     public bool MissionControlOpen => _mission.IsOpen;
 
+    /// <summary>
+    /// A dock icon was clicked while Mission Control is open: it closes onto <paramref name="window"/> (comes to the front
+    /// and is focused), as clicking the window's thumbnail does, if the window is in view; otherwise it just closes,
+    /// returning false so the dock carries on with the click (launching, or switching to a window elsewhere).
+    /// </summary>
+    public bool ChooseInMissionControl(IntPtr window)
+    {
+        if (!_mission.IsOpen) return false;
+        if (window != IntPtr.Zero && _mission.Choose(window)) return true;
+        if (window == IntPtr.Zero) _mission.Dismiss();
+        return false;
+    }
+
     /// <summary>Animates Mission Control closed, as clicking empty space does.</summary>
     public void DismissMissionControl()
     {

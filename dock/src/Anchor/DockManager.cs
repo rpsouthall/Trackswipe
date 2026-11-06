@@ -304,6 +304,7 @@ public sealed class DockManager
             {
                 if (msg == TrackSwipeBridge.MissionControlMessage)
                 {
+                    TrackSwipeBridge.MissionControlOpen = wParam != 0;
                     foreach (var dock in _docks)
                         dock.HoldInView(wParam != 0);
                 }
@@ -727,6 +728,16 @@ public sealed class DockManager
     /// <returns>True when it launched; false when it brought an open window forward instead.</returns>
     public bool LaunchOrFocus(DockItem item, bool forceNewInstance)
     {
+        // Clicked in TrackSwipe's Mission Control: it closes onto the app's window, as clicking that window's thumbnail
+        // does; or, with none of the app's windows in view (or none open), it closes and the click carries on as usual.
+        if (TrackSwipeBridge.MissionControlOpen && !forceNewInstance)
+        {
+            if (Running.Find(item) is { } app)
+                foreach (var window in app.Windows.Take(8))
+                    if (TrackSwipeBridge.ChooseInMissionControl(window))
+                        return false;
+            TrackSwipeBridge.ChooseInMissionControl(nint.Zero);
+        }
         // A pinned app focuses its window only with the indicators on (the switch promises
         // "click focuses instead of relaunching"); an open app's own icon always does — that is
         // all it is there for.
