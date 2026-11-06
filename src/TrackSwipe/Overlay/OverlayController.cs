@@ -271,7 +271,9 @@ internal sealed partial class OverlayController : IDisposable
         if (icons is null) return null;
         foreach (var (_, icon) in icons)
         {
-            if (!icon.Contains(point)) continue;
+            // Anywhere in the icon's cell, not just on the icon itself (the map holds the icon; its cell is about a third
+            // wider on each side), as the dock and taskbar take a click there too.
+            if (!Rectangle.Inflate(icon, icon.Width / 3, icon.Height / 3).Contains(point)) continue;
             var windows = icons.Where(entry => entry.Value == icon).Select(entry => entry.Key).ToHashSet();
             return windows.Count > 0 ? windows : null;
         }
