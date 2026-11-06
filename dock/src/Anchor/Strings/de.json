@@ -133,6 +133,8 @@
 
   "Settings.AccentTint": "Akzentfarbe",
   "Settings.AccentTintDesc": "Das Glas mit Ihrer Windows-Akzentfarbe einfärben.",
+  "Settings.GlassTransparency": "Transparenz",
+  "Settings.GlassTransparencyDesc": "Wie viel vom Desktop durch das Glas scheint.",
 
   "Settings.Magnify": "Beim Überfahren vergrößern",
   "Settings.MagnifyDesc": "Symbole wachsen unter dem Mauszeiger, wie im macOS-Dock.",

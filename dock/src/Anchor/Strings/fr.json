@@ -133,6 +133,8 @@
 
   "Settings.AccentTint": "Teinte d'accentuation",
   "Settings.AccentTintDesc": "Teinter le verre avec votre couleur d'accentuation Windows.",
+  "Settings.GlassTransparency": "Transparence",
+  "Settings.GlassTransparencyDesc": "Quelle part du bureau transparaît à travers le verre.",
 
   "Settings.Magnify": "Agrandir au survol",
   "Settings.MagnifyDesc": "Les icônes grossissent sous le curseur, à la manière du dock macOS.",

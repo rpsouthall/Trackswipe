@@ -106,6 +106,10 @@ public sealed class DockConfig
     /// taskbar uses.</summary>
     public bool AccentTint { get; set; }
 
+    /// <summary>How see-through the glass is, in percent: 0 is the taskbar's own recipe (the default), 100 nearly
+    /// clear — only the blur left. Thins the tint and the frost together.</summary>
+    public int GlassTransparency { get; set; }
+
     /// <summary>
     /// Swell an icon as the cursor passes over it, macOS-dock style. The swell happens
     /// <em>inside</em> the cell — the dock window never resizes — because the acrylic backdrop
@@ -304,6 +308,7 @@ public sealed class DockConfig
         HotkeyEnabled = other.HotkeyEnabled;
         Density = other.Density;
         AccentTint = other.AccentTint;
+        GlassTransparency = other.GlassTransparency;
         Magnify = other.Magnify;
         GroupOpenOnHover = other.GroupOpenOnHover;
         SettingsPosition = other.SettingsPosition;

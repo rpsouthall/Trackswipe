@@ -320,6 +320,9 @@ internal sealed partial class OverlayController : IDisposable
         _mission.Tick(now);
     }
 
+    /// <summary>Mission Control is fully open (not opening, closing or busy with its desktop bar).</summary>
+    public bool MissionControlOpen => _mission.IsOpen;
+
     /// <summary>Animates Mission Control closed, as clicking empty space does.</summary>
     public void DismissMissionControl()
     {

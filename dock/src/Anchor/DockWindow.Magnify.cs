@@ -171,6 +171,7 @@ public sealed partial class DockWindow
     public void ApplyGlass()
     {
         _backdrop?.SyncWithSystemColors();
+        _backdrop?.SetTransparency(_manager.Config.GlassTransparency / 100.0);
         _backdrop?.Personalize(_manager.Config.AccentTint);
         // The window rim is mixed from the same tint, so it has to be re-mixed with it or it goes
         // on advertising the glass the dock used to have.

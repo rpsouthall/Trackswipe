@@ -133,6 +133,8 @@
 
   "Settings.AccentTint": "アクセント色",
   "Settings.AccentTintDesc": "ガラスを Windows のアクセント色で色付けします。",
+  "Settings.GlassTransparency": "透明度",
+  "Settings.GlassTransparencyDesc": "ガラス越しにデスクトップがどれだけ透けて見えるか。",
 
   "Settings.Magnify": "ホバーで拡大",
   "Settings.MagnifyDesc": "macOS のドックのように、カーソルの下でアイコンが大きくなります。",

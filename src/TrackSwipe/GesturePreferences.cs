@@ -2,6 +2,17 @@ using Microsoft.Win32;
 
 namespace TrackSwipe;
 
+/// <summary>What the taskbar shows where its app buttons were, while the dock is on. Values mirror Protocol.h.</summary>
+internal enum TopLeft
+{
+    /// <summary>Windows' own app buttons.</summary>
+    AppIcons = 0,
+    /// <summary>The name of the app in front, as a Mac's menu bar shows it (the default).</summary>
+    AppName = 1,
+    /// <summary>A dot for each virtual desktop and a pill for the current one, as GNOME's top bar shows them.</summary>
+    Desktops = 2,
+}
+
 /// <summary>Remembers the tray menu's finger choice for the current Windows user.</summary>
 internal static class GesturePreferences
 {
@@ -73,6 +84,38 @@ internal static class GesturePreferences
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             Log.Write($"Could not save the tap for Start: {ex.Message}");
+        }
+    }
+
+    /// <summary>What the taskbar shows where its app buttons were while the dock is on (see <see cref="TopLeft"/>).</summary>
+    public const string TaskbarTopLeft = "TaskbarTopLeft";
+
+    /// <summary>How see-through the taskbar is, in percent: 0 (Windows' own, the default) to 100 (clear).</summary>
+    public const string TaskbarTransparency = "TaskbarTransparency";
+
+    public static int LoadNumber(string name, int fallback, int min, int max)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(KeyPath);
+            return key?.GetValue(name) is int value && value >= min && value <= max ? value : fallback;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return fallback;
+        }
+    }
+
+    public static void SaveNumber(string name, int value)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(KeyPath);
+            key.SetValue(name, value, RegistryValueKind.DWord);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            Log.Write($"Could not save {name}: {ex.Message}");
         }
     }
 

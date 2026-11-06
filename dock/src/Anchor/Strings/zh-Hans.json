@@ -133,6 +133,8 @@
 
   "Settings.AccentTint": "主题色着色",
   "Settings.AccentTintDesc": "用你的 Windows 主题色为玻璃着色。",
+  "Settings.GlassTransparency": "透明度",
+  "Settings.GlassTransparencyDesc": "透过玻璃能看到多少桌面。",
 
   "Settings.Magnify": "悬停时放大",
   "Settings.MagnifyDesc": "光标经过时图标放大，与 macOS 程序坞类似。",

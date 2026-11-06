@@ -814,6 +814,28 @@ public sealed class DockManager
             dock.ApplyGlass();
     }
 
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _saveSoon;
+
+    /// <summary>
+    /// How see-through every dock's glass is, in percent. Shown at once (a slider calls this as it moves); saved a
+    /// moment after the last change rather than on every step of a drag.
+    /// </summary>
+    public void SetGlassTransparency(int percent)
+    {
+        Config.GlassTransparency = Math.Clamp(percent, 0, 100);
+        foreach (var dock in _docks)
+            dock.ApplyGlass();
+        if (_saveSoon is null)
+        {
+            _saveSoon = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+            _saveSoon.Interval = TimeSpan.FromMilliseconds(500);
+            _saveSoon.IsRepeating = false;
+            _saveSoon.Tick += (_, _) => Save();
+        }
+        _saveSoon.Stop();
+        _saveSoon.Start();
+    }
+
     /// <summary>Turns the cursor-follows magnification on or off across every dock.</summary>
     public void SetMagnify(bool on)
     {

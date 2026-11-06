@@ -82,7 +82,7 @@
                 VerticalAlignment="Center"
                 Background="Transparent"
                 CornerRadius="8"
-                Padding="8,6">
+                Padding="6">
 
             <StackPanel x:Name="Strip"
                         Orientation="Horizontal"

@@ -1,4 +1,4 @@
-﻿// TrackSwipeTap.dll: loaded into explorer.exe through XAML Diagnostics (InitializeXamlDiagnosticsEx) when one of
+// TrackSwipeTap.dll: loaded into explorer.exe through XAML Diagnostics (InitializeXamlDiagnosticsEx) when one of
 // TrackSwipe's taskbar options is on. It watches the taskbar's XAML tree and can
 //   - collapse the Start button (automation ID "StartButton") and keep it collapsed;
 //   - collapse the taskbar's edge line (BackgroundStroke), the hairline where it meets the desktop;
@@ -26,6 +26,7 @@
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.UI.Xaml.Media.Animation.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.UI.ViewManagement.h>
 #include <shellapi.h> // SHGetPropertyStoreForWindow (left out by WIN32_LEAN_AND_MEAN)
@@ -99,6 +100,8 @@ namespace
     constexpr UINT TextScaleChanged = WM_APP + 41;
     /// Posted to the control window when Windows' colours (light or dark mode among them) change.
     constexpr UINT ColorsChanged = WM_APP + 42;
+    /// Posted to the control window when Explorer's list of virtual desktops, or which one is current, changes.
+    constexpr UINT DesktopsChanged = WM_APP + 43;
 
     /// The taskbar is light (Settings, Personalisation, Colours: "Choose your mode").
     bool LightTaskbar()
@@ -480,6 +483,8 @@ namespace
             m_padding = hidden ? padding : 0;
             for (auto& item : m_buttons) Apply(item, m_startHidden);
             for (auto& frame : m_frames) Pad(frame);
+            UpdateLabels();
+            UpdateDesktopBars(false);
         }
 
         void SetEdgeHidden(bool hidden)
@@ -532,10 +537,6 @@ namespace
         {
             if (on == m_appName) return;
             m_appName = on;
-            for (auto& frame : m_frames)
-                if (auto f = frame.get()) FindAppButtons(TopOf(f));
-            std::erase_if(m_appButtons, [](auto& item) { return !item.element.get(); });
-            for (auto& item : m_appButtons) Apply(item, m_appName);
             if (on)
             {
                 s_self = this;
@@ -588,20 +589,249 @@ namespace
                 if (!label) continue;
                 label.Text(m_frontName);
                 label.FontSize(m_textSize >= 1 ? m_textSize : 14);
-                label.Foreground(Media::SolidColorBrush(frame.ActualTheme() == ElementTheme::Dark
-                    ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xFF, 0xFF, 0xFF) : Windows::UI::ColorHelper::FromArgb(0xE4, 0, 0, 0)));
-                // Where the app buttons began: after the Start button's space (or the padding left while it's hidden).
-                double left = 12;
-                if (auto repeater = FindByName(frame, L"TaskbarFrameRepeater"))
+                label.Foreground(Media::SolidColorBrush(TextColour(frame)));
+                label.Margin({ ButtonsLeft(frame, root), 0, 0, 0 });
+            }
+        }
+
+        /// The taskbar's text colour: white on a dark taskbar, near-black on a light one.
+        static Windows::UI::Color TextColour(FrameworkElement const& frame)
+        {
+            return frame.ActualTheme() == ElementTheme::Dark
+                ? Windows::UI::ColorHelper::FromArgb(0xFF, 0xFF, 0xFF, 0xFF) : Windows::UI::ColorHelper::FromArgb(0xE4, 0, 0, 0);
+        }
+
+        /// Where the app buttons begin on a taskbar: after the Start button's space (or the padding left while it's hidden).
+        double ButtonsLeft(FrameworkElement const& frame, Controls::Grid const& root)
+        {
+            double left = 12;
+            if (auto repeater = FindByName(frame, L"TaskbarFrameRepeater"))
+            {
+                try { left = repeater.TransformToVisual(root).TransformPoint({ 0, 0 }).X + repeater.Margin().Left; }
+                catch (...) {}
+                for (auto& item : m_buttons)
+                    if (auto start = item.element.get(); start && start.Visibility() == Visibility::Visible && TopOf(start) == TopOf(frame))
+                        left += start.ActualWidth();
+                left += m_padding > 0 ? 0 : 8;
+            }
+            return left;
+        }
+
+        // ---- What stands in for the app buttons, with the dock on -------------------------------------------
+
+        /// 0: the buttons themselves; 1: the app in front by name; 2: the virtual desktops. The dock being on also
+        /// sends minimizing windows into its icons, whichever is shown here.
+        void SetTopLeft(int mode, bool dockOn)
+        {
+            m_dockOn = dockOn;
+            bool hide = dockOn && mode != 0;
+            if (hide != m_buttonsHidden)
+            {
+                m_buttonsHidden = hide;
+                for (auto& frame : m_frames)
+                    if (auto f = frame.get()) FindAppButtons(TopOf(f));
+                std::erase_if(m_appButtons, [](auto& item) { return !item.element.get(); });
+                for (auto& item : m_appButtons) Apply(item, m_buttonsHidden);
+            }
+            SetAppName(dockOn && mode == 1);
+            SetDesktops(dockOn && mode == 2);
+        }
+
+        // ---- Transparency -------------------------------------------------------------------------------
+        // The taskbar's glass is one rectangle (BackgroundFill, beside the edge line): drawn less opaque, the desktop
+        // shows through it. A property set once, so it costs nothing after.
+
+        void SetTransparency(int percent)
+        {
+            m_transparency = std::clamp(percent, 0, 100);
+            for (auto& frame : m_frames) ApplyTransparency(frame);
+        }
+
+        void ApplyTransparency(weak_ref<FrameworkElement> const& weak)
+        {
+            auto frame = weak.get();
+            if (!frame) return;
+            auto background = FindByName(frame, L"BackgroundControl");
+            auto fill = background ? FindByName(background, L"BackgroundFill") : nullptr;
+            if (!fill) return;
+            if (m_transparency == 0) fill.ClearValue(UIElement::OpacityProperty());
+            else fill.Opacity(1.0 - m_transparency / 100.0);
+        }
+
+        // ---- Desktops -----------------------------------------------------------------------------------
+        // GNOME's top bar: a dot for each virtual desktop, the current one drawn as a longer pill that slides along as
+        // the desktop changes; a click opens the overview (TrackSwipe's Mission Control). Explorer keeps the desktop
+        // list and the current one in the registry, which signals a change, so nothing here runs between switches.
+
+        static constexpr double DotSize = 7, PillWidth = 22, DotGap = 6, DimmedDot = 0.45;
+        static constexpr int SlideMs = 250;
+
+        void SetDesktops(bool on)
+        {
+            if (on == m_desktops) return;
+            m_desktops = on;
+            if (on)
+            {
+                if (!m_desktopKey)
+                    RegOpenKeyExW(HKEY_CURRENT_USER, LR"(Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops)", 0, KEY_READ | KEY_NOTIFY, &m_desktopKey);
+                if (!m_desktopEvent) m_desktopEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                ReadDesktops();
+                WatchDesktops();
+                UpdateDesktopBars(false);
+            }
+            else
+            {
+                if (m_desktopWait) { UnregisterWaitEx(m_desktopWait, nullptr); m_desktopWait = nullptr; }
+                RemoveDesktopBars();
+            }
+        }
+
+        /// Asks the registry to signal the next change to the desktops' key (a notification is good for one change).
+        void WatchDesktops()
+        {
+            if (!m_desktops || !m_desktopKey || !m_desktopEvent || !m_control) return;
+            RegNotifyChangeKeyValue(m_desktopKey, FALSE, REG_NOTIFY_CHANGE_LAST_SET, m_desktopEvent, TRUE);
+            if (!m_desktopWait)
+                RegisterWaitForSingleObject(&m_desktopWait, m_desktopEvent,
+                    [](PVOID control, BOOLEAN) { PostMessageW(static_cast<HWND>(control), DesktopsChanged, 0, 0); },
+                    m_control, INFINITE, WT_EXECUTEDEFAULT);
+        }
+
+        /// On the taskbar's thread, after the registry said the desktops changed.
+        void DesktopsMoved()
+        {
+            if (!m_desktops) return;
+            ReadDesktops();
+            WatchDesktops();
+            UpdateDesktopBars(true);
+        }
+
+        void ReadDesktops()
+        {
+            int count = 0, index = -1;
+            DWORD size = 0;
+            if (m_desktopKey && RegQueryValueExW(m_desktopKey, L"VirtualDesktopIDs", nullptr, nullptr, nullptr, &size) == ERROR_SUCCESS && size % sizeof(GUID) == 0 && size > 0)
+            {
+                std::vector<GUID> ids(size / sizeof(GUID));
+                if (RegQueryValueExW(m_desktopKey, L"VirtualDesktopIDs", nullptr, nullptr, reinterpret_cast<BYTE*>(ids.data()), &size) == ERROR_SUCCESS)
                 {
-                    try { left = repeater.TransformToVisual(root).TransformPoint({ 0, 0 }).X + repeater.Margin().Left; }
-                    catch (...) {}
-                    for (auto& item : m_buttons)
-                        if (auto start = item.element.get(); start && start.Visibility() == Visibility::Visible && TopOf(start) == TopOf(frame))
-                            left += start.ActualWidth();
-                    left += m_padding > 0 ? 0 : 8;
+                    count = static_cast<int>(ids.size());
+                    GUID current{};
+                    DWORD currentSize = sizeof(current);
+                    if (RegQueryValueExW(m_desktopKey, L"CurrentVirtualDesktop", nullptr, nullptr, reinterpret_cast<BYTE*>(&current), &currentSize) == ERROR_SUCCESS && currentSize == sizeof(current))
+                        for (int i = 0; i < count; ++i) if (ids[i] == current) index = i;
                 }
-                label.Margin({ left, 0, 0, 0 });
+            }
+            if (count == 0) { count = 1; index = 0; } // one desktop: Windows lists none until there's a second
+            m_desktopCount = count;
+            m_desktopIndex = index;
+        }
+
+        /// Puts the dots on every taskbar (adding them to one that hasn't got them), the current desktop's as the pill.
+        void UpdateDesktopBars(bool animate)
+        {
+            if (!m_desktops) return;
+            std::erase_if(m_desktopBars, [](auto& bar) { return !bar.first.get(); });
+            for (auto& weak : m_frames)
+            {
+                auto frame = weak.get();
+                if (!frame) continue;
+                auto root = FindByName(frame, L"RootGrid").try_as<Controls::Grid>();
+                if (!root) continue;
+                Controls::Border host{ nullptr };
+                for (auto& [owner, existing] : m_desktopBars) if (owner.get() == root) host = existing;
+                if (!host) host = AddDesktopBar(root);
+                if (!host) continue;
+                auto dots = host.Child().as<Controls::StackPanel>();
+                auto children = dots.Children();
+                while (static_cast<int>(children.Size()) > m_desktopCount) children.RemoveAtEnd();
+                while (static_cast<int>(children.Size()) < m_desktopCount)
+                {
+                    Controls::Border dot;
+                    dot.Height(DotSize);
+                    dot.Width(DotSize);
+                    dot.CornerRadius({ DotSize / 2, DotSize / 2, DotSize / 2, DotSize / 2 });
+                    dot.Opacity(DimmedDot);
+                    children.Append(dot);
+                }
+                Media::SolidColorBrush brush(TextColour(frame));
+                Media::Animation::Storyboard slide;
+                for (int i = 0; i < m_desktopCount; ++i)
+                {
+                    auto dot = children.GetAt(i).as<Controls::Border>();
+                    dot.Background(brush);
+                    bool current = i == m_desktopIndex;
+                    double width = current ? PillWidth : DotSize, opacity = current ? 1.0 : DimmedDot;
+                    if (!animate || dot.Width() == width) { dot.Width(width); dot.Opacity(opacity); continue; }
+                    // The pill shrinks back to a dot as the next dot grows into it, both eased: GNOME's slide.
+                    Media::Animation::CubicEase ease;
+                    ease.EasingMode(Media::Animation::EasingMode::EaseOut);
+                    Media::Animation::DoubleAnimation grow;
+                    grow.To(width);
+                    grow.Duration(Duration{ std::chrono::milliseconds(SlideMs), DurationType::TimeSpan });
+                    grow.EasingFunction(ease);
+                    grow.EnableDependentAnimation(true); // a width: laid out each frame, for the quarter second it runs
+                    Media::Animation::Storyboard::SetTarget(grow, dot);
+                    Media::Animation::Storyboard::SetTargetProperty(grow, L"Width");
+                    slide.Children().Append(grow);
+                    Media::Animation::DoubleAnimation fade;
+                    fade.To(opacity);
+                    fade.Duration(Duration{ std::chrono::milliseconds(SlideMs), DurationType::TimeSpan });
+                    Media::Animation::Storyboard::SetTarget(fade, dot);
+                    Media::Animation::Storyboard::SetTargetProperty(fade, L"Opacity");
+                    slide.Children().Append(fade);
+                }
+                if (slide.Children().Size() > 0) slide.Begin();
+                host.Margin({ ButtonsLeft(frame, root) - 8, 0, 0, 0 }); // the dots' padding sits where the buttons' did
+                Automation::AutomationProperties::SetName(host,
+                    std::format(L"Desktop {} of {}. Opens Mission Control", m_desktopIndex + 1, m_desktopCount));
+                m_desktopHover = frame.ActualTheme() == ElementTheme::Dark
+                    ? Windows::UI::ColorHelper::FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Windows::UI::ColorHelper::FromArgb(0x10, 0, 0, 0);
+            }
+        }
+
+        Controls::Border AddDesktopBar(Controls::Grid const& root)
+        {
+            Controls::StackPanel dots;
+            dots.Orientation(Controls::Orientation::Horizontal);
+            dots.Spacing(DotGap);
+            dots.VerticalAlignment(VerticalAlignment::Center);
+            Controls::Border host;
+            host.Child(dots);
+            host.Padding({ 8, 6, 8, 6 });
+            host.CornerRadius({ 8, 8, 8, 8 });
+            host.Background(Media::SolidColorBrush(Windows::UI::Colors::Transparent())); // hit-testable all over
+            host.VerticalAlignment(VerticalAlignment::Center);
+            host.HorizontalAlignment(HorizontalAlignment::Left);
+            host.PointerEntered([this, weak = make_weak(host)](auto&&, auto&&) { if (auto h = weak.get()) h.Background(Media::SolidColorBrush(m_desktopHover)); });
+            host.PointerExited([weak = make_weak(host)](auto&&, auto&&) { if (auto h = weak.get()) h.Background(Media::SolidColorBrush(Windows::UI::Colors::Transparent())); });
+            host.Tapped([](auto&&, Input::TappedRoutedEventArgs const& e) { e.Handled(true); OpenOverview(); });
+            root.Children().Append(host);
+            m_desktopBars.emplace_back(make_weak(root), host);
+            return host;
+        }
+
+        void RemoveDesktopBars()
+        {
+            for (auto& [owner, host] : m_desktopBars)
+                if (auto root = owner.get())
+                {
+                    uint32_t index;
+                    if (root.Children().IndexOf(host, index)) root.Children().RemoveAt(index);
+                }
+            m_desktopBars.clear();
+        }
+
+        /// GNOME's Activities: TrackSwipe opens Mission Control (or closes it, if it's open).
+        static void OpenOverview()
+        {
+            if (auto trackSwipe = FindWindowW(L"TrackSwipe.Window", L"TrackSwipe tray"))
+            {
+                DWORD pid = 0;
+                GetWindowThreadProcessId(trackSwipe, &pid);
+                AllowSetForegroundWindow(pid);
+                static const UINT overview = RegisterWindowMessageW(L"TrackSwipe.Overview");
+                PostMessageW(trackSwipe, overview, 0, 0);
             }
         }
 
@@ -640,7 +870,7 @@ namespace
     private:
         bool Hidden(Part part) const
         {
-            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : part == Part::AppButton ? m_appName : m_startHidden;
+            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : part == Part::AppButton ? m_buttonsHidden : m_startHidden;
         }
 
         /// Collapses or restores one tracked element, watching it the first time so Explorer can't bring it back.
@@ -705,12 +935,13 @@ namespace
             // Its parts may not exist yet: look once it has loaded too.
             frame.Loaded([this, weak = make_weak(frame)](auto&&, auto&&)
             {
-                try { FindEdge(weak); for (auto& item : m_edges) Apply(item, m_edgeHidden); Pad(weak); }
+                try { FindEdge(weak); for (auto& item : m_edges) Apply(item, m_edgeHidden); Pad(weak); ApplyTransparency(weak); UpdateDesktopBars(false); }
                 catch (...) {}
             });
             FindEdge(m_frames.back());
             for (auto& item : m_edges) Apply(item, m_edgeHidden);
             Pad(m_frames.back());
+            ApplyTransparency(m_frames.back());
         }
 
         /// With the Start button hidden, leaves space before the first app button (a left margin on the button strip);
@@ -1357,7 +1588,7 @@ namespace
         void AddAppButton(FrameworkElement const& element)
         {
             Track(m_appButtons, element, Part::AppButton);
-            for (auto& item : m_appButtons) if (item.element.get() == element) Apply(item, m_appName);
+            for (auto& item : m_appButtons) if (item.element.get() == element) Apply(item, m_buttonsHidden);
         }
 
         void FindAppButtons(DependencyObject const& node, int depth = 0)
@@ -1560,15 +1791,15 @@ namespace
                 auto saidShort = reinterpret_cast<SHORT const*>(&said);
                 auto found = tap->m_dockIcons.find(info->hwnd);
                 if (found == tap->m_dockIcons.end()) found = tap->m_dockIcons.find(GetAncestor(info->hwnd, GA_ROOTOWNER));
-                bool answer = tap->m_appName && found != tap->m_dockIcons.end();
+                bool answer = tap->m_dockOn && found != tap->m_dockIcons.end();
                 if (tap->m_minRectNotes < 12)
                 {
                     ++tap->m_minRectNotes;
                     wchar_t cls[64] = {};
                     GetClassNameW(window, cls, ARRAYSIZE(cls));
-                    Note(std::format(L"GETMINRECT for 0x{:X} at {}: taskbar said {},{},{},{} as 16-bit (returned {}); app name {}, {} dock icons, {}",
+                    Note(std::format(L"GETMINRECT for 0x{:X} at {}: taskbar said {},{},{},{} as 16-bit (returned {}); dock {}, {} dock icons, {}",
                         reinterpret_cast<uintptr_t>(info->hwnd), cls, saidShort[0], saidShort[1], saidShort[2], saidShort[3], static_cast<long long>(result),
-                        tap->m_appName ? L"on" : L"off", tap->m_dockIcons.size(),
+                        tap->m_dockOn ? L"on" : L"off", tap->m_dockIcons.size(),
                         answer ? std::format(L"answering {},{},{},{}", found->second.left, found->second.top, found->second.right, found->second.bottom) : std::wstring(L"not answering")));
                 }
                 if (!answer) return result;
@@ -1700,7 +1931,7 @@ namespace
             }
             catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName, static_cast<UINT>(WM_COPYDATA) })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName, TrackSwipeTap::Transparency, static_cast<UINT>(WM_COPYDATA) })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -1720,7 +1951,9 @@ namespace
                     case TrackSwipeTap::TrayText: tap->SetTrayText(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::AppIcons: tap->SetAppIcons(wParam / 100.0, lParam / 100.0); return 1;
                     case TrackSwipeTap::Retire: tap->m_retired = true; return 1;
-                    case TrackSwipeTap::AppName: tap->SetAppName(wParam != 0); return 1;
+                    case TrackSwipeTap::AppName: tap->SetTopLeft(static_cast<int>(wParam), lParam != 0); return 1;
+                    case TrackSwipeTap::Transparency: tap->SetTransparency(static_cast<int>(wParam)); return 1;
+                    case DesktopsChanged: tap->DesktopsMoved(); return 1;
                     case WM_COPYDATA: tap->ReceiveDockIcons(reinterpret_cast<COPYDATASTRUCT const*>(lParam)); return 1;
                     case WM_TIMER: if (wParam == RecheckTimer) { tap->Recheck(); return 0; } break;
                     case ColorsChanged:
@@ -1732,6 +1965,8 @@ namespace
                             for (auto& item : tap->m_appIcons) tap->ApplyAppIcon(item);
                         }
                         tap->UpdateLabels(); // the app name's colour follows the taskbar's
+                        tap->UpdateDesktopBars(false); // and so do the desktop dots
+                        for (auto& frame : tap->m_frames) tap->ApplyTransparency(frame);
                         return 1;
                     case TextScaleChanged: for (auto& item : tap->m_texts) tap->ApplyText(item); return 1;
                     case IconReady:
@@ -1784,6 +2019,15 @@ namespace
         double m_textSize = 0;   // tray text size, 0 for Explorer's own
         double m_textOffset = 0; // tray text moved down by
         bool m_appName = false;                // the app name stands in for the app buttons
+        bool m_buttonsHidden = false;          // something stands in for the app buttons (the name, or the desktops)
+        bool m_dockOn = false;                 // TrackSwipe's dock is on: windows minimize into it
+        int m_transparency = 0;                // the taskbar's background, in percent see-through
+        bool m_desktops = false;               // the desktops stand in for the app buttons
+        HKEY m_desktopKey = nullptr;           // Explorer's list of them, watched for changes
+        HANDLE m_desktopEvent = nullptr, m_desktopWait = nullptr;
+        int m_desktopCount = 1, m_desktopIndex = 0;
+        Windows::UI::Color m_desktopHover{};   // the dots' background under the pointer
+        std::vector<std::pair<weak_ref<Controls::Grid>, Controls::Border>> m_desktopBars; // per taskbar
         std::vector<Collapsible> m_appButtons; // collapsed meanwhile
         std::vector<std::pair<weak_ref<Controls::Grid>, Controls::TextBlock>> m_labels; // per taskbar
         std::map<std::wstring, std::wstring> m_names; // app names, by AppUserModelID or program path

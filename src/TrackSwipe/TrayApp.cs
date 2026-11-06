@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Win32;
 using TrackSwipe.Core;
@@ -30,6 +30,11 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayMenuItem _enabledItem, _snappyItem, _smoothItem, _startupItem, _adminItem;
     private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem;
     private readonly TrayMenuItem _dockItem, _dockSettingsItem;
+    private readonly TrayMenuItem[] _topLeftItems, _transparencyItems;
+    private TopLeft _topLeft;
+    private int _taskbarTransparency;
+    /// <summary>Taskbar transparencies offered, in percent: Windows' own glass through to clear.</summary>
+    private static readonly int[] TransparencySteps = { 0, 25, 50, 75, 100 };
     private readonly Setup.DockHost _dockHost;
     private UiTimer? _taskbarTimer;
     private int _taskbarAttempts;
@@ -141,6 +146,20 @@ internal sealed partial class TrayApp : IDisposable
         _dockSettingsItem = new TrayMenuItem("Dock settings...", () => _dockHost!.OpenSettings()) { Enabled = _dockItem.Checked };
         _hideTopTaskbarItem = new TrayMenuItem("Hide a top taskbar in Mission Control", () => ToggleOption(GesturePreferences.HideTopTaskbarInMissionControl, _hideTopTaskbarItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTopTaskbarInMissionControl) };
+        // With the dock on, what stands where the taskbar's app buttons were: the app in front (the default), the
+        // buttons themselves, or the virtual desktops as GNOME's top bar shows them.
+        _topLeft = (TopLeft)GesturePreferences.LoadNumber(GesturePreferences.TaskbarTopLeft, (int)TopLeft.AppName, 0, 2);
+        _topLeftItems = new[]
+        {
+            new TrayMenuItem("The app in front", () => SetTopLeft(TopLeft.AppName)),
+            new TrayMenuItem("App icons", () => SetTopLeft(TopLeft.AppIcons)),
+            new TrayMenuItem("Desktops", () => SetTopLeft(TopLeft.Desktops)),
+        };
+        _taskbarTransparency = GesturePreferences.LoadNumber(GesturePreferences.TaskbarTransparency, 0, 0, 100);
+        _transparencyItems = TransparencySteps
+            .Select(step => new TrayMenuItem(step == 0 ? "Off" : step == 100 ? "Clear" : $"{step}%", () => SetTaskbarTransparency(step)) { Enabled = tapAvailable })
+            .ToArray();
+        CheckTaskbarChoices();
 
         var menu = new[]
         {
@@ -153,8 +172,9 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Preview animation", RunPreview),
             new TrayMenuItem("Input monitor...", ShowMonitor),
             new TrayMenuItem("Touchpad settings...", OpenTouchpadSettings),
-            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem),
-            new TrayMenuItem("Dock", null, _dockItem, _dockSettingsItem),
+            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem,
+                new TrayMenuItem("Transparency", null, _transparencyItems)),
+            new TrayMenuItem("Dock", null, _dockItem, _dockSettingsItem, new TrayMenuItem("Taskbar shows", null, _topLeftItems)),
             TrayMenuItem.Separator,
             _startupItem,
             _adminItem,
@@ -171,6 +191,8 @@ internal sealed partial class TrayApp : IDisposable
         // A dock (Anchor) about to bring forward a window on another desktop: slide there, as a taskbar click does.
         _tray.JumpRequested += window => _enabled && _compositionThread.Invoke(() => _overlay.PrepareJumpTo(window));
         _tray.TaskbarRecreated += () => ScheduleTaskbarOptions(1500); // a new Explorer: the DLL went with the old one
+        // The taskbar's desktop indicator, clicked: Mission Control, as GNOME's opens Activities.
+        _tray.OverviewRequested += () => _compositionThread.Post(ToggleMissionControl);
         var hideTopTaskbar = _hideTopTaskbarItem.Checked;
         _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = hideTopTaskbar);
         ScheduleTaskbarOptions(0);
@@ -234,7 +256,7 @@ internal sealed partial class TrayApp : IDisposable
         _monitor?.Dispose();
         _adminAppWatch?.Dispose();
         _taskbarTimer?.Dispose();
-        if (_hideStartItem.Checked || _hideEdgeItem.Checked || _hideIndicatorsItem.Checked || _largeTrayIconsItem.Checked || _dockItem.Checked)
+        if (_hideStartItem.Checked || _hideEdgeItem.Checked || _hideIndicatorsItem.Checked || _largeTrayIconsItem.Checked || _dockItem.Checked || _taskbarTransparency > 0)
             Interop.TaskbarTap.Restore(); // the taskbar as Windows draws it
         _tray.Dispose();
         NativeMethods.DestroyIcon(_iconHandle);
@@ -251,9 +273,71 @@ internal sealed partial class TrayApp : IDisposable
     {
         _dockItem.Checked = on;
         _dockSettingsItem.Enabled = on;
+        CheckTaskbarChoices();
         GesturePreferences.SaveOption(GesturePreferences.ShowDock, on);
         ScheduleTaskbarOptions(0); // the app name on the taskbar comes and goes with the dock
         Log.Write($"Dock {(on ? "on" : "off")}.");
+    }
+
+    private void SetTopLeft(TopLeft choice)
+    {
+        _topLeft = choice;
+        GesturePreferences.SaveNumber(GesturePreferences.TaskbarTopLeft, (int)choice);
+        CheckTaskbarChoices();
+        Log.Write($"Taskbar shows: {choice}.");
+        ScheduleTaskbarOptions(0);
+    }
+
+    private void SetTaskbarTransparency(int percent)
+    {
+        _taskbarTransparency = percent;
+        GesturePreferences.SaveNumber(GesturePreferences.TaskbarTransparency, percent);
+        CheckTaskbarChoices();
+        Log.Write($"Taskbar transparency: {percent}%.");
+        ScheduleTaskbarOptions(0);
+    }
+
+    private void CheckTaskbarChoices()
+    {
+        for (var i = 0; i < _topLeftItems.Length; i++)
+        {
+            _topLeftItems[i].Checked = i switch { 0 => _topLeft == TopLeft.AppName, 1 => _topLeft == TopLeft.AppIcons, _ => _topLeft == TopLeft.Desktops };
+            _topLeftItems[i].Enabled = _dockItem.Checked && Interop.TaskbarTap.Available; // without the dock, the buttons are the only list of open apps
+        }
+        for (var i = 0; i < _transparencyItems.Length; i++) _transparencyItems[i].Checked = TransparencySteps[i] == _taskbarTransparency;
+    }
+
+    /// <summary>
+    /// Opens Mission Control as the gesture does â€” a quick upward swipe of the gesture's fingers, fed to the engine as
+    /// if from the touchpad, so it opens with the same motion and settles the same way â€” or closes it if it's open.
+    /// On the composition thread.
+    /// </summary>
+    private void ToggleMissionControl()
+    {
+        if (!_enabled || _shuttingDown) return;
+        if (_overlay.MissionControlOpen) { _overlay.DismissMissionControl(); return; }
+        if (_previewing || _engine.Phase != GesturePhase.Idle) return;
+        _previewing = true;
+        const double duration = 0.14; // a flick: well past the speed that commits, however short the travel
+        var start = Clock.Now;
+        var fingers = _engine.Options.Fingers;
+        var reach = Math.Min(_engine.Options.FullSwipeMm * 0.5, 56);
+        _preview = new UiTimer { Interval = 8 };
+        _preview.Tick += (_, _) =>
+        {
+            var t = Math.Min((Clock.Now - start) / duration, 1);
+            var lifted = t >= 1;
+            var travel = -(1 - Math.Pow(1 - t, 2)) * reach; // up: the touchpad's Y falls toward its top edge
+            var contacts = Enumerable.Range(0, fingers)
+                .Select(i => new Contact(200 + i, 35 + i * 12, 64 + travel, Tip: !lifted, Confidence: true))
+                .ToArray();
+            _touchpad.Inject(new TouchFrame(Clock.Now, contacts, 110, 70));
+            if (!lifted) return;
+            _preview?.Dispose();
+            _preview = null;
+            if (_engine.Phase == GesturePhase.Idle) _previewing = false; // not taken up: nothing will end it
+        };
+        _preview.Start();
     }
 
     private void ToggleOption(string name, TrayMenuItem item)
@@ -284,9 +368,10 @@ internal sealed partial class TrayApp : IDisposable
     private void ApplyTaskbarOptions(object? sender, EventArgs e)
     {
         bool start = _hideStartItem.Checked, edge = _hideEdgeItem.Checked, indicators = _hideIndicatorsItem.Checked, icons = _largeTrayIconsItem.Checked;
-        bool appName = _dockItem.Checked; // with the dock on, the taskbar names the app in front instead of listing buttons
+        bool dock = _dockItem.Checked; // with the dock on, something else stands in for the app buttons, and windows minimize into it
+        int transparency = _taskbarTransparency;
         _taskbarTimer!.Interval = 250;
-        if (Interop.TaskbarTap.Send(start, edge, icons, indicators, appName) || (!start && !edge && !indicators && !icons && !appName)) { _taskbarTimer.Stop(); return; }
+        if (Interop.TaskbarTap.Send(start, edge, icons, indicators, dock, _topLeft, transparency) || (!start && !edge && !indicators && !icons && !dock && transparency == 0)) { _taskbarTimer.Stop(); return; }
         if (_taskbarAttempts++ == 0 && !Interop.TaskbarTap.Load()) { _taskbarTimer.Stop(); return; }
         if (_taskbarAttempts > 40) { Log.Write("Taskbar options: Explorer didn't pick them up."); _taskbarTimer.Stop(); }
     }

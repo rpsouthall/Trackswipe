@@ -270,6 +270,7 @@ public sealed partial class SettingsWindow : Window
             _ => 1,
         };
         AccentTintSwitch.IsOn = cfg.AccentTint;
+        GlassTransparencySlider.Value = cfg.GlassTransparency;
         MagnifySwitch.IsOn = cfg.Magnify;
         GroupOpenOnHoverSwitch.IsOn = cfg.GroupOpenOnHover;
         SettingsPositionChoice.SelectedIndex = cfg.SettingsPosition == SettingsPosition.Leading ? 1 : 0;
@@ -300,6 +301,13 @@ public sealed partial class SettingsWindow : Window
         if (_initializing)
             return;
         _manager.SetAccentTint(AccentTintSwitch.IsOn);
+    }
+
+    private void GlassTransparencySlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_initializing)
+            return;
+        _manager.SetGlassTransparency((int)Math.Round(e.NewValue));
     }
 
     private void MagnifySwitch_Toggled(object sender, RoutedEventArgs e)

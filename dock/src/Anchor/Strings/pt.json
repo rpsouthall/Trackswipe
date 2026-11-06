@@ -133,6 +133,8 @@
 
   "Settings.AccentTint": "Cor de destaque",
   "Settings.AccentTintDesc": "Tingir o vidro com sua cor de destaque do Windows.",
+  "Settings.GlassTransparency": "Transparência",
+  "Settings.GlassTransparencyDesc": "Quanto da área de trabalho aparece através do vidro.",
 
   "Settings.Magnify": "Ampliar ao passar o cursor",
   "Settings.MagnifyDesc": "Os ícones crescem sob o cursor, no estilo do dock do macOS.",

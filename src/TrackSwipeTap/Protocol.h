@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // Shared between TrackSwipe (src/TrackSwipe/Interop/TaskbarTap.cs mirrors these values) and TrackSwipeTap.dll.
 #include <windows.h>
 
@@ -9,7 +9,7 @@ namespace TrackSwipeTap
 
     // The DLL's message-only window inside Explorer, and the messages it accepts.
     // Versioned: TrackSwipe asks an older copy still loaded in Explorer to stand down before loading this one.
-    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.34";
+    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.35";
     /// wParam 1 hides the Start button, 0 gives it back to Explorer. lParam: space to leave before the first app button
     /// while it's hidden, in hundredths of an effective pixel (so a left-aligned taskbar starts as far in as the clock ends).
     inline constexpr UINT StartButton = WM_APP + 1;
@@ -35,7 +35,11 @@ namespace TrackSwipeTap
     inline constexpr UINT AppIcons = WM_APP + 8;
     /// A newer TrackSwipe's DLL has taken over: ignore Explorer from now on (sent after giving every option back).
     inline constexpr UINT Retire = WM_APP + 9;
-    /// wParam 1 replaces the app buttons with the name of the app in front, as a Mac's menu bar does (a click shows its
-    /// menu, from TrackSwipe's dock); 0 gives the buttons back. Sent while TrackSwipe's dock is on.
+    /// What stands in for the app buttons, and whether TrackSwipe's dock is on (lParam 1: windows then minimize into
+    /// its icons). wParam: 0 the buttons themselves, 1 the name of the app in front as a Mac's menu bar shows it (a click
+    /// shows its menu, from the dock), 2 the virtual desktops as GNOME's top bar shows them (a click opens Mission
+    /// Control). 0, 0 gives the taskbar back as Explorer draws it.
     inline constexpr UINT AppName = WM_APP + 10;
+    /// How see-through the taskbar's background is: wParam in percent, 0 (Explorer's own) to 100 (clear).
+    inline constexpr UINT Transparency = WM_APP + 11;
 }

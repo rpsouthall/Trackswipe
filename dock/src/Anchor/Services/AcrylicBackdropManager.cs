@@ -48,7 +48,24 @@ public sealed class AcrylicBackdropManager : IDisposable
     /// instead (see <c>DockWindow.BarBackground</c>).
     /// </summary>
     public AcrylicRecipe Current =>
-        (_themeRoot?.ActualTheme ?? ElementTheme.Dark) == ElementTheme.Light ? Light : Dark;
+        Thinned((_themeRoot?.ActualTheme ?? ElementTheme.Dark) == ElementTheme.Light ? Light : Dark);
+
+    // How see-through the glass is (0..1), on top of whichever recipe is in force.
+    private double _transparency;
+
+    /// <summary>Thins the glass: 0 is the recipe as tuned, 1 leaves little but the blur.</summary>
+    public void SetTransparency(double transparency)
+    {
+        _transparency = Math.Clamp(transparency, 0, 1);
+        Refresh();
+    }
+
+    /// <summary>The recipe with the transparency applied: less tint, and less of the frost that evens the backdrop out.</summary>
+    private AcrylicRecipe Thinned(AcrylicRecipe recipe) => _transparency <= 0 ? recipe : recipe with
+    {
+        TintOpacity = recipe.TintOpacity * (1 - _transparency),
+        LuminosityOpacity = recipe.LuminosityOpacity * (1 - 0.8 * _transparency),
+    };
 
     /// <returns>true if acrylic was applied; false if the OS/GPU can't support it.</returns>
     public bool TryApply()
@@ -228,7 +245,7 @@ public sealed class AcrylicBackdropManager : IDisposable
 
         _config.Theme = dark ? SystemBackdropTheme.Dark : SystemBackdropTheme.Light;
 
-        var r = dark ? Dark : Light;
+        var r = Thinned(dark ? Dark : Light);
         _controller.TintColor = r.Tint;
         _controller.TintOpacity = (float)r.TintOpacity;
         _controller.LuminosityOpacity = (float)r.LuminosityOpacity;
