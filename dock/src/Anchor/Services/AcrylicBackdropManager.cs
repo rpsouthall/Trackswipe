@@ -33,6 +33,12 @@ public sealed class AcrylicBackdropManager : IDisposable
 
     public AcrylicBackdropManager(Window window) => _window = window;
 
+    /// <summary>
+    /// The glass re-tinted itself, for a theme or system colour change it heard about on its own (Windows' colours can
+    /// settle a moment after the theme flips). Anything painted to match it — the dock's window rim — repaints.
+    /// </summary>
+    public event Action? Retinted;
+
     /// <summary>Recipe used in dark mode. Tunable to match the Win11 dark taskbar exactly.</summary>
     public AcrylicRecipe Dark { get; set; } = DefaultDarkRecipe();
 
@@ -124,6 +130,7 @@ public sealed class AcrylicBackdropManager : IDisposable
         {
             SyncWithSystemColors();
             UpdateTheme();
+            Retinted?.Invoke();
         }
         catch (Exception ex)
         {

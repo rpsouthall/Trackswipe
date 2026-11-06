@@ -99,7 +99,10 @@ public sealed partial class DockWindow : Window
         // theme changes — either the user's choice, or the OS light/dark setting while in System
         // mode (ActualThemeChanged covers both).
         ApplyWindowChrome();
-        RootGrid.ActualThemeChanged += (_, _) => { ApplyWindowChrome(); ReloadIconsForTheme(); };
+        // The glass is re-mixed for the new theme first, then the rim painted from it: this handler runs before the
+        // backdrop's own, so painting first read the outgoing theme's tint — a light line across the top of a dock
+        // that had just gone dark, until something happened to repaint it.
+        RootGrid.ActualThemeChanged += (_, _) => { ApplyGlass(); ApplyWindowChrome(); ReloadIconsForTheme(); };
 
         DockItemAnimations.ReducedMotion = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
         DockItemAnimations.HighContrast = IsHighContrast();
@@ -120,6 +123,7 @@ public sealed partial class DockWindow : Window
             // The Windows 11 taskbar "glass". Follows RootGrid's theme via its own
             // ActualThemeChanged subscription, so a later SetTheme re-tints it automatically.
             _backdrop = new AcrylicBackdropManager(this);
+            _backdrop.Retinted += ApplyWindowBorder; // the rim keeps matching the glass
             _backdrop.TryApply();
             ApplyGlass(); // the user's accent-tint choice on top of the base recipe
         }
