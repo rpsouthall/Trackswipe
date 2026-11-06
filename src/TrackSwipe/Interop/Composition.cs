@@ -47,6 +47,20 @@ internal static unsafe class Composition
         _flusher = new FlushWindow();
     }
 
+    /// <summary>Whether Windows has reset the graphics device under us (sleep, a driver update, a hang): it can't be used again.</summary>
+    public static bool DeviceLost => Gpu is { } gpu && gpu.Device.DeviceRemovedReason.Failure;
+
+    /// <summary>An error from drawing on a device Windows has reset, or from anything made on it.</summary>
+    public static bool IsDeviceLoss(Exception? exception)
+    {
+        for (var e = exception; e is not null; e = e.InnerException)
+            if (e.HResult is unchecked((int)0x887A0005) /* DXGI_ERROR_DEVICE_REMOVED */ or unchecked((int)0x887A0006) /* DEVICE_HUNG */
+                or unchecked((int)0x887A0007) /* DEVICE_RESET */ or unchecked((int)0x887A0020) /* DRIVER_INTERNAL_ERROR */
+                or unchecked((int)0x8899000C) /* D2DERR_RECREATE_TARGET */)
+                return true;
+        return DeviceLost;
+    }
+
     /// <summary>Makes <paramref name="root"/> the content of <paramref name="hwnd"/>, a window with no redirection bitmap.</summary>
     public static IntPtr CreateTarget(IntPtr hwnd, CompositionVisual root)
     {
@@ -119,6 +133,9 @@ internal static unsafe class Composition
         Marshal.Release(_device);
         _device = IntPtr.Zero;
         Gpu.Dispose();
+        _flusher?.DestroyHandle();
+        _flusher = null;
+        _dirty = false;
     }
 
     /// <summary>A message-only window that flushes once the current message has been handled, batching everything it did.</summary>

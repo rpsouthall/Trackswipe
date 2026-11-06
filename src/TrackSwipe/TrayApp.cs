@@ -23,7 +23,7 @@ internal sealed partial class TrayApp : IDisposable
     private readonly UiPump _shellPump;
     private readonly CompositionThread _compositionThread;
     private readonly Action<TouchFrame> _processFrame;
-    private readonly OverlayController _overlay;
+    private OverlayController _overlay; // rebuilt if Windows resets the graphics device (RebuildGraphics)
     private readonly FrameClock _clock;
     private readonly TrayIcon _tray;
     private readonly IntPtr _iconHandle;
@@ -85,11 +85,12 @@ internal sealed partial class TrayApp : IDisposable
             _shellPump.Dispose();
             throw;
         }
-        _engine.TrackingStarted += _overlay.TrackingStarted;
+        // Through the field, not bound to this overlay: RebuildGraphics replaces it.
+        _engine.TrackingStarted += axis => _overlay.TrackingStarted(axis);
         _engine.TrackingStarted += _ => _tap.Cancel();
         _tap.Tapped += () => _shellPump.Post(KeySender.ToggleStart);
-        _engine.SettlingStarted += _overlay.SettlingStarted;
-        _engine.SettlingInterrupted += _overlay.ResumeTracking;
+        _engine.SettlingStarted += motion => _overlay.SettlingStarted(motion);
+        _engine.SettlingInterrupted += () => _overlay.ResumeTracking();
         _engine.Committed += OnCommitted;
         _engine.Ended += () =>
         {
@@ -106,6 +107,9 @@ internal sealed partial class TrayApp : IDisposable
             // Fingers landed: start the frame clock (and with it the 120 Hz boost) now, so the display is
             // already at full rate when the swipe begins, and capture the scene while they cover the dead zone.
             _candidateSince = Clock.Now;
+            // After sleep or a driver update the GPU may have been reset under the overlay: rebuild it now, while the
+            // fingers cross the dead zone, so this swipe works rather than failing once. One call to ask.
+            if (Composition.DeviceLost) RebuildGraphics("found reset as fingers landed");
             _clock.Start();
             _overlay.Prewarm();
         };
@@ -233,6 +237,11 @@ internal sealed partial class TrayApp : IDisposable
             return;
         }
         Log.Write($"Error: {exception}");
+        if (Composition.IsDeviceLoss(exception))
+        {
+            RebuildGraphics("a drawing call failed");
+            return;
+        }
         try
         {
             CancelGesture();
@@ -240,6 +249,32 @@ internal sealed partial class TrayApp : IDisposable
         catch (Exception cleanup)
         {
             Log.Write($"Error during recovery: {cleanup}");
+        }
+    }
+
+    /// <summary>
+    /// Windows reset the graphics device (sleep, a driver update, a GPU that hung): every surface and visual made on it
+    /// is dead, and every gesture would fail until TrackSwipe restarted. Builds the device and the overlay again, as
+    /// the shell does. On the composition thread.
+    /// </summary>
+    private void RebuildGraphics(string why)
+    {
+        Log.Write($"Graphics device reset ({why}): rebuilding the overlay.");
+        try { CancelGesture(); } catch (Exception ex) { Log.Write($"Rebuild: ending the gesture failed: {ex.Message}"); }
+        try { _overlay.Dispose(); } catch (Exception ex) { Log.Write($"Rebuild: letting go of the old overlay failed: {ex.Message}"); }
+        try { Composition.Dispose(); } catch (Exception ex) { Log.Write($"Rebuild: letting go of the old device failed: {ex.Message}"); }
+        try
+        {
+            Composition.Initialize();
+            _overlay = new OverlayController(_engine);
+            _overlay.FramesNeeded += _clock.Start;
+            _overlay.HideTopTaskbarInMissionControl = _hideTopTaskbarItem.Checked;
+            _overlay.WarmTaskbarButtons();
+            Log.Write("Graphics rebuilt.");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Rebuilding the graphics failed: {ex}");
         }
     }
 
