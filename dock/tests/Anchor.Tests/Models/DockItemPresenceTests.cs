@@ -4,6 +4,7 @@ using Xunit;
 namespace Anchor.Tests.Models;
 
 /// <summary>Growing into the strip and shrinking out of it, which the dock sizes itself from frame by frame.</summary>
+[Collection("Animations")] // they set the app-wide reduced-motion switch: never at the same time
 public class DockItemPresenceTests
 {
     public DockItemPresenceTests() => DockItemAnimations.ReducedMotion = false;
@@ -70,3 +71,7 @@ public class DockItemPresenceTests
         }
     }
 }
+
+/// <summary>Tests that set <see cref="Anchor.Models.DockItemAnimations.ReducedMotion"/>, a static the dock reads app-wide: run one at a time.</summary>
+[CollectionDefinition("Animations", DisableParallelization = true)]
+public sealed class AnimationsCollection;

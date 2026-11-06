@@ -4,6 +4,7 @@ using Xunit;
 
 namespace Anchor.Tests.Models;
 
+[Collection("Animations")] // they set the app-wide reduced-motion switch: never at the same time
 public class DockItemTests
 {
     [Fact]
