@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Win32;
 using TrackSwipe.Core;
@@ -30,11 +30,12 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayMenuItem _enabledItem, _snappyItem, _smoothItem, _startupItem, _adminItem;
     private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem;
     private readonly TrayMenuItem _dockItem, _dockSettingsItem;
-    private readonly TrayMenuItem[] _topLeftItems, _transparencyItems;
+    private readonly TrayMenuItem[] _topLeftItems;
     private TopLeft _topLeft;
-    private int _taskbarTransparency;
-    /// <summary>Taskbar transparencies offered, in percent: Windows' own glass through to clear.</summary>
-    private static readonly int[] TransparencySteps = { 0, 25, 50, 75, 100 };
+    // How see-through the taskbar is, in percent. Not offered in the menu yet: on Windows 11 26H2 the taskbar's
+    // content stays opaque (black) behind its fill whatever the window's composition is set to, so a see-through
+    // taskbar needs more than hiding the fill. The helper already takes the setting.
+    private readonly int _taskbarTransparency;
     private readonly Setup.DockHost _dockHost;
     private UiTimer? _taskbarTimer;
     private int _taskbarAttempts;
@@ -46,6 +47,7 @@ internal sealed partial class TrayApp : IDisposable
     private volatile bool _shuttingDown;
     private volatile bool _monitorOpen;
     private bool _previewing;
+    private bool _flicking; // a click on the taskbar's desktops is opening Mission Control (a real commit, unlike a preview)
     private bool _disposed;
     private readonly FramePerf _framePerf = new();
     private double _candidateSince = double.NegativeInfinity;
@@ -93,6 +95,7 @@ internal sealed partial class TrayApp : IDisposable
         {
             _overlay.Ended();
             _previewing = false;
+            _flicking = false;
         };
 
         _pump = _compositionThread.Pump;
@@ -156,9 +159,6 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Desktops", () => SetTopLeft(TopLeft.Desktops)),
         };
         _taskbarTransparency = GesturePreferences.LoadNumber(GesturePreferences.TaskbarTransparency, 0, 0, 100);
-        _transparencyItems = TransparencySteps
-            .Select(step => new TrayMenuItem(step == 0 ? "Off" : step == 100 ? "Clear" : $"{step}%", () => SetTaskbarTransparency(step)) { Enabled = tapAvailable })
-            .ToArray();
         CheckTaskbarChoices();
 
         var menu = new[]
@@ -172,8 +172,7 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Preview animation", RunPreview),
             new TrayMenuItem("Input monitor...", ShowMonitor),
             new TrayMenuItem("Touchpad settings...", OpenTouchpadSettings),
-            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem,
-                new TrayMenuItem("Transparency", null, _transparencyItems)),
+            new TrayMenuItem("Taskbar", null, _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem),
             new TrayMenuItem("Dock", null, _dockItem, _dockSettingsItem, new TrayMenuItem("Taskbar shows", null, _topLeftItems)),
             TrayMenuItem.Separator,
             _startupItem,
@@ -288,15 +287,6 @@ internal sealed partial class TrayApp : IDisposable
         ScheduleTaskbarOptions(0);
     }
 
-    private void SetTaskbarTransparency(int percent)
-    {
-        _taskbarTransparency = percent;
-        GesturePreferences.SaveNumber(GesturePreferences.TaskbarTransparency, percent);
-        CheckTaskbarChoices();
-        Log.Write($"Taskbar transparency: {percent}%.");
-        ScheduleTaskbarOptions(0);
-    }
-
     private void CheckTaskbarChoices()
     {
         for (var i = 0; i < _topLeftItems.Length; i++)
@@ -304,7 +294,6 @@ internal sealed partial class TrayApp : IDisposable
             _topLeftItems[i].Checked = i switch { 0 => _topLeft == TopLeft.AppName, 1 => _topLeft == TopLeft.AppIcons, _ => _topLeft == TopLeft.Desktops };
             _topLeftItems[i].Enabled = _dockItem.Checked && Interop.TaskbarTap.Available; // without the dock, the buttons are the only list of open apps
         }
-        for (var i = 0; i < _transparencyItems.Length; i++) _transparencyItems[i].Checked = TransparencySteps[i] == _taskbarTransparency;
     }
 
     /// <summary>
@@ -316,8 +305,8 @@ internal sealed partial class TrayApp : IDisposable
     {
         if (!_enabled || _shuttingDown) return;
         if (_overlay.MissionControlOpen) { _overlay.DismissMissionControl(); return; }
-        if (_previewing || _engine.Phase != GesturePhase.Idle) return;
-        _previewing = true;
+        if (_previewing || _flicking || _engine.Phase != GesturePhase.Idle) return; // something is already moving
+        _flicking = true;
         const double duration = 0.14; // a flick: well past the speed that commits, however short the travel
         var start = Clock.Now;
         var fingers = _engine.Options.Fingers;
@@ -335,7 +324,7 @@ internal sealed partial class TrayApp : IDisposable
             if (!lifted) return;
             _preview?.Dispose();
             _preview = null;
-            if (_engine.Phase == GesturePhase.Idle) _previewing = false; // not taken up: nothing will end it
+            if (_engine.Phase == GesturePhase.Idle) _flicking = false; // not taken up: nothing will end it
         };
         _preview.Start();
     }
