@@ -97,7 +97,7 @@ public static class RunningAppService
         NativeMethods.IVirtualDesktopManager? desktops = null;
         try
         {
-            desktops = (NativeMethods.IVirtualDesktopManager)new NativeMethods.VirtualDesktopManager();
+            desktops = ComInterop.Create<NativeMethods.IVirtualDesktopManager>(NativeMethods.CLSID_VirtualDesktopManager);
         }
         catch (Exception ex)
         {
@@ -181,8 +181,7 @@ public static class RunningAppService
         }
         finally
         {
-            if (desktops is not null)
-                Marshal.ReleaseComObject(desktops);
+            ComInterop.Release(desktops);
         }
 
         var result = new List<RunningApp>(order.Count);
@@ -341,7 +340,8 @@ public static class RunningAppService
     public static string? WindowAppId(nint hwnd)
     {
         var iid = NativeMethods.IID_IPropertyStore;
-        if (NativeMethods.SHGetPropertyStoreForWindow(hwnd, ref iid, out var store) != 0 || store is null)
+        if (NativeMethods.SHGetPropertyStoreForWindow(hwnd, ref iid, out var pointer) != 0 ||
+            ComInterop.Take<NativeMethods.IPropertyStore>(pointer) is not { } store)
             return null;
         try
         {
@@ -361,7 +361,7 @@ public static class RunningAppService
         }
         finally
         {
-            Marshal.ReleaseComObject(store);
+            ComInterop.Release(store);
         }
     }
 

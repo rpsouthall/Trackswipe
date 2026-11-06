@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 
 namespace Anchor.Interop;
@@ -10,7 +11,10 @@ namespace Anchor.Interop;
 // the interface Explorer's own taskbar uses. It is undocumented: this is the declaration Open-Shell
 // has shipped against it since Windows 10 build 10547, and every call through it is guarded, so a
 // Windows that changes it costs the jump list, never the menu.
-internal static class ShellInterop
+//
+// Declared for .NET's source-generated COM (see ComInterop): interface-typed results come back as COM pointers for
+// ComInterop.Take, since an object result can be any of several interfaces.
+internal static partial class ShellInterop
 {
     public static readonly Guid IID_IShellItem = new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
     public static readonly Guid IID_IEnumShellItems = new("70629033-e363-4a28-a567-0db78006e6d7");
@@ -42,37 +46,37 @@ internal static class ShellInterop
 
     public const ushort VT_BOOL = 11;
 
-    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IShellItem
+    [GeneratedComInterface, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
+    public partial interface IShellItem
     {
-        [PreserveSig] int BindToHandler(nint bindContext, ref Guid handler, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object result);
-        [PreserveSig] int GetParent(out IShellItem parent);
+        [PreserveSig] int BindToHandler(nint bindContext, ref Guid handler, ref Guid riid, out nint result);
+        [PreserveSig] int GetParent(out nint parent);
         [PreserveSig] int GetDisplayName(uint form, out nint name);
         [PreserveSig] int GetAttributes(uint mask, out uint attributes);
-        [PreserveSig] int Compare(IShellItem other, uint hint, out int order);
+        [PreserveSig] int Compare(nint other, uint hint, out int order);
     }
 
-    [ComImport, Guid("70629033-e363-4a28-a567-0db78006e6d7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IEnumShellItems
+    [GeneratedComInterface, Guid("70629033-e363-4a28-a567-0db78006e6d7")]
+    public partial interface IEnumShellItems
     {
-        [PreserveSig] int Next(uint count, out IShellItem item, out uint fetched);
+        [PreserveSig] int Next(uint count, out nint item, out uint fetched);
         [PreserveSig] int Skip(uint count);
         [PreserveSig] int Reset();
-        [PreserveSig] int Clone(out IEnumShellItems copy);
+        [PreserveSig] int Clone(out nint copy);
     }
 
-    [ComImport, Guid("92CA9DCD-5622-4bba-A805-5E9F541BD8C9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IObjectArray
+    [GeneratedComInterface, Guid("92CA9DCD-5622-4bba-A805-5E9F541BD8C9")]
+    public partial interface IObjectArray
     {
         [PreserveSig] int GetCount(out uint count);
-        [PreserveSig] int GetAt(uint index, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object item);
+        [PreserveSig] int GetAt(uint index, ref Guid riid, out nint item);
     }
 
-    [ComImport, Guid("3c594f9f-9f30-47a1-979a-c9e83d3d0a06"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IApplicationDocumentLists
+    [GeneratedComInterface(StringMarshalling = StringMarshalling.Utf16), Guid("3c594f9f-9f30-47a1-979a-c9e83d3d0a06")]
+    public partial interface IApplicationDocumentLists
     {
-        [PreserveSig] int SetAppID([MarshalAs(UnmanagedType.LPWStr)] string appId);
-        [PreserveSig] int GetList(int listType, uint wanted, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object list);
+        [PreserveSig] int SetAppID(string appId);
+        [PreserveSig] int GetList(int listType, uint wanted, ref Guid riid, out nint list);
     }
 
     public const int ADLT_RECENT = 0, ADLT_FREQUENT = 1;
@@ -87,20 +91,20 @@ internal static class ShellInterop
         public fixed int Pad[10];  // room for fields this declaration doesn't know about
     }
 
-    [ComImport, Guid("507101CD-F6AD-46C8-8E20-EEB9E6BAC47F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IInternalCustomDestinationList
+    [GeneratedComInterface(StringMarshalling = StringMarshalling.Utf16), Guid("507101CD-F6AD-46C8-8E20-EEB9E6BAC47F")]
+    public partial interface IInternalCustomDestinationList
     {
         [PreserveSig] int SetMinItems(uint count);
-        [PreserveSig] int SetApplicationID([MarshalAs(UnmanagedType.LPWStr)] string appId);
+        [PreserveSig] int SetApplicationID(string appId);
         [PreserveSig] int GetSlotCount(out uint count);
         [PreserveSig] int GetCategoryCount(out uint count);
         [PreserveSig] int GetCategory(uint index, int flags, out APPDESTCATEGORY category);
         [PreserveSig] int DeleteCategory(uint index, int permanently);
-        [PreserveSig] int EnumerateCategoryDestinations(uint index, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object items);
+        [PreserveSig] int EnumerateCategoryDestinations(uint index, ref Guid riid, out nint items);
     }
 
-    [ComImport, Guid("000214e4-0000-0000-c000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IContextMenu
+    [GeneratedComInterface, Guid("000214e4-0000-0000-c000-000000000046")]
+    public partial interface IContextMenu
     {
         [PreserveSig] int QueryContextMenu(nint menu, uint indexMenu, uint idCmdFirst, uint idCmdLast, uint flags);
         [PreserveSig] int InvokeCommand(ref CMINVOKECOMMANDINFO info);
@@ -123,8 +127,8 @@ internal static class ShellInterop
 
     public const uint CMF_DEFAULTONLY = 0x1;
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    public static extern int SHCreateItemFromParsingName(string path, nint bindContext, ref Guid riid, out IShellItem item);
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int SHCreateItemFromParsingName(string path, nint bindContext, ref Guid riid, out nint item);
 
     [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
     public static extern int SHLoadIndirectString(string source, StringBuilder output, uint size, nint reserved);

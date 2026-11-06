@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using System.Text;
+using System.Runtime.InteropServices.Marshalling;
+using Anchor.Interop;
 
 namespace Anchor.Services;
 
@@ -18,7 +19,7 @@ namespace Anchor.Services;
 /// edited.
 /// </para>
 /// </summary>
-public static class ShortcutResolver
+public static partial class ShortcutResolver
 {
     private static readonly Dictionary<string, CacheEntry> Cache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -121,20 +122,22 @@ public static class ShortcutResolver
         return target;
     }
 
-    private static string? ReadTarget(string path)
+    private static unsafe string? ReadTarget(string path)
     {
-        object? link = null;
+        IShellLinkW? link = null;
         try
         {
-            link = new ShellLink();
-            ((IPersistFile)link).Load(path, 0 /* STGM_READ */);
+            link = ComInterop.Create<IShellLinkW>(CLSID_ShellLink);
+            Marshal.ThrowExceptionForHR(((IPersistFile)link).Load(path, 0 /* STGM_READ */));
 
-            var buffer = new StringBuilder(1024);
+            const int Capacity = 1024;
+            char* buffer = stackalloc char[Capacity];
+            buffer[0] = '\0';
             // SLGP_RAWPATH: the path exactly as stored, with no attempt to "fix" a target that
             // has moved. A repaired path would point somewhere the user never pinned.
-            ((IShellLinkW)link).GetPath(buffer, buffer.Capacity, nint.Zero, SLGP_RAWPATH);
+            Marshal.ThrowExceptionForHR(link.GetPath(buffer, Capacity, nint.Zero, SLGP_RAWPATH));
 
-            var target = Environment.ExpandEnvironmentVariables(buffer.ToString()).Trim();
+            var target = Environment.ExpandEnvironmentVariables(new string(buffer)).Trim();
             return target.Length == 0 ? null : target;
         }
         catch (Exception ex)
@@ -146,45 +149,37 @@ public static class ShortcutResolver
         }
         finally
         {
-            if (link is not null && Marshal.IsComObject(link))
-                Marshal.ReleaseComObject(link);
+            ComInterop.Release(link);
         }
     }
 
     private const uint SLGP_RAWPATH = 0x4;
 
-    [ComImport]
-    [Guid("00021401-0000-0000-C000-000000000046")]
-    private class ShellLink
-    {
-    }
+    private static readonly Guid CLSID_ShellLink = new("00021401-0000-0000-C000-000000000046");
 
     // Only the vtable slots actually called are declared, and they must stay in their real
     // interface order: COM dispatches by slot index, so an extra or reordered member here would
     // silently call the wrong function. GetPath is IShellLinkW's first method.
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [GeneratedComInterface]
     [Guid("000214F9-0000-0000-C000-000000000046")]
-    private interface IShellLinkW
+    internal unsafe partial interface IShellLinkW
     {
-        void GetPath(
-            [Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file,
-            int fileLength,
-            nint findData,
-            uint flags);
+        [PreserveSig]
+        int GetPath(char* file, int fileLength, nint findData, uint flags);
     }
 
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [GeneratedComInterface(StringMarshalling = StringMarshalling.Utf16)]
     [Guid("0000010b-0000-0000-C000-000000000046")]
-    private interface IPersistFile
+    internal partial interface IPersistFile
     {
         // Inherited from IPersist, and ahead of IPersistFile's own members in the vtable.
-        void GetClassID(out Guid classId);
+        [PreserveSig]
+        int GetClassID(out Guid classId);
 
         [PreserveSig]
         int IsDirty();
 
-        void Load([MarshalAs(UnmanagedType.LPWStr)] string fileName, uint mode);
+        [PreserveSig]
+        int Load(string fileName, uint mode);
     }
 }

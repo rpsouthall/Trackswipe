@@ -53,15 +53,21 @@ public static class StartMenuApps
         try
         {
             var iid = ShellInterop.IID_IShellItem;
-            if (ShellInterop.SHCreateItemFromParsingName("shell:AppsFolder", nint.Zero, ref iid, out var folder) != 0)
+            if (ShellInterop.SHCreateItemFromParsingName("shell:AppsFolder", nint.Zero, ref iid, out var folderPointer) != 0 ||
+                ComInterop.Take<ShellInterop.IShellItem>(folderPointer) is not { } folder)
                 return;
             var bhid = ShellInterop.BHID_EnumItems;
             var enumIid = ShellInterop.IID_IEnumShellItems;
-            if (folder.BindToHandler(nint.Zero, ref bhid, ref enumIid, out var enumObject) != 0)
-                return;
-            var items = (ShellInterop.IEnumShellItems)enumObject;
-            while (items.Next(1, out var item, out uint fetched) == 0 && fetched == 1)
+            if (folder.BindToHandler(nint.Zero, ref bhid, ref enumIid, out var enumPointer) != 0 ||
+                ComInterop.Take<ShellInterop.IEnumShellItems>(enumPointer) is not { } items)
             {
+                ComInterop.Release(folder);
+                return;
+            }
+            while (items.Next(1, out var itemPointer, out uint fetched) == 0 && fetched == 1)
+            {
+                if (ComInterop.Take<ShellInterop.IShellItem>(itemPointer) is not { } item)
+                    continue;
                 try
                 {
                     // An AppsFolder item's own parsing name is its AppUserModelID.
@@ -77,11 +83,11 @@ public static class StartMenuApps
                 }
                 finally
                 {
-                    Marshal.ReleaseComObject(item);
+                    ComInterop.Release(item);
                 }
             }
-            Marshal.ReleaseComObject(items);
-            Marshal.ReleaseComObject(folder);
+            ComInterop.Release(items);
+            ComInterop.Release(folder);
         }
         catch (Exception ex)
         {
@@ -100,10 +106,10 @@ public static class StartMenuApps
     {
         var bhid = ShellInterop.BHID_PropertyStore;
         var iid = ShellInterop.IID_IPropertyStore;
-        if (item.BindToHandler(nint.Zero, ref bhid, ref iid, out var storeObject) != 0)
+        if (item.BindToHandler(nint.Zero, ref bhid, ref iid, out var storePointer) != 0 ||
+            ComInterop.Take<NativeMethods.IPropertyStore>(storePointer) is not { } store)
             return null;
-        var store = (NativeMethods.IPropertyStore)storeObject;
         try { return ShellInterop.StringProperty(store, ShellInterop.PKEY_Link_TargetParsingPath); }
-        finally { Marshal.ReleaseComObject(store); }
+        finally { ComInterop.Release(store); }
     }
 }

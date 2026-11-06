@@ -75,14 +75,17 @@
 
   <!-- Footprint. A dock sits in the background all day, so it trades a little peak throughput it
        never needs for less memory, fewer threads and a faster start:
-       - ReadyToRun: the code ships precompiled, so starting up doesn't spend CPU and memory
-         compiling it (publish only; a debug build still JITs).
+       - Native AOT: the published dock is machine code with no JIT, trimmed to what it uses (as
+         TrackSwipe itself is), so it starts fast and carries no compiler, no unused framework and no
+         full Windows API projection in memory. Shell COM goes through source-generated COM
+         (Interop/ComInterop.cs) and JSON through build-time code (Services/AnchorJson.cs), the two
+         things the runtime's reflection did before. A debug build still JITs.
        - Non-concurrent GC: no background GC thread. Anchor's heap is a few MB; a blocking
          collection of it takes about a millisecond.
        - No tiered PGO: no instrumented second compile of hot methods for a program with none.
        - ConserveMemory: the GC compacts rather than growing the heap. -->
   <PropertyGroup>
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishAot>true</PublishAot>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <TieredPGO>false</TieredPGO>
   </PropertyGroup>
@@ -125,7 +128,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <!-- The Windows App SDK's parts the dock uses, rather than the whole SDK: the metapackage also brings its AI and
+         machine-learning runtime (onnxruntime, DirectML: about 40 MB) and Widgets, none of which a dock calls. These
+         are the versions the 1.8.260317003 metapackage pins. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="1.8.251216001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="1.8.25122902" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="1.8.260222000" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="1.8.260125001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260224000" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.6901" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.10" />
   </ItemGroup>

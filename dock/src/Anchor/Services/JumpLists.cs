@@ -68,8 +68,7 @@ public static class JumpLists
         bool listedKnown = false;
         try
         {
-            var list = (ShellInterop.IInternalCustomDestinationList)Activator.CreateInstance(
-                Type.GetTypeFromCLSID(ShellInterop.CLSID_DestinationList)!)!;
+            var list = ComInterop.Create<ShellInterop.IInternalCustomDestinationList>(ShellInterop.CLSID_DestinationList);
             try
             {
                 if (list.SetApplicationID(appId) == 0 && list.GetCategoryCount(out uint count) == 0)
@@ -102,7 +101,7 @@ public static class JumpLists
             }
             finally
             {
-                Marshal.ReleaseComObject(list);
+                ComInterop.Release(list);
             }
         }
         catch (Exception ex)
@@ -136,8 +135,9 @@ public static class JumpLists
     private static List<JumpEntry> Entries(ShellInterop.IInternalCustomDestinationList list, uint category)
     {
         var iid = ShellInterop.IID_IObjectArray;
-        return list.EnumerateCategoryDestinations(category, ref iid, out var array) == 0
-            ? Entries((ShellInterop.IObjectArray)array)
+        return list.EnumerateCategoryDestinations(category, ref iid, out var array) == 0 &&
+               ComInterop.Take<ShellInterop.IObjectArray>(array) is { } objects
+            ? Entries(objects)
             : new List<JumpEntry>();
     }
 
@@ -145,18 +145,18 @@ public static class JumpLists
     {
         try
         {
-            var lists = (ShellInterop.IApplicationDocumentLists)Activator.CreateInstance(
-                Type.GetTypeFromCLSID(ShellInterop.CLSID_ApplicationDocumentLists)!)!;
+            var lists = ComInterop.Create<ShellInterop.IApplicationDocumentLists>(ShellInterop.CLSID_ApplicationDocumentLists);
             try
             {
                 var iid = ShellInterop.IID_IObjectArray;
-                return lists.SetAppID(appId) == 0 && lists.GetList(listType, MaxPerCategory, ref iid, out var array) == 0
-                    ? Entries((ShellInterop.IObjectArray)array)
+                return lists.SetAppID(appId) == 0 && lists.GetList(listType, MaxPerCategory, ref iid, out var array) == 0 &&
+                       ComInterop.Take<ShellInterop.IObjectArray>(array) is { } objects
+                    ? Entries(objects)
                     : new List<JumpEntry>();
             }
             finally
             {
-                Marshal.ReleaseComObject(lists);
+                ComInterop.Release(lists);
             }
         }
         catch (Exception ex)
@@ -176,17 +176,17 @@ public static class JumpLists
             var unknown = ShellInterop.IID_IUnknown;
             for (uint i = 0; i < count && entries.Count(e => !e.IsSeparator) < MaxPerCategory; i++)
             {
-                if (array.GetAt(i, ref unknown, out var item) != 0)
+                if (array.GetAt(i, ref unknown, out var pointer) != 0 || ComInterop.Take(pointer) is not { } item)
                     continue;
                 if (Entry(item) is { } entry)
                     entries.Add(entry);
                 else
-                    Marshal.ReleaseComObject(item);
+                    ComInterop.Release(item);
             }
         }
         finally
         {
-            Marshal.ReleaseComObject(array);
+            ComInterop.Release(array);
         }
         return entries;
     }
@@ -259,7 +259,6 @@ public static class JumpLists
     public static void Release(IEnumerable<JumpCategory> categories)
     {
         foreach (var entry in categories.SelectMany(category => category.Entries))
-            if (entry.Target is not null && Marshal.IsComObject(entry.Target))
-                Marshal.ReleaseComObject(entry.Target);
+            ComInterop.Release(entry.Target);
     }
 }

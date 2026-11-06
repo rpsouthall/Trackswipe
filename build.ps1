@@ -31,6 +31,12 @@ foreach ($arch in 'arm64', 'x64') {
     if ($LASTEXITCODE) { throw "Publishing the $arch dock failed." }
     $zip = "dist\TrackSwipe-Dock-$arch.zip"
     if (Test-Path $zip) { Remove-Item -Force $zip }
+    # Everything but the debugging symbols (Anchor.pdb, about 70 MB): they stay in artifacts\ for reading crash dumps,
+    # and aren't needed to run the dock.
+    $symbols = "artifacts\dock-$arch-symbols"
+    if (Test-Path $symbols) { Remove-Item -Recurse -Force $symbols }
+    New-Item -ItemType Directory -Force $symbols | Out-Null
+    Get-ChildItem $out -Filter *.pdb | Move-Item -Destination $symbols
     Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal
     $dock[$arch] = @{ Hash = (Get-FileHash $zip -Algorithm SHA256).Hash; Bytes = (Get-Item $zip).Length }
 }

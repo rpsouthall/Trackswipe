@@ -156,10 +156,10 @@ internal static partial class NativeMethods
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     public static extern int SHGetStockIconInfo(int siid, uint flags, ref SHSTOCKICONINFO info);
 
-    [ComImport]
+    // Only the vtable up to GetIcon, the one method called: COM dispatches by slot, so these must stay in order.
+    [System.Runtime.InteropServices.Marshalling.GeneratedComInterface]
     [Guid("46EB5926-582E-4017-9FDF-E8998DAA0950")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IImageList
+    public partial interface IImageList
     {
         [PreserveSig] int Add(nint hbmImage, nint hbmMask, out int pi);
         [PreserveSig] int ReplaceIcon(int i, nint hicon, out int pi);
@@ -169,31 +169,11 @@ internal static partial class NativeMethods
         [PreserveSig] int Draw(nint pimldp);
         [PreserveSig] int Remove(int i);
         [PreserveSig] int GetIcon(int i, int flags, out nint picon);
-        [PreserveSig] int GetImageInfo(int i, nint pImageInfo);
-        [PreserveSig] int Copy(int iDst, IImageList punkSrc, int iSrc, int uFlags);
-        [PreserveSig] int Merge(int i1, IImageList punk2, int i2, int dx, int dy, ref Guid riid, out nint ppv);
-        [PreserveSig] int Clone(ref Guid riid, out nint ppv);
-        [PreserveSig] int GetImageRect(int i, nint prc);
-        [PreserveSig] int GetIconSize(out int cx, out int cy);
-        [PreserveSig] int SetIconSize(int cx, int cy);
-        [PreserveSig] int GetImageCount(out int pi);
-        [PreserveSig] int SetImageCount(int uNewCount);
-        [PreserveSig] int SetBkColor(int clrBk, out int pclr);
-        [PreserveSig] int GetBkColor(out int pclr);
-        [PreserveSig] int BeginDrag(int iTrack, int dxHotspot, int dyHotspot);
-        [PreserveSig] int EndDrag();
-        [PreserveSig] int DragEnter(nint hwndLock, int x, int y);
-        [PreserveSig] int DragLeave(nint hwndLock);
-        [PreserveSig] int DragMove(int x, int y);
-        [PreserveSig] int SetDragCursorImage(IImageList punk, int iDrag, int dxHotspot, int dyHotspot);
-        [PreserveSig] int DragShowNolock(int fShow);
-        [PreserveSig] int GetDragImage(nint ppt, nint pptHotspot, ref Guid riid, out nint ppv);
-        [PreserveSig] int GetItemFlags(int i, out int dwFlags);
-        [PreserveSig] int GetOverlayImage(int iOverlay, out int piIndex);
     }
 
-    [DllImport("shell32.dll")]
-    public static extern int SHGetImageList(int iImageList, ref Guid riid, out IImageList ppv);
+    /// <summary>The system image list at a size, as a COM pointer for <see cref="ComInterop.Take{T}"/>.</summary>
+    [LibraryImport("shell32.dll")]
+    public static partial int SHGetImageList(int iImageList, ref Guid riid, out nint ppv);
 
     // ---- Shell items that are not files (Store apps) -----------------------
     //

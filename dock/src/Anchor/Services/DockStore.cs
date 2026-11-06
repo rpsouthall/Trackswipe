@@ -43,17 +43,7 @@ public static class DockStore
 
     private static readonly string FilePath = Path.Combine(DataDirectory, "dock.json");
 
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
-        // The default encoder escapes anything outside a conservative ASCII set, which turns
-        // "Ctrl+Alt+A" into "Ctrl+Alt+A" and a name like "書類" into a run of escapes.
-        // dock.json is documented as hand-editable, so it is written to be read: this file is
-        // never embedded in HTML or a script, which is the only context that escaping guards.
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    // Written and read with AnchorJson: indented, nulls left out, enums by name, text unescaped.
 
     public static bool Exists => File.Exists(FilePath);
 
@@ -76,7 +66,7 @@ public static class DockStore
             if (File.Exists(FilePath))
             {
                 var json = ReadAllTextWithRetry(FilePath);
-                var cfg = JsonSerializer.Deserialize<DockConfig>(json, Options);
+                var cfg = JsonSerializer.Deserialize(json, AnchorJson.Config);
                 if (cfg is not null)
                     return cfg.Migrate();
                 Diag.Log("DockStore.Load: dock.json parsed to no config (a JSON 'null' body) — treating as corrupt");
@@ -138,7 +128,7 @@ public static class DockStore
         try
         {
             Directory.CreateDirectory(Dir);
-            var json = JsonSerializer.Serialize(config, Options);
+            var json = JsonSerializer.Serialize(config, AnchorJson.Config);
             // Write-then-rename for crash safety.
             var tmp = FilePath + ".tmp";
             File.WriteAllText(tmp, json);
@@ -166,7 +156,7 @@ public static class DockStore
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
-            File.WriteAllText(path, JsonSerializer.Serialize(config, Options));
+            File.WriteAllText(path, JsonSerializer.Serialize(config, AnchorJson.Config));
             return true;
         }
         catch (Exception ex)
@@ -189,7 +179,7 @@ public static class DockStore
     {
         try
         {
-            var config = JsonSerializer.Deserialize<DockConfig>(File.ReadAllText(path), Options);
+            var config = JsonSerializer.Deserialize(File.ReadAllText(path), AnchorJson.Config);
             if (config is null)
                 return null;
 

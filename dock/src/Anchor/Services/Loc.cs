@@ -141,7 +141,7 @@ public static class Loc
                 Diag.Log($"Loc: no embedded string table '{name}'");
                 return new Dictionary<string, string>(StringComparer.Ordinal);
             }
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(stream)
+            return JsonSerializer.Deserialize(stream, AnchorJson.Strings)
                    ?? new Dictionary<string, string>(StringComparer.Ordinal);
         }
         catch (Exception ex)

@@ -370,12 +370,19 @@ public static class IconService
     private static nint IconFromSystemImageList(int index, int imageList)
     {
         var iid = NativeMethods.IID_IImageList;
-        if (NativeMethods.SHGetImageList(imageList, ref iid, out var shellList) != 0)
+        if (NativeMethods.SHGetImageList(imageList, ref iid, out var pointer) != 0 ||
+            ComInterop.Take<NativeMethods.IImageList>(pointer) is not { } shellList)
             return nint.Zero;
-
-        return shellList.GetIcon(index, NativeMethods.ILD_TRANSPARENT, out nint hIcon) == 0
-            ? hIcon
-            : nint.Zero;
+        try
+        {
+            return shellList.GetIcon(index, NativeMethods.ILD_TRANSPARENT, out nint hIcon) == 0
+                ? hIcon
+                : nint.Zero;
+        }
+        finally
+        {
+            ComInterop.Release(shellList);
+        }
     }
 
     /// <summary>Decodes an image file the user pointed at (a custom icon can be any path on

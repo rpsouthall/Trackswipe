@@ -47,14 +47,14 @@ public static class TrackSwipeBridge
             return false;
         try
         {
-            var desktops = (NativeMethods.IVirtualDesktopManager)new NativeMethods.VirtualDesktopManager();
+            var desktops = ComInterop.Create<NativeMethods.IVirtualDesktopManager>(NativeMethods.CLSID_VirtualDesktopManager);
             try
             {
                 return desktops.IsWindowOnCurrentVirtualDesktop(window, out int here) == 0 && here == 0;
             }
             finally
             {
-                Marshal.ReleaseComObject(desktops);
+                ComInterop.Release(desktops);
             }
         }
         catch

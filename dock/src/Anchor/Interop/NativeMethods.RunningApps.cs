@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 
 namespace Anchor.Interop;
 
@@ -34,14 +35,12 @@ internal static partial class NativeMethods
     [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
     public static partial int DwmGetWindowRect(nint hwnd, int attribute, out RECT value, int size);
 
-    [ComImport]
-    [Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")]
-    public class VirtualDesktopManager { }
+    /// <summary>The shell's virtual desktop manager (<see cref="ComInterop.Create{T}"/> it as an <see cref="IVirtualDesktopManager"/>).</summary>
+    public static readonly Guid CLSID_VirtualDesktopManager = new("aa509086-5ca9-4c25-8f95-589d3c07b48a");
 
-    [ComImport]
+    [GeneratedComInterface]
     [Guid("a5cd92ff-29be-454c-8d04-d82879fb3f1b")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IVirtualDesktopManager
+    public partial interface IVirtualDesktopManager
     {
         [PreserveSig] int IsWindowOnCurrentVirtualDesktop(nint topLevelWindow, out int onCurrentDesktop);
         [PreserveSig] int GetWindowDesktopId(nint topLevelWindow, out Guid desktopId);
@@ -138,10 +137,9 @@ internal static partial class NativeMethods
 
     public const ushort VT_LPWSTR = 31;
 
-    [ComImport]
+    [GeneratedComInterface]
     [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IPropertyStore
+    public partial interface IPropertyStore
     {
         [PreserveSig] int GetCount(out uint count);
         [PreserveSig] int GetAt(uint index, out PROPERTYKEY key);
@@ -152,8 +150,9 @@ internal static partial class NativeMethods
 
     public static readonly Guid IID_IPropertyStore = new("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
 
-    [DllImport("shell32.dll")]
-    public static extern int SHGetPropertyStoreForWindow(nint hwnd, ref Guid riid, out IPropertyStore store);
+    /// <summary>A window's property store, as a COM pointer for <see cref="ComInterop.Take{T}"/>.</summary>
+    [LibraryImport("shell32.dll")]
+    public static partial int SHGetPropertyStoreForWindow(nint hwnd, ref Guid riid, out nint store);
 
     [DllImport("ole32.dll")]
     public static extern int PropVariantClear(ref PROPVARIANT value);

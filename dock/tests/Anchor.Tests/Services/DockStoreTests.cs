@@ -29,6 +29,29 @@ public class DockStoreTests : IDisposable
 
     private string Path_(string name) => Path.Combine(_directory, name);
 
+    /// <summary>
+    /// dock.json is written by build-time generated code (for the natively compiled dock), and must come out exactly
+    /// as the reflection-based serializer wrote it before, so every existing file reads back and nothing a user
+    /// hand-edited changes shape.
+    /// </summary>
+    [Fact]
+    public void Export_MatchesWhatTheReflectionSerializerWrote()
+    {
+        var config = SampleConfig();
+        var path = Path_("format.json");
+        DockStore.ExportTo(config, path);
+
+        var reflection = new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
+        };
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(config, reflection), File.ReadAllText(path));
+    }
+
     private static DockConfig SampleConfig()
     {
         var config = new DockConfig
