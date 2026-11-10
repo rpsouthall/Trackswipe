@@ -17,6 +17,9 @@ internal sealed class DesktopSlide(Swatches swatches)
 {
     private const int Fixed = int.MaxValue;
 
+    /// <summary>A minimized window being restored as the slide lands: it grows out of its dock icon, in screen space.</summary>
+    private const int Arriving = int.MaxValue - 1;
+
     private readonly List<(Sprite Sprite, Sprite? Backing, int Layer, int Width)> _parts = new();
     private readonly Dictionary<ThumbnailSurface, CompositionVisual> _groups = new();
     private readonly Dictionary<ThumbnailSurface, float> _offsets = new();
@@ -24,20 +27,28 @@ internal sealed class DesktopSlide(Swatches swatches)
     private (ThumbnailSurface Surface, int Generation)[] _surfaces = Array.Empty<(ThumbnailSurface, int)>();
     private int? _target;
     private IntPtr[] _raised = Array.Empty<IntPtr>();
+    private IntPtr _arriving;
+    private Rectangle? _arrivingFrom;
 
     /// <param name="target">
     /// A desktop to slide to that may not be a neighbour (a jump from the taskbar): it takes the neighbour's place on
     /// its side, and only it and the current desktop are prepared.
     /// </param>
     /// <param name="raise">Windows that come to the front as the switch lands (the one being activated).</param>
-    public void Begin(DesktopScene scene, IReadOnlyList<ThumbnailSurface> surfaces, int? target = null, IReadOnlyCollection<IntPtr>? raise = null)
+    /// <param name="arriving">
+    /// A minimized window on the target desktop that is being restored: hidden until <see cref="Settle"/>, which grows
+    /// it from <paramref name="arrivingFrom"/> (its dock icon, in screen px) to its place as the desktops slide, as
+    /// Windows' own restore animation would, so it is already there when the slide comes off rather than popping in.
+    /// </param>
+    public void Begin(DesktopScene scene, IReadOnlyList<ThumbnailSurface> surfaces, int? target = null, IReadOnlyCollection<IntPtr>? raise = null,
+        IntPtr arriving = default, Rectangle? arrivingFrom = null)
     {
         var raised = raise?.ToArray() ?? Array.Empty<IntPtr>();
         // A repeated swipe on an unchanged desktop can reuse all registrations and their z-order.
         // On a changed scene, reuse unchanged windows individually rather than discarding
         // their DWM representations merely because the current desktop index changed.
         if (_scene is { } previous && previous.Current == scene.Current && previous.Items.SequenceEqual(scene.Items)
-            && _target == target && _raised.SequenceEqual(raised)
+            && _target == target && _raised.SequenceEqual(raised) && _arriving == arriving && _arrivingFrom == arrivingFrom
             && (previous.Desktops?.Ids ?? Array.Empty<Guid>()).SequenceEqual(scene.Desktops?.Ids ?? Array.Empty<Guid>())
             && _surfaces.Length == surfaces.Count
             && _surfaces.Select(pair => pair.Surface).SequenceEqual(surfaces)
@@ -61,6 +72,9 @@ internal sealed class DesktopSlide(Swatches swatches)
             var windows = scene.Items.Where(item => item.Kind == SceneKind.Window && !item.IsMinimized && !item.OnAllDesktops && LayerOf(item) is not null).ToList();
             foreach (var window in windows.Where(item => !raised.Contains(item.Window)).Concat(windows.Where(item => raised.Contains(item.Window))))
                 Add(surface, window, LayerOf(window)!.Value);
+            if (arriving != IntPtr.Zero && scene.Items.FirstOrDefault(item => item.Window == arriving && item.IsMinimized) is { } restoring &&
+                restoring.Window != IntPtr.Zero)
+                Add(surface, restoring, Arriving);
             foreach (var taskbar in scene.Taskbars) Add(surface, taskbar, Fixed);
             // Ones that stay on top are the real windows, kept above the overlay (DesktopScene.RaiseKeptAbove); the
             // rest can't be above it without being made topmost, so they're mirrored in place, like the taskbar.
@@ -81,6 +95,8 @@ internal sealed class DesktopSlide(Swatches swatches)
         _scene = scene;
         _target = target;
         _raised = raised;
+        _arriving = arriving;
+        _arrivingFrom = arrivingFrom;
         _surfaces = surfaces.Select(surface => (surface, surface.Generation)).ToArray();
         Log.Verbose($"Desktop slide prepared: {reused} reused thumbnails, {created} new thumbnails.");
 
@@ -144,7 +160,7 @@ internal sealed class DesktopSlide(Swatches swatches)
         var span = new RectangleF(-width, 0, 3f * width, height); // the three desktops side by side
         foreach (var (sprite, backing, layer, _) in parts)
         {
-            if (layer == Fixed) continue;
+            if (layer is Fixed or Arriving) continue;
             var destination = (RectangleF)sprite.Home;
             destination.Offset(layer * width, 0);
             var viewport = new RectangleF(layer * width, 0, width, height);
@@ -152,10 +168,21 @@ internal sealed class DesktopSlide(Swatches swatches)
             surface.Group(sprite, group);
             sprite.Place(destination, 255, viewport, span);
         }
-        var fixedParts = parts.Where(part => part.Layer == Fixed).Select(part => part.Sprite).ToArray();
-        surface.Restack(fixedParts); // the taskbar above the moving desktops
-        foreach (var sprite in fixedParts) sprite.Place(sprite.Home);
+        // The taskbar above the moving desktops; a window being restored between them, hidden in its dock icon for now.
+        var fixedParts = parts.Where(part => part.Layer is Fixed or Arriving).ToArray();
+        surface.Restack(fixedParts.Select(part => part.Sprite).ToArray());
+        foreach (var (sprite, _, layer, _) in fixedParts)
+            if (layer == Arriving) sprite.Place(ArrivalStart(surface), 0, null);
+            else sprite.Place(sprite.Home);
         _offsets[surface] = float.NaN;
+    }
+
+    /// <summary>Where a restored window grows from, in the monitor's coordinates: its dock icon, or the middle of the bottom edge.</summary>
+    private RectangleF ArrivalStart(ThumbnailSurface surface)
+    {
+        var monitor = surface.Monitor;
+        if (_arrivingFrom is { } icon) return new RectangleF(icon.X - monitor.X, icon.Y - monitor.Y, icon.Width, icon.Height);
+        return new RectangleF(monitor.Width / 2f - 24, monitor.Height - 48, 48, 48);
     }
 
     private static (ThumbnailSurface Surface, IntPtr Window, int Slot) Key(ThumbnailSurface surface, SceneItem item, int layer) =>
@@ -186,6 +213,22 @@ internal sealed class DesktopSlide(Swatches swatches)
             transform.SetMatrixElement(2, 0, x).CheckError();
             group.SetTransform(transform);
             _offsets[surface] = float.NaN; // the next Render replaces the curve
+        }
+        // A window being restored grows from its dock icon to its place on the same curve, landing as the desktops do.
+        foreach (var (sprite, _, _, _) in _parts.Where(part => part.Layer == Arriving))
+        {
+            sprite.RefreshSourceSize(); // restored by now: its live image, not the small one kept while it was minimized
+            var from = ArrivalStart(sprite.Surface);
+            var to = (RectangleF)sprite.Home;
+            var frames = motion.Samples.Select(sample =>
+            {
+                var t = (float)Math.Clamp(Math.Abs(sample.Value), 0, 1);
+                var bounds = new RectangleF(from.X + (to.X - from.X) * t, from.Y + (to.Y - from.Y) * t,
+                    from.Width + (to.Width - from.Width) * t, from.Height + (to.Height - from.Height) * t);
+                // Faded in over its first third, as Windows does; never quite 0, which would skip sizing its thumbnail.
+                return new SpriteFrame(sample.Time, bounds, Math.Clamp(t * 3, 0.01f, 1f), null);
+            }).ToArray();
+            sprite.Animate(frames, begin);
         }
         Composition.Flush();
     }

@@ -137,7 +137,10 @@ internal sealed partial class OverlayController
         var target = item.Desktop;
         if (target < 0 || target >= desktops.Count || target == scene.Current) return false;
         var raised = new HashSet<IntPtr> { window };
-        _slide.Begin(scene, _slideSurfaces.Prepare(), target, raised);
+        // A minimized window grows out of its dock icon as the desktops slide (the dock restores it as this returns),
+        // rather than appearing all at once when the slide comes off.
+        Rectangle? icon = DockTargets.Icons is { } dock && dock.TryGetValue(window, out var found) ? found : null;
+        _slide.Begin(scene, _slideSurfaces.Prepare(), target, raised, item.IsMinimized ? window : IntPtr.Zero, icon);
         _slide.Render(0);
         var jump = new TaskbarJump(scene, target, desktops.Ids[target], new[] { window }, Point.Empty, Clock.Now);
         foreach (var surface in _slideSurfaces.Prepare()) surface.Show();
@@ -179,7 +182,8 @@ internal sealed partial class OverlayController
         var end = now + motion.Duration;
         var switcher = _switcher!;
         var targetId = jump.TargetId;
-        var arriving = jump.Windows.FirstOrDefault(window => scene.Items.Any(item => item.Window == window && !item.IsMinimized));
+        // The window being brought forward, minimized or not (the dock restores a minimized one): it uncloaks as the switch lands.
+        var arriving = jump.Windows.FirstOrDefault(window => scene.Items.Any(item => item.Window == window && (!item.IsMinimized || jump.Windows.Length == 1)));
         var landing = new SwitchLanding(arriving != IntPtr.Zero ? arriving : scene.TopWindowOn(jump.Target), scene.TopWindowOn(scene.Current),
             DesktopScene.IsShown, () => switcher.CurrentDesktopId() == targetId, now);
         // Remove the overlay once the slide has finished and the real desktop is on screen beneath it.
