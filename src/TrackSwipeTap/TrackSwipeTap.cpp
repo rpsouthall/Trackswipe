@@ -947,8 +947,8 @@ namespace
             GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &now, order == 1 ? L"d MMM" : L"MMM d", date, ARRAYSIZE(date), nullptr);
             GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSHORTTIME, format, ARRAYSIZE(format));
             GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, format[0] ? 0 : TIME_NOSECONDS, &now, format[0] ? format : nullptr, time, ARRAYSIZE(time));
-            constexpr wchar_t EmSpace = 0x2003; // between them, as GNOME spaces them (a number: the source stays ASCII)
-            return std::format(L"{}{}{}", date, EmSpace, time);
+            constexpr wchar_t EnSpace = 0x2002; // between them: half an em, a little wider than a word space (a number: the source stays ASCII)
+            return std::format(L"{}{}{}", date, EnSpace, time);
         }
 
         Controls::Border AddClock(Controls::Grid const& root)
