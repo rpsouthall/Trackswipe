@@ -49,7 +49,9 @@ internal static class GesturePreferences
 
     // Taskbar options in the tray menu: personal preferences, so all off unless turned on.
     public const string HideStartButton = "HideStartButton", HideTaskbarEdge = "HideTaskbarEdge", HideTopTaskbarInMissionControl = "HideTopTaskbarInMissionControl",
-        LargeTrayIcons = "LargeTrayIcons", HideRunningIndicators = "HideRunningIndicators";
+        LargeTrayIcons = "LargeTrayIcons", HideRunningIndicators = "HideRunningIndicators",
+        /// <summary>The date and time in the middle of the taskbar, as GNOME's top bar shows them.</summary>
+        CentreClock = "CentreClock";
 
     /// <summary>TrackSwipe's dock (pinned and open apps along the bottom of the screen). Off unless turned on.</summary>
     public const string ShowDock = "ShowDock";

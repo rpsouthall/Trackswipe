@@ -20,6 +20,8 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Automation.h>
+#include <winrt/Windows.UI.Xaml.Automation.Peers.h>
+#include <winrt/Windows.UI.Xaml.Automation.Provider.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Input.h>
 #include <winrt/Windows.UI.Text.h>
@@ -371,7 +373,7 @@ namespace
         return node;
     }
 
-    enum class Part { Start, Edge, Indicator, AppButton };
+    enum class Part { Start, Edge, Indicator, AppButton, Clock };
 
     /// An element kept collapsed while its option is on, even if Explorer makes it visible again.
     struct Collapsible
@@ -528,6 +530,7 @@ namespace
                     FindLabels(top);
                 }
             for (auto& item : m_texts) ApplyText(item);
+            UpdateClocks(); // the clock in the middle is sized as the tray's text is
         }
 
         /// The app name in place of the app buttons (TrackSwipe's dock is on): the name of the app in front, as a
@@ -835,6 +838,206 @@ namespace
             }
         }
 
+        // ---- The clock in the middle --------------------------------------------------------------------
+        // GNOME's top bar: the date and time centred on the bar ("Nov 10  7:50 PM"), with Windows' own clock hidden
+        // meanwhile. A click opens what a click on Windows' clock does: notifications and the calendar. The text is set
+        // when the minute turns, by a timer due then, and whenever Explorer's own clock changes its text (it does on
+        // waking from sleep, or when the time is changed); nothing runs in between.
+
+        static constexpr UINT_PTR ClockTimer = 32;
+
+        void SetCentreClock(bool on)
+        {
+            if (on == m_centreClock) return;
+            m_centreClock = on;
+            if (on)
+            {
+                s_self = this;
+                if (!m_flyoutHook)
+                    m_flyoutHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, FlyoutWatch, 0, 0, WINEVENT_OUTOFCONTEXT);
+                UpdateClocks();
+            }
+            else
+            {
+                if (m_flyoutHook) UnhookWinEvent(m_flyoutHook);
+                m_flyoutHook = nullptr;
+                if (m_control) KillTimer(m_control, ClockTimer);
+                RemoveClocks();
+                std::erase_if(m_clockViews, [](auto& item) { return !item.element.get(); });
+                for (auto& item : m_clockViews) Apply(item, false);
+            }
+        }
+
+        /// Puts the clock in the middle of every taskbar (adding it to one that hasn't got it), and hides Windows' own.
+        void UpdateClocks()
+        {
+            if (!m_centreClock) return;
+            std::erase_if(m_centreClocks, [](auto& clock) { return !clock.first.get(); });
+            std::erase_if(m_clockViews, [](auto& item) { return !item.element.get(); });
+            auto text = ClockText();
+            for (auto& weak : m_frames)
+            {
+                auto frame = weak.get();
+                if (!frame) continue;
+                auto root = FindByName(frame, L"RootGrid").try_as<Controls::Grid>();
+                if (!root) continue;
+                auto time = FindByName(frame, L"TimeInnerTextBlock").try_as<Controls::TextBlock>();
+                if (time)
+                {
+                    WatchTime(time);
+                    if (auto slot = SlotOf(time)) Track(m_clockViews, slot, Part::Clock);
+                }
+                Controls::Border host{ nullptr };
+                for (auto& [owner, existing] : m_centreClocks) if (owner.get() == root) host = existing;
+                if (!host) host = AddClock(root);
+                auto label = host.Child().as<Controls::TextBlock>();
+                if (label.Text() != text) label.Text(text);
+                // The size Windows' clock is drawn at (or TrackSwipe's, with larger taskbar text).
+                label.FontSize(m_textSize >= 1 ? m_textSize : time ? time.FontSize() : 12);
+                label.Foreground(Media::SolidColorBrush(TextColour(frame)));
+                m_clockHover = frame.ActualTheme() == ElementTheme::Dark
+                    ? Windows::UI::ColorHelper::FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Windows::UI::ColorHelper::FromArgb(0x10, 0, 0, 0);
+            }
+            for (auto& item : m_clockViews) Apply(item, true);
+            ArmClockTimer();
+        }
+
+        /// Just the text, as the minute turns.
+        void ClockTick()
+        {
+            if (!m_centreClock) return;
+            auto text = ClockText();
+            for (auto& [owner, host] : m_centreClocks)
+                if (auto label = host.Child().try_as<Controls::TextBlock>(); label && label.Text() != text) label.Text(text);
+            ArmClockTimer();
+        }
+
+        /// A timer due just after the next minute begins.
+        void ArmClockTimer()
+        {
+            if (!m_control) return;
+            SYSTEMTIME now;
+            GetLocalTime(&now);
+            SetTimer(m_control, ClockTimer, (60 - now.wSecond) * 1000 - now.wMilliseconds + 20, nullptr);
+        }
+
+        /// Explorer's own clock changing its text (hidden or not) sets ours too: after sleep, or a change of time.
+        void WatchTime(Controls::TextBlock const& time)
+        {
+            std::erase_if(m_timeTexts, [](auto& weak) { return !weak.get(); });
+            for (auto& weak : m_timeTexts) if (weak.get() == time) return;
+            m_timeTexts.push_back(make_weak(time));
+            time.RegisterPropertyChangedCallback(Controls::TextBlock::TextProperty(), [this](DependencyObject const&, DependencyProperty const&)
+            {
+                try { ClockTick(); }
+                catch (...) {}
+            });
+        }
+
+        /// The date as GNOME shows it, in the order the user's dates take ("Nov 10", or "10 Nov"), then the time as the
+        /// taskbar's clock shows it (the short time format: 12 or 24 hours, as set in Windows).
+        static std::wstring ClockText()
+        {
+            SYSTEMTIME now;
+            GetLocalTime(&now);
+            DWORD order = 0; // LOCALE_IDATE: 0 month first, 1 day first, 2 year first
+            GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IDATE | LOCALE_RETURN_NUMBER, reinterpret_cast<LPWSTR>(&order), sizeof(order) / sizeof(wchar_t));
+            wchar_t date[64]{}, time[64]{}, format[80]{};
+            GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &now, order == 1 ? L"d MMM" : L"MMM d", date, ARRAYSIZE(date), nullptr);
+            GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSHORTTIME, format, ARRAYSIZE(format));
+            GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, format[0] ? 0 : TIME_NOSECONDS, &now, format[0] ? format : nullptr, time, ARRAYSIZE(time));
+            return std::format(L"{} {}", date, time); // an em space between, as GNOME spaces them
+        }
+
+        Controls::Border AddClock(Controls::Grid const& root)
+        {
+            Controls::TextBlock label;
+            label.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
+            label.VerticalAlignment(VerticalAlignment::Center);
+            label.IsTextScaleFactorEnabled(false); // sized above, from the clock it stands in for
+            Controls::Border host;
+            host.Child(label);
+            host.Padding({ 10, 4, 10, 4 });
+            host.CornerRadius({ 8, 8, 8, 8 });
+            host.Background(Media::SolidColorBrush(Windows::UI::Colors::Transparent())); // hit-testable all over
+            host.VerticalAlignment(VerticalAlignment::Center);
+            host.HorizontalAlignment(HorizontalAlignment::Center);
+            // The middle of the whole bar, whatever columns or rows it's laid out in.
+            if (auto columns = static_cast<int>(root.ColumnDefinitions().Size()); columns > 1) Controls::Grid::SetColumnSpan(host, columns);
+            if (auto rows = static_cast<int>(root.RowDefinitions().Size()); rows > 1) Controls::Grid::SetRowSpan(host, rows);
+            host.PointerEntered([this, weak = make_weak(host)](auto&&, auto&&) { if (auto h = weak.get()) h.Background(Media::SolidColorBrush(m_clockHover)); });
+            host.PointerExited([weak = make_weak(host)](auto&&, auto&&) { if (auto h = weak.get()) h.Background(Media::SolidColorBrush(Windows::UI::Colors::Transparent())); });
+            host.Tapped([this, weak = make_weak(root)](auto&&, Input::TappedRoutedEventArgs const& e)
+            {
+                e.Handled(true);
+                if (auto r = weak.get()) OpenCalendar(r);
+            });
+            Automation::AutomationProperties::SetName(host, L"Clock. Opens notifications and the calendar");
+            root.Children().Append(host);
+            m_centreClocks.emplace_back(make_weak(root), host);
+            return host;
+        }
+
+        void RemoveClocks()
+        {
+            for (auto& [owner, host] : m_centreClocks)
+                if (auto root = owner.get())
+                {
+                    uint32_t index;
+                    if (root.Children().IndexOf(host, index)) root.Children().RemoveAt(index);
+                }
+            m_centreClocks.clear();
+        }
+
+        /// What a click on Windows' clock opens: its own button is asked to do it (it's still there, beside the hidden
+        /// clock), or failing that, Windows is asked for notifications. Not when the click is the one that just closed
+        /// them (they go when anything else is clicked): a second click on Windows' clock closes them too.
+        void OpenCalendar(Controls::Grid const& root)
+        {
+            if (m_flyoutInFront || GetTickCount64() - m_flyoutLeftAt < 500) return;
+            if (auto button = FindByName(root, L"NotificationCenterButton"))
+                try
+                {
+                    auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(button);
+                    if (auto invoke = peer ? peer.GetPattern(Automation::Peers::PatternInterface::Invoke) : nullptr)
+                    {
+                        invoke.as<Automation::Provider::IInvokeProvider>().Invoke();
+                        return;
+                    }
+                }
+                catch (...) {}
+            ShellExecuteW(nullptr, L"open", L"ms-actioncenter:", nullptr, nullptr, SW_SHOWNORMAL);
+        }
+
+        /// Whether a window is one of the shell's panels (notifications and the calendar, quick settings).
+        static bool IsShellPanel(HWND window)
+        {
+            DWORD pid = 0;
+            if (!window || !GetWindowThreadProcessId(window, &pid) || !pid) return false;
+            HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            if (!process) return false;
+            wchar_t path[MAX_PATH]{};
+            DWORD size = ARRAYSIZE(path);
+            auto named = QueryFullProcessImageNameW(process, 0, path, &size);
+            CloseHandle(process);
+            if (!named) return false;
+            std::wstring_view file(path, size);
+            file = file.substr(file.find_last_of(L'\\') + 1);
+            return _wcsicmp(std::wstring(file).c_str(), L"ShellExperienceHost.exe") == 0 || _wcsicmp(std::wstring(file).c_str(), L"ShellHost.exe") == 0;
+        }
+
+        static void CALLBACK FlyoutWatch(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWORD, DWORD)
+        {
+            try
+            {
+                if (!s_self) return;
+                bool panel = IsShellPanel(window);
+                if (s_self->m_flyoutInFront && !panel) s_self->m_flyoutLeftAt = GetTickCount64();
+                s_self->m_flyoutInFront = panel;
+            }
+            catch (...) {}
+        }
+
         /// MAKELRESULT(Start buttons tracked, flags): bit 0 Start hidden, bit 1 edge hidden, bits 2+ edge lines tracked.
         LRESULT Query()
         {
@@ -870,7 +1073,7 @@ namespace
     private:
         bool Hidden(Part part) const
         {
-            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : part == Part::AppButton ? m_buttonsHidden : m_startHidden;
+            return part == Part::Edge ? m_edgeHidden : part == Part::Indicator ? m_indicatorsHidden : part == Part::AppButton ? m_buttonsHidden : part == Part::Clock ? m_centreClock : m_startHidden;
         }
 
         /// Collapses or restores one tracked element, watching it the first time so Explorer can't bring it back.
@@ -935,7 +1138,7 @@ namespace
             // Its parts may not exist yet: look once it has loaded too.
             frame.Loaded([this, weak = make_weak(frame)](auto&&, auto&&)
             {
-                try { FindEdge(weak); for (auto& item : m_edges) Apply(item, m_edgeHidden); Pad(weak); ApplyTransparency(weak); UpdateDesktopBars(false); }
+                try { FindEdge(weak); for (auto& item : m_edges) Apply(item, m_edgeHidden); Pad(weak); ApplyTransparency(weak); UpdateDesktopBars(false); UpdateClocks(); }
                 catch (...) {}
             });
             FindEdge(m_frames.back());
@@ -1031,7 +1234,11 @@ namespace
             if (!FirstHook(icon)) return;
             icon.Loaded([this, weak = make_weak(icon)](auto&&, auto&&)
             {
-                try { if (auto i = weak.get(); i && (m_iconSize > 0 || m_textSize > 0)) ScaleTray(i); }
+                try
+                {
+                    if (auto i = weak.get(); i && (m_iconSize > 0 || m_textSize > 0)) ScaleTray(i);
+                    UpdateClocks(); // a rebuilt clock is hidden again
+                }
                 catch (...) {}
             });
         }
@@ -1931,7 +2138,7 @@ namespace
             }
             catch (...) {}
             // TrackSwipe may run as administrator; let its commands through.
-            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName, TrackSwipeTap::Transparency, static_cast<UINT>(WM_COPYDATA) })
+            for (auto message : { TrackSwipeTap::StartButton, TrackSwipeTap::EdgeLine, TrackSwipeTap::Query, TrackSwipeTap::Dump, TrackSwipeTap::TrayIcons, TrackSwipeTap::Indicators, TrackSwipeTap::TrayText, TrackSwipeTap::AppIcons, TrackSwipeTap::Retire, TrackSwipeTap::AppName, TrackSwipeTap::Transparency, TrackSwipeTap::CentreClock, static_cast<UINT>(WM_COPYDATA) })
                 ChangeWindowMessageFilterEx(m_control, message, MSGFLT_ALLOW, nullptr);
         }
 
@@ -1953,9 +2160,13 @@ namespace
                     case TrackSwipeTap::Retire: tap->m_retired = true; return 1;
                     case TrackSwipeTap::AppName: tap->SetTopLeft(static_cast<int>(wParam), lParam != 0); return 1;
                     case TrackSwipeTap::Transparency: tap->SetTransparency(static_cast<int>(wParam)); return 1;
+                    case TrackSwipeTap::CentreClock: tap->SetCentreClock(wParam != 0); return 1;
                     case DesktopsChanged: tap->DesktopsMoved(); return 1;
                     case WM_COPYDATA: tap->ReceiveDockIcons(reinterpret_cast<COPYDATASTRUCT const*>(lParam)); return 1;
-                    case WM_TIMER: if (wParam == RecheckTimer) { tap->Recheck(); return 0; } break;
+                    case WM_TIMER:
+                        if (wParam == RecheckTimer) { tap->Recheck(); return 0; }
+                        if (wParam == ClockTimer) { tap->ClockTick(); return 0; }
+                        break;
                     case ColorsChanged:
                         // Light and dark taskbars show different artwork for some apps.
                         if (auto light = LightTaskbar(); light != tap->m_lightTaskbar)
@@ -1966,6 +2177,7 @@ namespace
                         }
                         tap->UpdateLabels(); // the app name's colour follows the taskbar's
                         tap->UpdateDesktopBars(false); // and so do the desktop dots
+                        tap->UpdateClocks(); // and the clock's
                         for (auto& frame : tap->m_frames) tap->ApplyTransparency(frame);
                         return 1;
                     case TextScaleChanged: for (auto& item : tap->m_texts) tap->ApplyText(item); return 1;
@@ -2028,6 +2240,14 @@ namespace
         int m_desktopCount = 1, m_desktopIndex = 0;
         Windows::UI::Color m_desktopHover{};   // the dots' background under the pointer
         std::vector<std::pair<weak_ref<Controls::Grid>, Controls::Border>> m_desktopBars; // per taskbar
+        bool m_centreClock = false;            // the date and time in the middle, Windows' clock hidden
+        std::vector<std::pair<weak_ref<Controls::Grid>, Controls::Border>> m_centreClocks; // per taskbar
+        std::vector<Collapsible> m_clockViews;  // Windows' clocks, collapsed meanwhile
+        std::vector<weak_ref<Controls::TextBlock>> m_timeTexts; // their text, watched for changes
+        Windows::UI::Color m_clockHover{};
+        HWINEVENTHOOK m_flyoutHook = nullptr;  // which window is in front, to know a click closed the shell's panel
+        bool m_flyoutInFront = false;
+        ULONGLONG m_flyoutLeftAt = 0;
         std::vector<Collapsible> m_appButtons; // collapsed meanwhile
         std::vector<std::pair<weak_ref<Controls::Grid>, Controls::TextBlock>> m_labels; // per taskbar
         std::map<std::wstring, std::wstring> m_names; // app names, by AppUserModelID or program path

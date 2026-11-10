@@ -9,7 +9,7 @@ namespace TrackSwipeTap
 
     // The DLL's message-only window inside Explorer, and the messages it accepts.
     // Versioned: TrackSwipe asks an older copy still loaded in Explorer to stand down before loading this one.
-    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.35";
+    inline constexpr wchar_t WindowClass[] = L"TrackSwipe.Tap.36";
     /// wParam 1 hides the Start button, 0 gives it back to Explorer. lParam: space to leave before the first app button
     /// while it's hidden, in hundredths of an effective pixel (so a left-aligned taskbar starts as far in as the clock ends).
     inline constexpr UINT StartButton = WM_APP + 1;
@@ -42,4 +42,7 @@ namespace TrackSwipeTap
     inline constexpr UINT AppName = WM_APP + 10;
     /// How see-through the taskbar's background is: wParam in percent, 0 (Explorer's own) to 100 (clear).
     inline constexpr UINT Transparency = WM_APP + 11;
+    /// wParam 1 puts the date and time in the middle of the taskbar, as GNOME's top bar shows them ("Nov 10  7:50 PM"),
+    /// Windows' own clock hidden meanwhile; 0 gives the clock back.
+    inline constexpr UINT CentreClock = WM_APP + 12;
 }

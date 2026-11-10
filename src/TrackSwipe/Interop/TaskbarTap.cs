@@ -11,8 +11,8 @@ namespace TrackSwipe.Interop;
 /// </summary>
 internal static unsafe class TaskbarTap
 {
-    private const int Version = 35;
-    private const string WindowClass = "TrackSwipe.Tap.35"; // "TrackSwipe.Tap.{Version}"
+    private const int Version = 36;
+    private const string WindowClass = "TrackSwipe.Tap.36"; // "TrackSwipe.Tap.{Version}"
 
     /// <summary>
     /// Space before the first app button while Start is hidden, in hundredths of an effective pixel, on a left-aligned
@@ -41,7 +41,7 @@ internal static unsafe class TaskbarTap
     /// first icon changes by half of each (icons grow from their centre; the first button's margin adds to the space).
     /// </summary>
     private const int AppIconSize = 2000, AppIconSpacing = 600;
-    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4, TrayIconsMessage = 0x8000 + 5, IndicatorsMessage = 0x8000 + 6, TrayTextMessage = 0x8000 + 7, AppIconsMessage = 0x8000 + 8, RetireMessage = 0x8000 + 9, AppNameMessage = 0x8000 + 10, TransparencyMessage = 0x8000 + 11;
+    private const int StartButtonMessage = 0x8000 + 1, EdgeLineMessage = 0x8000 + 2, QueryMessage = 0x8000 + 3, DumpMessage = 0x8000 + 4, TrayIconsMessage = 0x8000 + 5, IndicatorsMessage = 0x8000 + 6, TrayTextMessage = 0x8000 + 7, AppIconsMessage = 0x8000 + 8, RetireMessage = 0x8000 + 9, AppNameMessage = 0x8000 + 10, TransparencyMessage = 0x8000 + 11, CentreClockMessage = 0x8000 + 12;
     private static readonly Guid Clsid = new("5c36979c-4b69-4ae1-9b76-9d4b249e5659");
     private const string Resource = "TrackSwipeTap.dll";
 
@@ -59,7 +59,8 @@ internal static unsafe class TaskbarTap
     /// </summary>
     /// <param name="topLeft">What stands in for the app buttons while the dock is on; ignored while it's off.</param>
     /// <param name="transparency">How see-through the taskbar is, in percent (0: as Windows draws it).</param>
-    public static bool Send(bool hideStart, bool hideEdge, bool largeTrayIcons, bool hideIndicators, bool dockOn = false, TopLeft topLeft = TopLeft.AppName, int transparency = 0)
+    /// <param name="centreClock">The date and time in the middle of the taskbar, as GNOME shows them, in place of Windows' clock.</param>
+    public static bool Send(bool hideStart, bool hideEdge, bool largeTrayIcons, bool hideIndicators, bool dockOn = false, TopLeft topLeft = TopLeft.AppName, int transparency = 0, bool centreClock = false)
     {
         var window = Window;
         if (window == IntPtr.Zero) return false;
@@ -73,6 +74,7 @@ internal static unsafe class TaskbarTap
         // With the dock on: what stands in for the app buttons, and windows minimize into the dock.
         SendMessageTimeoutW(window, AppNameMessage, dockOn ? (int)topLeft : 0, dockOn ? 1 : 0, 0x0002, 2000, out _);
         SendMessageTimeoutW(window, TransparencyMessage, Math.Clamp(transparency, 0, 100), IntPtr.Zero, 0x0002, 2000, out _);
+        SendMessageTimeoutW(window, CentreClockMessage, centreClock ? 1 : 0, IntPtr.Zero, 0x0002, 2000, out _);
         if (dockOn && Overlay.DockTargets.Raw is { } icons) ForwardDockIcons(icons); // where windows minimize to
         return true;
     }
@@ -110,7 +112,7 @@ internal static unsafe class TaskbarTap
             var window = FindWindowExW((IntPtr)(-3), IntPtr.Zero, version == 1 ? "TrackSwipe.Tap" : $"TrackSwipe.Tap.{version}", null);
             if (window == IntPtr.Zero) continue;
             // Every option any version has had; a version that doesn't know one ignores it.
-            foreach (var message in new[] { StartButtonMessage, EdgeLineMessage, TrayIconsMessage, IndicatorsMessage, TrayTextMessage, AppIconsMessage, AppNameMessage, TransparencyMessage })
+            foreach (var message in new[] { StartButtonMessage, EdgeLineMessage, TrayIconsMessage, IndicatorsMessage, TrayTextMessage, AppIconsMessage, AppNameMessage, TransparencyMessage, CentreClockMessage })
                 SendMessageTimeoutW(window, message, 0, IntPtr.Zero, 0x0002, 2000, out _);
             // Then have it ignore Explorer from now on. Only from version 29: versions 25 to 28 (TrackSwipe 1.3.3 to
             // 1.4.1) stop watching Explorer's tree when retired, and once one does, XAML lets no copy start watching
