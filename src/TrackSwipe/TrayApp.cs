@@ -29,7 +29,8 @@ internal sealed partial class TrayApp : IDisposable
     private readonly IntPtr _iconHandle;
     private readonly TrayMenuItem _enabledItem, _snappyItem, _smoothItem, _startupItem, _adminItem;
     private readonly TrayMenuItem _hideStartItem, _hideEdgeItem, _hideIndicatorsItem, _largeTrayIconsItem, _hideTopTaskbarItem;
-    private readonly TrayMenuItem _dockItem, _dockSettingsItem;
+    private readonly TrayMenuItem _dockItem, _dockSettingsItem, _smoothWindowsItem;
+    private WindowAnimationBoost? _windowAnimations; // while "Smooth window animations" is on
     private readonly TrayMenuItem[] _topLeftItems;
     private TopLeft _topLeft;
     // How see-through the taskbar is, in percent. Not offered in the menu yet: on Windows 11 26H2 the taskbar's
@@ -150,6 +151,8 @@ internal sealed partial class TrayApp : IDisposable
         _largeTrayIconsItem = new TrayMenuItem("Larger taskbar icons and text", () => ToggleOption(GesturePreferences.LargeTrayIcons, _largeTrayIconsItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.LargeTrayIcons), Enabled = tapAvailable };
         _dockItem = new TrayMenuItem("Show the dock", ToggleDock) { Checked = GesturePreferences.LoadOption(GesturePreferences.ShowDock) };
+        _smoothWindowsItem = new TrayMenuItem("Smooth window animations", () => SetSmoothWindowAnimations(!_smoothWindowsItem!.Checked))
+            { Checked = GesturePreferences.LoadOption(GesturePreferences.SmoothWindowAnimations), Enabled = CompositorBoost.Available };
         _dockSettingsItem = new TrayMenuItem("Dock settings...", () => _dockHost!.OpenSettings()) { Enabled = _dockItem.Checked };
         _hideTopTaskbarItem = new TrayMenuItem("Hide a top taskbar in Mission Control", () => ToggleOption(GesturePreferences.HideTopTaskbarInMissionControl, _hideTopTaskbarItem!))
             { Checked = GesturePreferences.LoadOption(GesturePreferences.HideTopTaskbarInMissionControl) };
@@ -173,6 +176,7 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("Gesture fingers", null, _threeFingerItem, _fourFingerItem),
             new TrayMenuItem("Tap to open Start", null, _tapOffItem, _tapThreeItem, _tapFourItem),
             new TrayMenuItem("Spring", null, _snappyItem, _smoothItem),
+            _smoothWindowsItem,
             new TrayMenuItem("Preview animation", RunPreview),
             new TrayMenuItem("Input monitor...", ShowMonitor),
             new TrayMenuItem("Touchpad settings...", OpenTouchpadSettings),
@@ -194,6 +198,7 @@ internal sealed partial class TrayApp : IDisposable
         // A dock (Anchor) about to bring forward a window on another desktop: slide there, as a taskbar click does.
         _tray.JumpRequested += window => _enabled && _compositionThread.Invoke(() => _overlay.PrepareJumpTo(window));
         _tray.TaskbarRecreated += () => ScheduleTaskbarOptions(1500); // a new Explorer: the DLL went with the old one
+        if (_smoothWindowsItem.Checked) _windowAnimations = new WindowAnimationBoost();
         // The taskbar's desktop indicator, clicked: Mission Control, as GNOME's opens Activities.
         _tray.OverviewRequested += () => _compositionThread.Post(ToggleMissionControl);
         // A dock icon clicked in Mission Control: close onto that app's window, as its thumbnail would.
@@ -291,6 +296,7 @@ internal sealed partial class TrayApp : IDisposable
         _shellPump.Dispose();
         _monitor?.Dispose();
         _adminAppWatch?.Dispose();
+        _windowAnimations?.Dispose();
         _taskbarTimer?.Dispose();
         if (_hideStartItem.Checked || _hideEdgeItem.Checked || _hideIndicatorsItem.Checked || _largeTrayIconsItem.Checked || _dockItem.Checked || _taskbarTransparency > 0)
             Interop.TaskbarTap.Restore(); // the taskbar as Windows draws it
@@ -313,6 +319,16 @@ internal sealed partial class TrayApp : IDisposable
         GesturePreferences.SaveOption(GesturePreferences.ShowDock, on);
         ScheduleTaskbarOptions(0); // the app name on the taskbar comes and goes with the dock
         Log.Write($"Dock {(on ? "on" : "off")}.");
+    }
+
+    /// <summary>Windows' own minimize, maximize, snap, open and close animations at the display's full refresh rate.</summary>
+    private void SetSmoothWindowAnimations(bool on)
+    {
+        _smoothWindowsItem.Checked = on;
+        GesturePreferences.SaveOption(GesturePreferences.SmoothWindowAnimations, on);
+        _windowAnimations?.Dispose();
+        _windowAnimations = on ? new WindowAnimationBoost() : null;
+        Log.Write($"Smooth window animations {(on ? "on" : "off")}.");
     }
 
     private void SetTopLeft(TopLeft choice)

@@ -346,8 +346,6 @@ internal sealed class FrameClock : IDisposable
     private volatile bool _disposed;
     private bool _compositorClock = true;
     private bool _boosted;
-    private bool _boostFailureLogged;
-    private bool _boostAvailable = true;
 
     public FrameClock(UiPump pump)
     {
@@ -414,23 +412,10 @@ internal sealed class FrameClock : IDisposable
     /// <summary>Asks Windows to run the display at its top refresh rate while we animate, and to stop afterwards.</summary>
     private void Boost(bool enable)
     {
-        if (_boosted == enable || !_boostAvailable || (enable && !_compositorClock)) return;
-        try
-        {
-            var hr = NativeMethods.DCompositionBoostCompositorClock(enable);
-            if (hr < 0)
-            {
-                if (!_boostFailureLogged) Log.Write($"Compositor refresh boost failed: 0x{hr:X8}.");
-                _boostFailureLogged = true;
-                return;
-            }
-        }
-        catch (EntryPointNotFoundException)
-        {
-            _boostAvailable = false;
-            Log.Write("Compositor refresh boost unavailable.");
-            return;
-        }
+        if (_boosted == enable || (enable && (!_compositorClock || !CompositorBoost.Available))) return;
+        // Shared with Windows' window animations (WindowAnimationBoost): held, not switched, so neither cuts the other short.
+        if (enable) CompositorBoost.Acquire();
+        else CompositorBoost.Release();
         _boosted = enable;
     }
 

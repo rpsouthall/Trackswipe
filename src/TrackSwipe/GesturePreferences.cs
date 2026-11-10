@@ -54,6 +54,9 @@ internal static class GesturePreferences
     /// <summary>TrackSwipe's dock (pinned and open apps along the bottom of the screen). Off unless turned on.</summary>
     public const string ShowDock = "ShowDock";
 
+    /// <summary>Windows' own window animations at the display's full refresh rate (see WindowAnimationBoost). Off unless turned on.</summary>
+    public const string SmoothWindowAnimations = "SmoothWindowAnimations";
+
     private const string TapFingersValue = "TapForStartFingers", OldThreeFingerTapValue = "ThreeFingerTapForStart";
 
     /// <summary>The fingers whose tap opens (or closes) Start: 3 or 4, or 0 for off (the default).</summary>
