@@ -881,7 +881,8 @@ namespace
                 if (!frame) continue;
                 auto root = FindByName(frame, L"RootGrid").try_as<Controls::Grid>();
                 if (!root) continue;
-                auto time = FindByName(frame, L"TimeInnerTextBlock").try_as<Controls::TextBlock>();
+                // The tray is beside the frame, not in it: under the same top.
+                auto time = FindByName(TopOf(frame), L"TimeInnerTextBlock").try_as<Controls::TextBlock>();
                 if (time)
                 {
                     WatchTime(time);
@@ -946,7 +947,8 @@ namespace
             GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &now, order == 1 ? L"d MMM" : L"MMM d", date, ARRAYSIZE(date), nullptr);
             GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSHORTTIME, format, ARRAYSIZE(format));
             GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, format[0] ? 0 : TIME_NOSECONDS, &now, format[0] ? format : nullptr, time, ARRAYSIZE(time));
-            return std::format(L"{} {}", date, time); // an em space between, as GNOME spaces them
+            constexpr wchar_t EmSpace = 0x2003; // between them, as GNOME spaces them (a number: the source stays ASCII)
+            return std::format(L"{}{}{}", date, EmSpace, time);
         }
 
         Controls::Border AddClock(Controls::Grid const& root)
@@ -995,7 +997,7 @@ namespace
         void OpenCalendar(Controls::Grid const& root)
         {
             if (m_flyoutInFront || GetTickCount64() - m_flyoutLeftAt < 500) return;
-            if (auto button = FindByName(root, L"NotificationCenterButton"))
+            if (auto button = FindByName(TopOf(root), L"NotificationCenterButton"))
                 try
                 {
                     auto peer = Automation::Peers::FrameworkElementAutomationPeer::CreatePeerForElement(button);
