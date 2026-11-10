@@ -170,6 +170,23 @@ internal sealed class DockHost : IDisposable
             Watch(existing);
             return;
         }
+        // At sign-in TrackSwipe starts before Explorer has finished starting; a dock started then comes up into a
+        // shell that isn't ready for it. Wait for the taskbar (and a moment more, if it had to be waited for).
+        if (FindWindowW("Shell_TrayWnd", null) == IntPtr.Zero)
+        {
+            if (++_shellWaits <= 60)
+            {
+                _ = Task.Run(async () => { await Task.Delay(1000); _post(Start); });
+                return;
+            }
+            Log.Write("Dock: the taskbar never appeared; starting the dock anyway.");
+        }
+        else if (_shellWaits > 0 && _shellWaits < 1000)
+        {
+            _shellWaits = 1000; // once: let Explorer finish what it does just after the taskbar appears
+            _ = Task.Run(async () => { await Task.Delay(2000); _post(Start); });
+            return;
+        }
         Startup.RunUnelevated(Exe); // as the signed-in user: never an administrator dock
         // Explorer starts it, so there's no handle to it here: find it once it's up.
         _ = Task.Run(async () =>
@@ -186,6 +203,16 @@ internal sealed class DockHost : IDisposable
             Log.Write("Dock: started, but never appeared.");
         });
     }
+
+    /// <summary>Seconds spent waiting for Explorer's taskbar before starting the dock (1000: done waiting).</summary>
+
+    private int _shellWaits;
+
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+
+    private static extern IntPtr FindWindowW(string? className, string? title);
+
 
     private void Watch(Process process)
     {

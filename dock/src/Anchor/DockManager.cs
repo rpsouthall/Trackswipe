@@ -145,17 +145,44 @@ public sealed class DockManager
     /// still remove the bad one); an unguarded crash loop before any window exists is not.
     /// </para>
     /// </summary>
-    private void TryCreateAndAddWindow(DockProfile profile, bool seedDefaults)
+    private void TryCreateAndAddWindow(DockProfile profile, bool seedDefaults, int attempt = 1)
     {
         try
         {
-            _docks.Add(CreateWindow(profile, seedDefaults));
+            var window = CreateWindow(profile, seedDefaults);
+            _docks.Add(window);
+            if (attempt > 1)
+            {
+                // Late, after the startup pass that shows the docks and gives them their open apps.
+                Diag.Log($"DockManager: dock '{profile.Id}' made on attempt {attempt}");
+                window.Activate();
+                ApplyRunningState();
+            }
+        }
+        catch (Exception ex) when (attempt < MaxWindowAttempts)
+        {
+            // Often the shell still starting (at sign-in, the dock starts alongside Explorer): try again shortly
+            // rather than run on with no dock on screen.
+            Diag.Log($"DockManager: couldn't make a window for dock '{profile.Id}' (attempt {attempt}): {ex.Message.Split('\n')[0].Trim()}; trying again shortly");
+            var retry = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+            retry.Interval = TimeSpan.FromSeconds(2);
+            retry.IsRepeating = false;
+            retry.Tick += (_, _) =>
+            {
+                retry.Stop();
+                if (!_shuttingDown && Config.Docks.Contains(profile) && _docks.All(dock => !ReferenceEquals(dock.Profile, profile)))
+                    TryCreateAndAddWindow(profile, seedDefaults, attempt + 1);
+            };
+            retry.Start();
         }
         catch (Exception ex)
         {
             Diag.Log($"DockManager: failed to create a window for dock '{profile.Id}' — skipping it: {ex}");
         }
     }
+
+    /// <summary>How many times a dock's window is tried before it's left out (two seconds apart).</summary>
+    private const int MaxWindowAttempts = 8;
 
     public void Save() => DockStore.Save(Config);
 

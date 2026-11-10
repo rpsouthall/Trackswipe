@@ -45,7 +45,17 @@ public static class WindowChrome
             p.IsMinimizable = false;
         }
 
-        appWindow.IsShownInSwitchers = false;
+        // Belt and braces only: WS_EX_TOOLWINDOW below already keeps it out of Alt-Tab and the taskbar. Asking the shell
+        // as well fails ("not implemented") while Explorer is still starting — at sign-in, when the dock starts with
+        // TrackSwipe — and that failure must not cost the dock its window.
+        try
+        {
+            appWindow.IsShownInSwitchers = false;
+        }
+        catch (Exception failure)
+        {
+            Diag.Log("WindowChrome: the shell isn't taking switcher settings yet (" + failure.Message.Split('\n')[0].Trim() + "); the tool-window style covers it");
+        }
 
         long ex = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE);
         ex |= NativeMethods.WS_EX_TOOLWINDOW;
