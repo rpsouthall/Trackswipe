@@ -137,6 +137,8 @@
   "Settings.AccentTintDesc": "काँच को आपके Windows एक्सेंट रंग से रंगें।",
   "Settings.GlassTransparency": "पारदर्शिता",
   "Settings.GlassTransparencyDesc": "काँच के पार डेस्कटॉप कितना दिखे।",
+  "Settings.ClearGlass": "पारदर्शी डॉक",
+  "Settings.ClearGlassDesc": "कोई काँच नहीं: बस आइकन, डेस्कटॉप के ऊपर तैरते हुए।",
 
   "Settings.Magnify": "होवर पर बड़ा करें",
   "Settings.MagnifyDesc": "कर्सर के नीचे आइकन बड़े हों, macOS डॉक की तरह।",

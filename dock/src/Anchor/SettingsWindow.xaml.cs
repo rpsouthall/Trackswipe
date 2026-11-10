@@ -271,6 +271,8 @@ public sealed partial class SettingsWindow : Window
         };
         AccentTintSwitch.IsOn = cfg.AccentTint;
         GlassTransparencySlider.Value = cfg.GlassTransparency;
+        ClearGlassSwitch.IsOn = cfg.ClearGlass;
+        GlassTransparencySlider.IsEnabled = !cfg.ClearGlass;
         MagnifySwitch.IsOn = cfg.Magnify;
         GroupOpenOnHoverSwitch.IsOn = cfg.GroupOpenOnHover;
         SettingsPositionChoice.SelectedIndex = cfg.SettingsPosition == SettingsPosition.Leading ? 1 : 0;
@@ -301,6 +303,14 @@ public sealed partial class SettingsWindow : Window
         if (_initializing)
             return;
         _manager.SetAccentTint(AccentTintSwitch.IsOn);
+    }
+
+    private void ClearGlassSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing)
+            return;
+        GlassTransparencySlider.IsEnabled = !ClearGlassSwitch.IsOn; // nothing to thin without glass
+        _manager.SetClearGlass(ClearGlassSwitch.IsOn);
     }
 
     private void GlassTransparencySlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)

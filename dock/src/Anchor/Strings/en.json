@@ -137,6 +137,8 @@
   "Settings.AccentTintDesc": "Tint the glass with your Windows accent colour.",
   "Settings.GlassTransparency": "Transparency",
   "Settings.GlassTransparencyDesc": "How much of the desktop shows through the glass.",
+  "Settings.ClearGlass": "Clear dock",
+  "Settings.ClearGlassDesc": "No glass at all: just the icons, floating over the desktop.",
 
   "Settings.Magnify": "Magnify on hover",
   "Settings.MagnifyDesc": "Swell icons under the cursor, macOS-dock style.",

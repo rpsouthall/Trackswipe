@@ -852,6 +852,15 @@ public sealed class DockManager
             dock.ApplyGlass();
     }
 
+    /// <summary>Clears every dock's glass away (only the icons show), or brings it back.</summary>
+    public void SetClearGlass(bool on)
+    {
+        Config.ClearGlass = on;
+        Save();
+        foreach (var dock in _docks)
+            dock.ApplyBackdrop();
+    }
+
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _saveSoon;
 
     /// <summary>

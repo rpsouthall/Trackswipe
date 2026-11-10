@@ -137,6 +137,8 @@
   "Settings.AccentTintDesc": "Teñir el cristal con tu color de acento de Windows.",
   "Settings.GlassTransparency": "Transparencia",
   "Settings.GlassTransparencyDesc": "Cuánto del escritorio se ve a través del cristal.",
+  "Settings.ClearGlass": "Dock transparente",
+  "Settings.ClearGlassDesc": "Sin cristal: solo los iconos, flotando sobre el escritorio.",
 
   "Settings.Magnify": "Ampliar al pasar el cursor",
   "Settings.MagnifyDesc": "Los iconos crecen bajo el cursor, al estilo del dock de macOS.",

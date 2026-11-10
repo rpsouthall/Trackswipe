@@ -30,7 +30,8 @@ public sealed partial class DockWindow : Window
     private readonly nint _hwnd;
     private readonly WindowId _windowId;
     private readonly AppWindow _appWindow;
-    private readonly AcrylicBackdropManager? _backdrop;
+    private AcrylicBackdropManager? _backdrop; // the glass; none while the dock is clear (ClearGlass) or in High Contrast
+    private ClearBackdrop? _clear;
     private readonly DockManager _manager;
     private readonly DockProfile _profile;
 
@@ -120,12 +121,7 @@ public sealed partial class DockWindow : Window
         }
         else
         {
-            // The Windows 11 taskbar "glass". Follows RootGrid's theme via its own
-            // ActualThemeChanged subscription, so a later SetTheme re-tints it automatically.
-            _backdrop = new AcrylicBackdropManager(this);
-            _backdrop.Retinted += ApplyWindowBorder; // the rim keeps matching the glass
-            _backdrop.TryApply();
-            ApplyGlass(); // the user's accent-tint choice on top of the base recipe
+            ApplyBackdrop();
         }
 
         ItemsHost.ItemsSource = Items;
@@ -1347,8 +1343,48 @@ public sealed partial class DockWindow : Window
     /// slightly brighter reads as an outline drawn around the dock.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The dock's background: the Windows 11 taskbar "glass" (acrylic), or — with the clear-dock option — nothing at
+    /// all, the icons floating over the desktop. Called when the dock is made and when the option changes.
+    /// </summary>
+    internal void ApplyBackdrop()
+    {
+        if (IsHighContrast())
+            return; // an opaque system colour, set when the window is made
+        if (_manager.Config.ClearGlass)
+        {
+            if (_backdrop is not null)
+            {
+                _backdrop.Retinted -= ApplyWindowBorder;
+                _backdrop.Dispose();
+                _backdrop = null;
+            }
+            SystemBackdrop = _clear ??= new ClearBackdrop();
+        }
+        else
+        {
+            if (_backdrop is null)
+            {
+                SystemBackdrop = null;
+                // Follows RootGrid's theme via its own ActualThemeChanged subscription, so a later SetTheme re-tints it.
+                _backdrop = new AcrylicBackdropManager(this);
+                _backdrop.Retinted += ApplyWindowBorder; // the rim keeps matching the glass
+                _backdrop.TryApply();
+            }
+            ApplyGlass(); // the user's accent-tint and transparency choices on top of the base recipe
+        }
+        ApplyWindowChrome();
+    }
+
     private void ApplyWindowBorder()
     {
+        if (_backdrop is null && _manager.Config.ClearGlass && !IsHighContrast())
+        {
+            // Clear: no rim either, or it would outline a rectangle of nothing.
+            int none = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE
+            NativeMethods.DwmSetWindowAttribute(_hwnd, NativeMethods.DWMWA_BORDER_COLOR, ref none, sizeof(int));
+            return;
+        }
         bool dark = RootGrid.ActualTheme != ElementTheme.Light;
         var tint = _backdrop?.Current.Tint ?? (dark ? Rgb(0x20, 0x20, 0x20) : Rgb(0xF3, 0xF3, 0xF3));
 

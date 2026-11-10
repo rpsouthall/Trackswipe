@@ -110,6 +110,9 @@ public sealed class DockConfig
     /// clear — only the blur left. Thins the tint and the frost together.</summary>
     public int GlassTransparency { get; set; }
 
+    /// <summary>No glass at all: only the icons (and their highlights and dots) float over the desktop.</summary>
+    public bool ClearGlass { get; set; }
+
     /// <summary>
     /// Swell an icon as the cursor passes over it, macOS-dock style. The swell happens
     /// <em>inside</em> the cell — the dock window never resizes — because the acrylic backdrop
@@ -309,6 +312,7 @@ public sealed class DockConfig
         Density = other.Density;
         AccentTint = other.AccentTint;
         GlassTransparency = other.GlassTransparency;
+        ClearGlass = other.ClearGlass;
         Magnify = other.Magnify;
         GroupOpenOnHover = other.GroupOpenOnHover;
         SettingsPosition = other.SettingsPosition;
