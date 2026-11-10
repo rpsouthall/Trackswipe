@@ -106,7 +106,14 @@ public static class IconService
                 case DockItemKind.Application:
                 case DockItemKind.File:
                     if (await ProbeAsync(item.Target, directory: false))
+                    {
+                        // An exe Start lists under a shortcut wears that shortcut's icon there, and
+                        // here too: a shortcut can dress one app as another (Edge as "Chromium").
+                        if (item.Kind == DockItemKind.Application && StartListing(item.Target) is { } listed &&
+                            await ShellIconFromParsingNameAsync(DockItemFactory.AppsFolderPrefix + listed.AppId, decodeSize) is { } startIcon)
+                            return startIcon;
                         return await ShellIconAsync(item.Target, decodeSize);
+                    }
                     // A Start-menu app has no file behind it to ask about — its icon is reached
                     // through the item ID list the shell resolves its AppUserModelID to. A Store app's
                     // own artwork comes first, in the variant made for a light or a dark background:
@@ -136,6 +143,15 @@ public static class IconService
             Diag.Log($"IconService: load failed for '{item.Target}': {ex.GetType().Name}: {ex.Message}");
         }
         return null;
+    }
+
+    /// <summary>How Start lists an exe target, or null for anything else (or an exe it doesn't list).</summary>
+    internal static StartMenuApps.Entry? StartListing(string target)
+    {
+        if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return null;
+        try { return StartMenuApps.Find(Path.GetFullPath(target)); }
+        catch (Exception) { return null; }
     }
 
     /// <summary>

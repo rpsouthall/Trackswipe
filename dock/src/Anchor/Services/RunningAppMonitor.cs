@@ -237,10 +237,24 @@ public sealed class RunningAppMonitor : IDisposable
 
         RunningApp? found = null;
         if (RunningAppService.AppIdOf(item) is { } appId)
-            found = _byAppId.GetValueOrDefault(appId);
+            found = _byAppId.GetValueOrDefault(appId) ?? ListedUnder(appId);
         else if (RunningAppService.ExecutablePathOf(item) is { } exe)
             found = _byExe.GetValueOrDefault(exe);
         return found ?? (string.IsNullOrWhiteSpace(item.DisplayName) ? null : _byName.GetValueOrDefault(item.DisplayName.Trim()));
+    }
+
+    /// <summary>
+    /// The open desktop app Start lists under <paramref name="appId"/>: an item dragged from Start
+    /// names a desktop app by its entry there ("Chromium", shell:AppsFolder\MSEdge), and its
+    /// windows by their exe (msedge.exe). Asked of the few open apps, from the index already read.
+    /// </summary>
+    private RunningApp? ListedUnder(string appId)
+    {
+        foreach (var app in _apps)
+            if (app.AppId is null && app.ExePath is not null &&
+                string.Equals(StartMenuApps.Find(app.ExePath)?.AppId, appId, StringComparison.OrdinalIgnoreCase))
+                return app;
+        return null;
     }
 
     /// <summary>True when this item's app has a window open right now.</summary>

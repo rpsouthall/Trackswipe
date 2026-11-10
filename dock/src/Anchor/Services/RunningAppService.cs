@@ -366,13 +366,18 @@ public static class RunningAppService
         }
     }
 
-    /// <summary>A friendly name: Start's own for a packaged app, the exe's file description otherwise.</summary>
-    private static string NameOf(string key, string? exe, string? appId) => Names.GetOrAdd(key, _ =>
+    /// <summary>
+    /// A friendly name: Start's own, as the taskbar shows (a packaged app's, or the shortcut an exe is
+    /// listed under, which can call it something else entirely), otherwise the exe's file description.
+    /// </summary>
+    internal static string NameOf(string key, string? exe, string? appId) => Names.GetOrAdd(key, _ =>
     {
         try
         {
             if (appId is not null && ShellDisplayName(DockItemFactory.AppsFolderPrefix + appId) is { } shellName)
                 return shellName;
+            if (exe is not null && StartMenuApps.Find(exe) is { } listed)
+                return listed.Name;
             if (exe is not null)
             {
                 var version = FileVersionInfo.GetVersionInfo(exe);
@@ -389,6 +394,25 @@ public static class RunningAppService
         }
         return appId ?? Path.GetFileNameWithoutExtension(exe) ?? key;
     });
+
+    /// <summary>Drops the names worked out so far, for when Start's list has changed (see <see cref="StartMenuApps.Changed"/>).</summary>
+    internal static void ForgetNames() => Names.Clear();
+
+    /// <summary>
+    /// The name an exe gives itself, which an item named after it was given by default: its file
+    /// description, product name and file name (the last alone when its version resource can't be read).
+    /// </summary>
+    internal static IEnumerable<string> OwnNames(string exe)
+    {
+        yield return Path.GetFileNameWithoutExtension(exe);
+        FileVersionInfo? version = null;
+        try { version = FileVersionInfo.GetVersionInfo(exe); }
+        catch (Exception) { }
+        if (!string.IsNullOrWhiteSpace(version?.FileDescription))
+            yield return version.FileDescription.Trim();
+        if (!string.IsNullOrWhiteSpace(version?.ProductName))
+            yield return version.ProductName.Trim();
+    }
 
     private static string? ShellDisplayName(string parsingName)
     {

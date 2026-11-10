@@ -1172,6 +1172,17 @@ public sealed partial class DockWindow : Window
                 _ = LoadOneIconAsync(item);
     }
 
+    /// <summary>The icons of the items <paramref name="which"/> picks again, a group's children and the open apps included.</summary>
+    internal void ReloadIcons(Func<DockItem, bool> which)
+    {
+        if (_closed)
+            return;
+        foreach (var item in _profile.Items.ToArray().SelectMany(item => item.Children.ToArray().Prepend(item))
+                     .Concat(Items.Where(item => item.IsTransient && !item.IsSeparator)).Distinct().ToArray())
+            if (which(item))
+                _ = LoadOneIconAsync(item);
+    }
+
     // ---- Separators & custom icons ----------------------------------------
 
     /// <summary>Appends a divider to the end of the dock (dock menu, Settings, Add window).</summary>

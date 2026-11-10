@@ -95,8 +95,10 @@ public sealed class DockManager
         // dock that is tucked behind a screen edge.
         SetUpTrayAndHotkey();
         Running.SetEnabled(Config.ShowRunningIndicators || Config.ShowRunningApps);
-        // Which AppUserModelID each program's jump list is filed under, for right-click menus: read
-        // once, in the background, well after the dock is up.
+        // Which AppUserModelID each program's jump list is filed under, for right-click menus, and
+        // what Start calls it and shows for it: read once, in the background, well after the dock is up.
+        var ui = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        StartMenuApps.Changed += () => ui.TryEnqueue(FollowStartMenu);
         StartMenuApps.Warm(TimeSpan.FromSeconds(5));
 
         foreach (var dock in _docks)
@@ -1221,6 +1223,47 @@ public sealed class DockManager
                 refused.Add(item);
         }
         return refused;
+    }
+
+    /// <summary>
+    /// Start's list has been read (or has changed): apps take the names and icons Start gives them,
+    /// as the taskbar's do. A shortcut can dress an exe as something else — Edge's msedge.exe listed
+    /// as "Chromium", with an icon of its own — and the dock should show what Start and Search show.
+    /// <para>
+    /// An icon's name changes only while it is still the one it was given by default (the exe's own):
+    /// a name the user typed is theirs. Icons are reloaded only for the apps Start lists.
+    /// </para>
+    /// </summary>
+    private void FollowStartMenu()
+    {
+        if (_shuttingDown)
+            return;
+        RunningAppService.ForgetNames();
+        bool renamed = false;
+        foreach (var item in AllItems())
+        {
+            if (item.Kind != DockItemKind.Application || IconService.StartListing(item.Target) is not { } listed ||
+                item.DisplayName == listed.Name)
+                continue;
+            var given = item.DisplayName.Trim();
+            if (given.Length == 0 ||
+                RunningAppService.OwnNames(item.Target).Any(name => string.Equals(name, given, StringComparison.CurrentCultureIgnoreCase)))
+            {
+                Diag.Log($"Start lists '{item.Target}' as '{listed.Name}': renamed from '{item.DisplayName}'");
+                item.DisplayName = listed.Name;
+                renamed = true;
+            }
+        }
+        if (renamed)
+            Save();
+
+        foreach (var (key, item) in _openAppItems)
+            if (Running.Apps.FirstOrDefault(app => string.Equals(app.Key, key, StringComparison.OrdinalIgnoreCase)) is { } app)
+                item.DisplayName = RunningAppService.NameOf(app.Key, app.ExePath, app.AppId);
+
+        foreach (var dock in _docks)
+            dock.ReloadIcons(item => IconService.StartListing(item.Target) is not null);
+        ApplyRunningState();
     }
 
     /// <summary>Every item on every dock, a group's children included.</summary>
