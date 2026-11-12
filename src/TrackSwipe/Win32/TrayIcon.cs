@@ -74,8 +74,11 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
     public event Func<IntPtr, bool>? JumpRequested;
     /// <summary>The taskbar's desktop indicator was clicked (GNOME's Activities): Mission Control, open or closed.</summary>
     public event Action? OverviewRequested;
-    /// <summary>A dock was clicked in Mission Control; returns whether it closed onto that window.</summary>
-    public event Func<IntPtr, bool>? ChooseRequested;
+    /// <summary>
+    /// A dock was clicked in Mission Control; returns whether it closed onto that window. The flag (the message's
+    /// lParam) says a window on another desktop will do: the overview slides along to it first.
+    /// </summary>
+    public event Func<IntPtr, bool, bool>? ChooseRequested;
     /// <summary>Explorer restarted (the taskbar was recreated); the icon is already back.</summary>
     public event Action? TaskbarRecreated;
 
@@ -147,7 +150,7 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
         }
         if (m.Msg == (int)_choose)
         {
-            m.Result = ChooseRequested?.Invoke(m.WParam) == true ? 1 : 0;
+            m.Result = ChooseRequested?.Invoke(m.WParam, m.LParam != IntPtr.Zero) == true ? 1 : 0;
             return;
         }
         if (m.Msg == (int)_taskbarCreated) // Explorer restarted: the icon is gone

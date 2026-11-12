@@ -764,13 +764,19 @@ public sealed class DockManager
     public bool LaunchOrFocus(DockItem item, bool forceNewInstance)
     {
         // Clicked in TrackSwipe's Mission Control: it closes onto the app's window, as clicking that window's thumbnail
-        // does; or, with none of the app's windows in view (or none open), it closes and the click carries on as usual.
+        // does. A window on the desktop in view first; failing that one on another desktop, which the overview slides
+        // along to before closing onto it. With none open, it closes and the click carries on as usual (launching).
         if (TrackSwipeBridge.MissionControlOpen && !forceNewInstance)
         {
             if (Running.Find(item) is { } app)
+            {
                 foreach (var window in app.Windows.Take(8))
                     if (TrackSwipeBridge.ChooseInMissionControl(window))
                         return false;
+                foreach (var window in app.Windows.Take(8))
+                    if (TrackSwipeBridge.ChooseInMissionControl(window, anywhere: true))
+                        return false;
+            }
             TrackSwipeBridge.ChooseInMissionControl(nint.Zero);
         }
         // A pinned app focuses its window only with the indicators on (the switch promises

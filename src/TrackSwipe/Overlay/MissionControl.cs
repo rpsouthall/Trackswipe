@@ -347,6 +347,7 @@ internal sealed partial class MissionControl : IDisposable
         _zoom = null;
         _focusing = null;
         _autoPan = null;
+        _chooseAfterPan = IntPtr.Zero;
         StopDwell();
         if (_zoomStarted is { } zoomed) Log.Verbose($"Zoom into a desktop: overlay off {(Clock.Now - zoomed) * 1000:0} ms after the click (clock {Clock.Now:0.000}).");
         _zoomStarted = null;
@@ -480,14 +481,33 @@ internal sealed partial class MissionControl : IDisposable
         return true;
     }
 
-    /// <summary>For diagnostics: acts as if <paramref name="window"/> were clicked. False if it isn't in the spread.</summary>
-    public bool Choose(IntPtr window)
+    /// <summary>
+    /// Acts as if <paramref name="window"/> were clicked: the overview closes onto it. With <paramref name="anywhere"/>,
+    /// a window on another desktop counts too: the overview slides along to that desktop first, a desktop at a time,
+    /// as a sideways swipe would, and then closes onto the window there (a dock icon clicked for an app that is open
+    /// somewhere else). False if the window isn't there to go to.
+    /// </summary>
+    public bool Choose(IntPtr window, bool anywhere = false)
     {
+        if (_state != State.Open) return false;
         var part = _plans.SelectMany(plan => plan.Windows).FirstOrDefault(part => part.Sprite.Item.Window == window);
-        if (part is null || _state != State.Open) return false;
-        Close(part);
+        if (part is not null)
+        {
+            Close(part);
+            return true;
+        }
+        if (!anywhere || !IsOpen || _scene is not { App: null } scene) return false;
+        var elsewhere = scene.Items.FirstOrDefault(item => item.Window == window && item.Kind == SceneKind.Window && item.IsAppWindow && !item.OnAllDesktops);
+        if (elsewhere.Window == IntPtr.Zero || elsewhere.Desktop == scene.Current || elsewhere.Desktop < 0 || elsewhere.Desktop >= scene.DesktopCount) return false;
+        var step = Math.Sign(elsewhere.Desktop - scene.Current);
+        if (!CanPan(step)) return false;
+        _chooseAfterPan = window;
+        PanTo(step);
         return true;
     }
+
+    /// <summary>The window to close onto once the slide towards its desktop (see <see cref="Choose(IntPtr, bool)"/>) gets there.</summary>
+    private IntPtr _chooseAfterPan;
 
     /// <summary>Animates closed. <paramref name="focus"/>, if given, is brought to the front and activated once closed.</summary>
     private void Close(Part? focus = null)

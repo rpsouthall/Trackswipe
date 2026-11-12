@@ -191,6 +191,9 @@ internal static class Program
                 case "--diagnose-taskbar-options":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_OPTIONS", "1");
                     break;
+                case "--diagnose-choose-elsewhere":
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_CHOOSE_ELSEWHERE", "1");
+                    break;
                 case "--diagnose-cards":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_CARDS", "1");
                     break;

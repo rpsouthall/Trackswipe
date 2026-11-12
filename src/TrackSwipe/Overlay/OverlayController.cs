@@ -382,10 +382,11 @@ internal sealed partial class OverlayController : IDisposable
     /// and is focused), as clicking the window's thumbnail does, if the window is in view; otherwise it just closes,
     /// returning false so the dock carries on with the click (launching, or switching to a window elsewhere).
     /// </summary>
-    public bool ChooseInMissionControl(IntPtr window)
+    /// <param name="anywhere">A window on another desktop counts: the overview slides along to it, then closes onto it.</param>
+    public bool ChooseInMissionControl(IntPtr window, bool anywhere = false)
     {
         if (!_mission.IsOpen) return false;
-        if (window != IntPtr.Zero && _mission.Choose(window)) return true;
+        if (window != IntPtr.Zero && _mission.Choose(window, anywhere)) return true;
         if (window == IntPtr.Zero) _mission.Dismiss();
         return false;
     }

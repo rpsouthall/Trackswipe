@@ -153,6 +153,74 @@ internal sealed partial class OverlayController
         timer.Start();
     }
 
+    /// <summary>
+    /// For --diagnose-choose-elsewhere: opens the overview and acts as a dock icon clicked for an app whose window is
+    /// on another desktop does: the overview should slide along to that desktop and close onto the window, which ends
+    /// up in front. Then does the same back to a window on the desktop it started from, so nothing is left changed.
+    /// </summary>
+    public void RunChooseElsewhereDiagnostics(Action done)
+    {
+        var scene = CaptureScene();
+        var home = scene.Current;
+        IntPtr Pick(DesktopScene from, Func<int, bool> desktop) => from.Items.LastOrDefault(item =>
+            item.Kind == SceneKind.Window && item.IsAppWindow && !item.OnAllDesktops && !item.IsMinimized && desktop(item.Desktop)).Window;
+        var away = Pick(scene, d => d != home);
+        var back = Pick(scene, d => d == home);
+        if (away == IntPtr.Zero || back == IntPtr.Zero)
+        {
+            Log.Write($"Diagnose choose elsewhere: needs an open window on this desktop and on another ({scene.DesktopCount} desktops); nothing done.");
+            done();
+            return;
+        }
+        var target = away;
+        BeginMission(scene);
+        var step = 0;
+        var start = Clock.Now;
+        var stepStart = start;
+        var timer = new UiTimer { Interval = 8 };
+        void Next() { step++; stepStart = Clock.Now; }
+        timer.Tick += (_, _) =>
+        {
+            var t = Clock.Now - stepStart;
+            switch (step)
+            {
+                case 0 or 3 when t < 0.4: _mission.Render(t / 0.4); return;
+                case 0 or 3: _mission.SetOpen(); Next(); return;
+                case 1 or 4 when t < 0.5: return;
+                case 1 or 4:
+                    var from = _mission.ViewedDesktop;
+                    var accepted = _mission.Choose(target, anywhere: true);
+                    Log.Write($"Diagnose choose elsewhere: on desktop {from + 1}, asked for \"{DesktopScene.TitleOf(target)}\" on another desktop: {(accepted ? "the overview is going there" : "REFUSED")}.");
+                    Next();
+                    return;
+                case 2 or 5 when _mission.IsVisible && t < 6: return;
+                case 2 or 5:
+                    var now = VirtualDesktops.Read();
+                    Log.Write($"Diagnose choose elsewhere: {t * 1000:0} ms later the overview has {(_mission.IsVisible ? "NOT closed" : "closed")}, on desktop {(now?.Index ?? -1) + 1}; " +
+                        $"that window is {(Interop.NativeMethods.GetForegroundWindow() == target ? "in front" : "NOT in front")}.");
+                    if (step == 5)
+                    {
+                        timer.Dispose();
+                        _mission.Hide();
+                        Log.Write("Diagnose choose elsewhere: done");
+                        done();
+                        return;
+                    }
+                    target = back;
+                    step = 6;
+                    stepStart = Clock.Now;
+                    return;
+                case 6 when t < 0.8: return; // let the switch settle before going back
+                case 6:
+                    BeginMission(CaptureScene());
+                    step = 3;
+                    stepStart = Clock.Now;
+                    return;
+            }
+        };
+        timer.Start();
+    }
+
     /// <summary>One pixel of what is on screen right now. Nothing is kept.</summary>
     private static Color ScreenPixel(Point point)
     {

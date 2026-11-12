@@ -26,11 +26,15 @@ public static class TrackSwipeBridge
     /// Asks TrackSwipe's open Mission Control to close onto <paramref name="window"/>, as clicking its thumbnail does.
     /// True if it did; false if that window isn't in view (or Mission Control isn't open). Zero just closes it.
     /// </summary>
-    public static bool ChooseInMissionControl(nint window)
+    /// <param name="anywhere">
+    /// A window on another desktop will do: the overview slides along to that desktop and closes onto the window
+    /// there, rather than closing first and leaving the desktop to change with a cut.
+    /// </param>
+    public static bool ChooseInMissionControl(nint window, bool anywhere = false)
     {
         if (TrackSwipeWindow is var trackSwipe && trackSwipe == nint.Zero)
             return false;
-        return SendMessageTimeout(trackSwipe, ChooseMessage, window, nint.Zero, 0x0002 /* SMTO_ABORTIFHUNG */, 250, out var result) != 0 && result != 0;
+        return SendMessageTimeout(trackSwipe, ChooseMessage, window, anywhere ? 1 : 0, 0x0002 /* SMTO_ABORTIFHUNG */, 250, out var result) != 0 && result != 0;
     }
 
     /// <summary>Broadcast by TrackSwipe as Mission Control opens (wParam 1) and once it has closed (0).</summary>

@@ -105,6 +105,7 @@ internal sealed partial class MissionControl
     {
         if (step is not (1 or -1) || !CanPan(step) || !IsOpen) return;
         if (DeferUntilAwake(() => PanTo(step))) return; // sharp thumbnails: wake the scaled copies a frame first
+        if (_state != State.Open || !CanPan(step)) { _chooseAfterPan = IntPtr.Zero; return; } // it closed, or changed, in that frame
         BeginPan();
         var motion = SettleMotion.Create(SpringPreset.Snappy, 0, 0, step);
         var now = Clock.Now;
@@ -122,6 +123,13 @@ internal sealed partial class MissionControl
         if (_state != State.Open) return false;
         CommitPan(pan.Step);
         EndPan();
+        // On the way to a window on another desktop: close onto it if this is its desktop, or carry on to the next.
+        if (_chooseAfterPan != IntPtr.Zero)
+        {
+            var window = _chooseAfterPan;
+            _chooseAfterPan = IntPtr.Zero;
+            if (Choose(window, anywhere: true)) return false;
+        }
         RefreshHover();
         return false;
     }

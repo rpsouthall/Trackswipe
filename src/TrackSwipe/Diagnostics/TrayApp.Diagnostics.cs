@@ -33,6 +33,8 @@ internal sealed partial class TrayApp
                 _overlay.OverviewStyle = OverviewStyle.Gnome; // for this run only: the saved choice is untouched
                 _overlay.RunCardDiagnostics(ExitOnShell);
             }
+            if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_CHOOSE_ELSEWHERE") == "1")
+                _overlay.RunChooseElsewhereDiagnostics(ExitOnShell); // in whichever overview style is saved
             if (diagnose) _overlay.RunDiagnostics(ExitOnShell);
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DESKTOPS") == "1")
                 _overlay.RunDesktopBarDiagnostics(ExitOnShell);
