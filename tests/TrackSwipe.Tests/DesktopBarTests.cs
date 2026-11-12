@@ -81,6 +81,14 @@ public class DesktopBarTests
             Assert.True(work.Contains(tile));
             Assert.InRange(Math.Abs(tile.Height - tile.Width * height / (double)width), 0, 1);
         }
+        // As much room above the previews as below them, and they sit closer together than the named ones.
+        Assert.Equal(small.Tiles[0].Top - work.Top, small.SpreadTop - small.Tiles[0].Bottom);
+        if (count > 1) Assert.True(small.Tiles[1].Left - small.Tiles[0].Right < named.Tiles[1].Left - named.Tiles[0].Right);
+        // Lowered (to sit midway between the top and a card that leaves room to spare), everything moves down together.
+        var lowered = DesktopBarLayout.Arrange(new Size(width, height), work, scale, count, true, small: true, lower: 30);
+        Assert.Equal(small.Tiles[0].Top + 30, lowered.Tiles[0].Top);
+        Assert.Equal(small.Tiles[0].Left, lowered.Tiles[0].Left);
+        Assert.Equal(small.SpreadTop + 30, lowered.SpreadTop);
         // A window dragged within a card isn't over a preview's drop zone: the zones stop above where the cards start.
         var (zones, _) = DesktopBarLayout.DropZones(small.Tiles, small.AddButton, width, scale, small: true);
         Assert.All(zones, zone => Assert.True(zone.Bottom <= small.SpreadTop));

@@ -373,7 +373,8 @@ public sealed partial class DockWindow
     internal void ApplyOverviewOnly()
     {
         Diag.Log($"ApplyOverviewOnly({OverviewOnly}): {(CanHide ? "can hide" : "stays put")}, {(_revealed ? "shown" : "tucked away")}");
-        ApplyBackdrop(); // the overview's dash has no glass
+        ApplyBackdrop(); // the overview's dash has no glass: a dark panel of its own
+        ApplyTheme();    // and so dark-theme icons and text, whatever the theme
         _edgeHasNeighbor = _profile.Snapped && ComputeEdgeHasNeighbor();
         _coveredStale = true;
         if (!CanHide)

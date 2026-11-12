@@ -5,14 +5,18 @@ namespace TrackSwipe.Overlay;
 /// <summary>Centred desktop previews with a compact add control anchored to the right edge.</summary>
 internal sealed record DesktopBarLayout(Rectangle[] Tiles, Rectangle? AddButton, int SpreadTop)
 {
-    /// <param name="small">GNOME-style: smaller previews without names under them, so the desktops below get the room.</param>
-    public static DesktopBarLayout Arrange(Size screen, Rectangle work, float scale, int count, bool canAdd, bool small = false)
+    /// <param name="small">
+    /// GNOME-style: smaller previews without names under them, closer together, with the same space above them as
+    /// below (<see cref="SmallMargin"/>), so the desktops underneath get the room.
+    /// </param>
+    /// <param name="lower">Moves the row down this far: the card layout centres it between the top and the cards.</param>
+    public static DesktopBarLayout Arrange(Size screen, Rectangle work, float scale, int count, bool canAdd, bool small = false, int lower = 0)
     {
         count = Math.Max(1, count);
         var inset = Math.Max(1, (int)(24 * scale));
         var button = Math.Max(1, (int)(36 * scale));
-        var gap = Math.Max(1, (int)(22 * scale));
-        var y = work.Top + (int)((small ? 14 : 20) * scale);
+        var gap = Math.Max(1, (int)((small ? 12 : 22) * scale));
+        var y = work.Top + (int)((small ? SmallMargin : 20) * scale) + Math.Max(0, lower);
         var right = work.Right - inset;
         var addX = right - button;
         var availableRight = canAdd ? addX - gap : right;
@@ -24,8 +28,11 @@ internal sealed record DesktopBarLayout(Rectangle[] Tiles, Rectangle? AddButton,
         var x = Math.Clamp((screen.Width - total) / 2, work.Left + inset, Math.Max(work.Left + inset, availableRight - total));
         var tiles = Enumerable.Range(0, count).Select(i => new Rectangle(x + i * (width + gap), y, width, height)).ToArray();
         Rectangle? add = canAdd ? new Rectangle(addX, y + Math.Max(0, (height - button) / 2), button, button) : null;
-        return new(tiles, add, y + Math.Max(height, button) + (int)((small ? 22 : 70) * scale));
+        return new(tiles, add, y + Math.Max(height, button) + (int)((small ? SmallMargin : 70) * scale));
     }
+
+    /// <summary>The space above and below the small previews, at 100% scale.</summary>
+    public const int SmallMargin = 20;
 
     /// <summary>
     /// Where a dragged window drops onto each desktop, and onto +: generous, so the pointer needn't be exactly over

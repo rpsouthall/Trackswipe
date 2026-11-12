@@ -1,7 +1,7 @@
 # Builds TrackSwipe as two standalone native executables in dist\: TrackSwipe-arm64.exe and TrackSwipe-x64.exe,
 # and its optional dock as dist\TrackSwipe-Dock-arm64.zip and dist\TrackSwipe-Dock-x64.zip (release assets that
 # TrackSwipe downloads the first time the dock is turned on; each TrackSwipe carries the SHA-256 of its own).
-# Needs the .NET 8 SDK and the Visual Studio C++ build tools (for the native linker); the dock needs the .NET 10 SDK.
+# Needs the .NET 10 SDK and the Visual Studio C++ build tools (for the native linker).
 # Runs the tests first.
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot

@@ -914,7 +914,18 @@ internal sealed partial class MissionControl : IDisposable
         if (surface.IsPrimary && scene.App is null)
         {
             var count = scene.DesktopCount;
-            var bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, _switcher is not null && scene.Desktops is not null, small: cards);
+            var canAdd = _switcher is not null && scene.Desktops is not null;
+            var bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, canAdd, small: cards);
+            if (cards)
+            {
+                // A card that can't use all the height (it is as wide as it may be) sits in the middle of what's left
+                // under the previews. Share that spare height out in thirds, so the previews are as far from the top
+                // of the screen as from the card, rather than hugging the top with a wide gap beneath them.
+                var under = KeepClearOfDocks(Rectangle.FromLTRB(work.Left + margin, bar.SpreadTop, work.Right - margin, work.Bottom - margin),
+                    scene, surface, (int)(16 * s));
+                var spare = under.Height - OverviewCards.Arrange(screen.Width, screen.Height, ToLayout(under), s).Card.Height;
+                if (spare >= 3) bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, canAdd, small: true, lower: (int)(spare / 3));
+            }
             for (var i = 0; i < count; i++)
             {
                 var label = scene.Desktops?.Label(i) ?? "Desktop";

@@ -190,7 +190,7 @@ internal static class Installer
                 ((delegate* unmanaged[Stdcall]<IntPtr, char*, int>)vtable[9])(link, directory);    // SetWorkingDirectory
                 ((delegate* unmanaged[Stdcall]<IntPtr, char*, int>)vtable[7])(link, description);  // SetDescription
             }
-            if (Marshal.QueryInterface(link, ref iidPersistFile, out var file) < 0) return;
+            if (Marshal.QueryInterface(link, in iidPersistFile, out var file) < 0) return;
             try
             {
                 fixed (char* target = Shortcut)

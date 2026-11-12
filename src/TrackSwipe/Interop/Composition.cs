@@ -212,7 +212,7 @@ internal sealed unsafe class CompositionVisual
             if (_visual3 == IntPtr.Zero)
             {
                 var iid = IID_IDCompositionVisual3;
-                Marshal.ThrowExceptionForHR(Marshal.QueryInterface(Pointer, ref iid, out _visual3));
+                Marshal.ThrowExceptionForHR(Marshal.QueryInterface(Pointer, in iid, out _visual3));
             }
             return _visual3;
         }

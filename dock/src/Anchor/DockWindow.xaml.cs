@@ -1334,7 +1334,11 @@ public sealed partial class DockWindow : Window
     /// </summary>
     public void ApplyTheme()
     {
-        RootGrid.RequestedTheme = ResolveTheme(_manager.Config.Theme);
+        // The overview's dash is a dark panel whatever the theme: dark-theme icons, text and highlights on it. (A
+        // light theme's black glyph icons vanished into it.)
+        RootGrid.RequestedTheme = TrackSwipeBridge.OverviewOnly && !IsHighContrast()
+            ? ElementTheme.Dark
+            : ResolveTheme(_manager.Config.Theme);
         // Re-mix the glass through ApplyGlass rather than re-syncing the backdrop directly:
         // syncing alone re-derives the recipe from the shell colors and drops the accent-tint
         // choice Personalize had folded in, so a theme switch would quietly reset the user's
@@ -1363,20 +1367,13 @@ public sealed partial class DockWindow : Window
     /// </summary>
     private bool ClearLook => _manager.Config.ClearGlass || TrackSwipeBridge.OverviewOnly;
 
-    /// <summary>The plain dark grey TrackSwipe's GNOME-style overview puts behind its desktops (its Swatches.OverviewGrey).</summary>
-    private static readonly Windows.UI.Color OverviewGrey = Windows.UI.Color.FromArgb(255, 46, 46, 50);
-    private Brush? _dashFill;
-    private static readonly Brush NoFill = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-
     internal void ApplyBackdrop()
     {
         if (IsHighContrast())
             return; // an opaque system colour, set when the window is made
-        // The overview's dash: the same grey as the overview behind it, painted by the dock itself, so the icons read
-        // as sitting straight on the overview. Opaque, as in High Contrast: nothing has to be blurred or seen through
-        // behind a dock that slides in over a moving overview, and it can't come out white or flicker while it does.
+        // The overview's dash: a rounded grey panel of the dock's own in place of the glass (see DockWindow.Dash.cs).
         bool dash = TrackSwipeBridge.OverviewOnly;
-        RootGrid.Background = dash ? _dashFill ??= new SolidColorBrush(OverviewGrey) : NoFill;
+        ApplyDashPanel(dash);
         if (ClearLook)
         {
             if (_backdrop is not null)
@@ -1423,6 +1420,12 @@ public sealed partial class DockWindow : Window
     private void ApplyWindowChrome()
     {
         ApplyWindowBorder();
+        if (TrackSwipeBridge.OverviewOnly && !IsHighContrast())
+        {
+            ApplyDashShape(); // the dash's own, rounder corners
+            return;
+        }
+        ClearDashShape();
         WindowChrome.EnsureRoundedCorners(_hwnd, small: false);
     }
 

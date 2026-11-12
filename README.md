@@ -23,9 +23,9 @@ Windows switches desktops with a canned animation that plays *after* you swipe. 
   - **Drag a window onto a desktop** in the bar to move it there. Drop it on empty space in the bar to give it a new desktop beside the current one (on whichever side you dropped it), or on **+** to add one at the end.
   - Click a desktop to switch to it, drag desktops to reorder them, add one with **+**, close one with its **×**.
   - Swipe sideways to look at the neighbouring desktops' windows.
-- **Or GNOME's overview.** Choose **Overview style > GNOME** and the same swipe up shrinks each desktop to a card, wallpaper and all, with its windows spread inside it and the desktops either side showing at the edges of the screen. Small previews of every desktop sit along the top from the start. Swipe sideways, or click a neighbouring desktop, to slide along to it; everything Mission Control does (dragging windows between desktops, reordering, adding and closing them) works the same. The desktops sit on a plain dark grey, and the current one's preview is outlined in your accent colour. With the dock on, it becomes the overview's dash: away entirely until the overview opens, and without its glass, the icons straight on the grey.
+- **Or GNOME's overview.** Choose **Overview style > GNOME** and the same swipe up shrinks each desktop to a card, wallpaper and all, with its windows spread inside it and the desktops either side showing at the edges of the screen. Small previews of every desktop sit along the top from the start. Swipe sideways, or click a neighbouring desktop, to slide along to it; everything Mission Control does (dragging windows between desktops, reordering, adding and closing them) works the same. The desktops sit on a plain dark grey, and the current one's preview is outlined in your accent colour. With the dock on, it becomes the overview's dash: away entirely until the overview opens, as a rounded dark panel of its own, like GNOME's dash, in place of the glass.
 - **Works with Windows, not around it.** The switch itself is Windows' own (instantly, with its animation suppressed), so window focus, taskbar and virtual desktop state stay exactly as Windows expects.
-- **Light.** A single native executable of about 8 MB. About 10 MB of memory after start-up and 20 to 30 MB in use (Windows Task Manager's Memory column), and no CPU use while idle: ordinary pointer movement is filtered out the moment it arrives.
+- **Light.** A single native executable of about 5.5 MB. About 10 MB of memory after start-up and 20 to 30 MB in use (Windows Task Manager's Memory column), and no CPU use while idle: ordinary pointer movement is filtered out the moment it arrives.
 
 <p align="center">
   <img src="assets/slide-midway.png" width="832" alt="Halfway through a swipe: the current desktop slides out while the next slides in">
@@ -102,7 +102,7 @@ TrackSwipe is a C# program compiled ahead of time to native code (.NET Native AO
 
 ## Build from source
 
-You need the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and, for the native executables, the Visual Studio C++ build tools (the "Desktop development with C++" workload).
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and, for the native executables, the Visual Studio C++ build tools (the "Desktop development with C++" workload).
 
 ```powershell
 .\build.ps1

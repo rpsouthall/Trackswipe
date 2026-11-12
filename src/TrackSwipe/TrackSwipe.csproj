@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -46,7 +46,7 @@
 
   <!-- Windows 11 requires SSE4.2 and POPCNT on Intel/AMD, so target that baseline instead of checking at run time. -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
-    <IlcInstructionSet>x86-x64-v2</IlcInstructionSet>
+    <IlcInstructionSet>x86-64-v2</IlcInstructionSet>
   </PropertyGroup>
 
   <ItemGroup>

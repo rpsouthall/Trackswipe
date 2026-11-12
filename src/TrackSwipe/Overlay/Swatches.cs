@@ -12,8 +12,8 @@ internal sealed class Swatches : IDisposable
     private readonly Dictionary<(Size, Color, bool), GpuSwatch> _rings = new();
     private readonly Dictionary<IntPtr, GpuSwatch> _sources;
 
-    /// <summary>The plain dark grey behind the desktops' cards in the GNOME-style overview.</summary>
-    public static readonly Color OverviewGrey = Color.FromArgb(46, 46, 50);
+    /// <summary>The plain dark grey behind the desktops' cards in the GNOME-style overview (the dock's dash look knows it too).</summary>
+    public static readonly Color OverviewGrey = Color.FromArgb(30, 30, 33);
 
     public Swatches() => _sources = new()
     {
