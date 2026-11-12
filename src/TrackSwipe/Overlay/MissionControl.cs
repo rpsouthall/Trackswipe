@@ -16,7 +16,8 @@ internal sealed partial class MissionControl : IDisposable
     private enum State { Hidden, Tracking, Open, Closing }
 
     /// <remarks>For <see cref="HitKind.NewDesktop"/>, <see cref="Hit.Desktop"/> is where the new desktop goes.</remarks>
-    private enum HitKind { None, Window, Desktop, CloseDesktop, AddDesktop, DisabledControl, DropDesktop, NewDesktop }
+    /// <remarks>For <see cref="HitKind.Card"/>, <see cref="Hit.Desktop"/> is the neighbouring desktop whose card it is.</remarks>
+    private enum HitKind { None, Window, Desktop, CloseDesktop, AddDesktop, DisabledControl, DropDesktop, NewDesktop, Card }
 
     private readonly record struct Hit(HitKind Kind, Part? Window = null, int Desktop = -1);
 
@@ -83,7 +84,7 @@ internal sealed partial class MissionControl : IDisposable
 
     public bool IsOpen => _state == State.Open && !DesktopBarBusy;
 
-    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _barRevealAnimating || _handoff is not null || _afterWake is not null || _zoom is not null || _focusing is not null;
+    public bool IsAnimating => _state == State.Closing || DesktopBarBusy || _barRevealAnimating || _handoff is not null || _afterWake is not null || _zoom is not null || _focusing is not null || _autoPan is not null;
 
     /// <summary>Closing, or handing off to the real desktop; a gesture shouldn't reopen it.</summary>
     public bool IsClosing => _state == State.Closing;
@@ -93,7 +94,7 @@ internal sealed partial class MissionControl : IDisposable
     /// <summary>Shows Mission Control at openness 0, ready for a gesture to drive it.</summary>
     public void BeginOpening(DesktopScene scene)
     {
-        _barReveal.Reset();
+        _barReveal.Reset(Cards(scene) ? 1 : 0); // the card layout's previews are in view from the start
         _barRevealAnimating = false;
         _cacheExpiry.Stop();
         var started = Clock.Now;
@@ -242,6 +243,7 @@ internal sealed partial class MissionControl : IDisposable
         if (_state == State.Hidden) return;
         _closeDecidedAt = Clock.Now;
         ActivateChosenEarly();
+        if (ShowsCards) AnnounceToDocks(open: false); // the dock leaves as the overview closes, not after
     }
 
     /// <summary>A swipe down finished closing it: hand off to the viewed desktop.</summary>
@@ -268,6 +270,7 @@ internal sealed partial class MissionControl : IDisposable
         Render(1);
         _state = State.Open;
         SetInteractive(true);
+        if (ShowsCards) AnnounceToDocks(open: true); // a close that was called off sent the dock away
         foreach (var plan in _plans) Paint(plan);
         if (_plans.FirstOrDefault(plan => plan.Surface.IsPrimary) is { } primary && !_escapeRegistered)
             _escapeRegistered = RegisterHotKey(primary.Decoration.Handle, EscapeHotKey, 0, VK_ESCAPE);
@@ -328,6 +331,8 @@ internal sealed partial class MissionControl : IDisposable
             return;
         }
 
+        if (TickAutoPan(now)) return;
+
         TickDesktopBar(now);
     }
 
@@ -341,6 +346,7 @@ internal sealed partial class MissionControl : IDisposable
         _activatedEarly = false;
         _zoom = null;
         _focusing = null;
+        _autoPan = null;
         StopDwell();
         if (_zoomStarted is { } zoomed) Log.Verbose($"Zoom into a desktop: overlay off {(Clock.Now - zoomed) * 1000:0} ms after the click (clock {Clock.Now:0.000}).");
         _zoomStarted = null;
@@ -388,8 +394,9 @@ internal sealed partial class MissionControl : IDisposable
         Interop.Composition.Gpu.Capture.Dispose();
         handoff?.Finish();
         _cacheExpiry.Stop();
-        if (complete && _plans.Sum(plan => plan.Surface.SpriteCount) <= 128) _cacheExpiry.Start();
+        if (complete && !_cacheStale && _plans.Sum(plan => plan.Surface.SpriteCount) <= 128) _cacheExpiry.Start();
         else ReleaseCache();
+        _cacheStale = false;
     }
 
     private void ReleaseCache()
@@ -499,6 +506,7 @@ internal sealed partial class MissionControl : IDisposable
         _closeMotion = SettleMotion.Create(SpringPreset.Snappy, _openness, 0, 0);
         _lastTick = Clock.Now;
         _state = State.Closing;
+        if (ShowsCards) AnnounceToDocks(open: false); // the dock leaves as the overview closes, not after
         Settle(_closeMotion, (long)(_lastTick * System.Diagnostics.Stopwatch.Frequency), value => value);
         FramesNeeded?.Invoke();
         if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_BLOCK_UI_MS"), out var block) && block > 0)
@@ -796,6 +804,30 @@ internal sealed partial class MissionControl : IDisposable
     }
     private bool _hideTopTaskbar;
 
+    /// <summary>
+    /// The overview's look: Mission Control's, or GNOME's (each desktop a card with its windows inside, its neighbours
+    /// beside it, small previews of them all along the top). Set from the tray menu.
+    /// </summary>
+    public OverviewStyle Style
+    {
+        get => _style;
+        set
+        {
+            if (_style == value) return;
+            _style = value;
+            if (_state == State.Hidden) ReleaseCache(); // a prepared overview was laid out the other way
+            else _cacheStale = true; // on screen in the old look: let it close as it is, and don't keep it
+        }
+    }
+    private OverviewStyle _style;
+    private bool _cacheStale;
+
+    /// <summary>Whether the overview on screen is laid out as cards.</summary>
+    private bool ShowsCards => _plans.Any(plan => plan.Cards is not null);
+
+    /// <summary>Whether this scene is laid out as cards. App Exposé is about one app's windows, not desktops, in either style.</summary>
+    private bool Cards(DesktopScene scene) => _style == OverviewStyle.Gnome && scene.App is null;
+
     /// <summary>Whether this monitor's taskbar is docked at its top and Mission Control should hide it.</summary>
     private bool HidesTaskbar(ThumbnailSurface surface) => _hideTopTaskbar && surface.WorkArea.Top > surface.Monitor.Top;
 
@@ -848,6 +880,12 @@ internal sealed partial class MissionControl : IDisposable
     internal static void AnnounceToDocks(bool open) =>
         PostMessageW(new IntPtr(0xFFFF) /* HWND_BROADCAST */, MissionControlMessage, new IntPtr(open ? 1 : 0), IntPtr.Zero);
 
+    private static readonly uint DockModeMessage = RegisterWindowMessageW("TrackSwipe.DockOverviewOnly");
+
+    /// <summary>Tells docks (Anchor) whether they show only while the overview is open (GNOME's look) or as they're set up to.</summary>
+    internal static void AnnounceDockMode(bool overviewOnly) =>
+        PostMessageW(new IntPtr(0xFFFF) /* HWND_BROADCAST */, DockModeMessage, new IntPtr(overviewOnly ? 1 : 0), IntPtr.Zero);
+
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern IntPtr GetPropW(IntPtr hwnd, string name);
 
@@ -868,14 +906,15 @@ internal sealed partial class MissionControl : IDisposable
         var work = LayoutArea(surface);
         work.Offset(-surface.Monitor.X, -surface.Monitor.Y);
         var s = surface.Scale;
-        var margin = (int)(40 * s);
+        var cards = Cards(scene);
+        var margin = (int)((cards ? 24 : 40) * s);
 
         // Desktop bar along the top of the primary monitor (not in App Exposé, which is about one app, not desktops).
         var top = work.Top + margin;
         if (surface.IsPrimary && scene.App is null)
         {
             var count = scene.DesktopCount;
-            var bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, _switcher is not null && scene.Desktops is not null);
+            var bar = DesktopBarLayout.Arrange(screen.Size, work, s, count, _switcher is not null && scene.Desktops is not null, small: cards);
             for (var i = 0; i < count; i++)
             {
                 var label = scene.Desktops?.Label(i) ?? "Desktop";
@@ -891,21 +930,36 @@ internal sealed partial class MissionControl : IDisposable
         var area = KeepClearOfDocks(Rectangle.FromLTRB(work.Left + margin, top, work.Right - margin, work.Bottom - margin),
             scene, surface, (int)(16 * s));
 
-        // Wallpaper stays put and dims.
-        foreach (var wallpaper in scene.Wallpapers)
+        if (cards)
         {
-            if (!wallpaper.Bounds.IntersectsWith(surface.Monitor) || Acquire(surface, wallpaper, "wallpaper") is not { } sprite) continue;
-            plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, DimmedWallpaper) { Slot = "wallpaper" });
+            // Each desktop is a card: the screen scaled down, wallpaper and all, its windows spread inside. The
+            // current one is on screen from the first frame; its neighbours come in from the sides over the next few.
+            var layout = OverviewCards.Arrange(screen.Width, screen.Height, ToLayout(area), s);
+            plan.Cards = layout;
+            BuildCard(plan, scene, layout, 0);
+            // Two either side: the nearer shows beside the current desktop, the further slides into view during a pan.
+            foreach (var layer in new[] { -1, 1, -2, 2 })
+                if (scene.Current + layer >= 0 && scene.Current + layer < scene.DesktopCount) Step(() => BuildCard(plan, scene, layout, layer));
         }
-
-        // The current desktop's windows spread out. Its neighbours' spreads wait one screen to either
-        // side, so a sideways swipe can pan to them while the bar stays put.
-        // The neighbours are off-screen until a pan, so with a deferred build they come in over the first frames.
-        BuildSpread(plan, scene, scene.Current, 0, area, isCurrent: true);
-        foreach (var layer in scene.App is null ? new[] { -1, 1 } : Array.Empty<int>())
+        else
         {
-            var desktop = scene.Current + layer;
-            if (desktop >= 0 && desktop < scene.DesktopCount) Step(() => BuildSpread(plan, scene, desktop, layer * screen.Width, area, isCurrent: false));
+            // Wallpaper stays put and dims.
+            foreach (var wallpaper in scene.Wallpapers)
+            {
+                if (!wallpaper.Bounds.IntersectsWith(surface.Monitor) || Acquire(surface, wallpaper, "wallpaper") is not { } sprite) continue;
+                plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, DimmedWallpaper) { Slot = "wallpaper" });
+            }
+
+            // The current desktop's windows spread out. Its neighbours' spreads wait one screen to either
+            // side, so a sideways swipe can pan to them while the bar stays put.
+            // The neighbours are off-screen until a pan, so with a deferred build they come in over the first frames.
+            BuildSpread(plan, scene, scene.Current, 0, 0, area, null, isCurrent: true);
+            foreach (var layer in scene.App is null ? new[] { -1, 1 } : Array.Empty<int>())
+            {
+                var desktop = scene.Current + layer;
+                if (desktop >= 0 && desktop < scene.DesktopCount)
+                    Step(() => BuildSpread(plan, scene, desktop, layer * screen.Width, layer * screen.Width, area, null, isCurrent: false));
+            }
         }
 
         // Desktop miniatures: each desktop's wallpaper and on-screen windows, scaled into its tile. They slide down from above.
@@ -976,6 +1030,9 @@ internal sealed partial class MissionControl : IDisposable
             }
             else plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, 255) { Slot = "taskbar" });
         }
+        // A card starts as the whole screen, taskbar's place included, and each is put in order as it's built:
+        // the taskbar goes back on top of them all.
+        if (cards) Step(() => surface.Restack(plan.Parts.Where(part => part.Slot == "taskbar").Select(part => part.Sprite).ToList()));
 
         void Step(Action build)
         {
@@ -988,10 +1045,15 @@ internal sealed partial class MissionControl : IDisposable
     /// Lays out one desktop's app windows, shifted <paramref name="shift"/> pixels sideways. Visible
     /// windows fly from where they are; minimized ones fade in where they land. Non-app windows fade out.
     /// </summary>
-    private void BuildSpread(Plan plan, DesktopScene scene, int desktop, int shift, Rectangle area, bool isCurrent)
+    /// <param name="fromShift">How far along the desktop is at openness 0; <paramref name="toShift"/> the same, fully open.</param>
+    /// <param name="card">For the card layout: the cards and which of them this desktop is. Its windows are spread inside
+    /// the card, clipped to it, and those that don't spread shrink with it.</param>
+    private void BuildSpread(Plan plan, DesktopScene scene, int desktop, int fromShift, int toShift, Rectangle area,
+        (OverviewCards Layout, int Layer)? card, bool isCurrent)
     {
         var surface = plan.Surface;
         var screen = new Rectangle(Point.Empty, surface.Monitor.Size);
+        var gap = (card is null ? 36 : 26) * surface.Scale;
         var spread = new List<Part>();
         foreach (var item in scene.WindowsOn(desktop))
         {
@@ -1005,16 +1067,27 @@ internal sealed partial class MissionControl : IDisposable
             var centre = new Point(sprite.Home.X + sprite.Home.Width / 2, sprite.Home.Y + sprite.Home.Height / 2);
             var spreads = scene.Spreads(item) && (item.IsMinimized || screen.Contains(centre));
             var from = sprite.Home;
-            from.Offset(shift, 0);
+            from.Offset(fromShift, 0);
             var viewport = screen;
-            viewport.Offset(shift, 0);
-            var part = new Part(surface, sprite, from, from, item.IsMinimized ? (byte)0 : (byte)255, spreads ? (byte)255 : (byte)0)
+            viewport.Offset(fromShift, 0);
+            // Where it rests if it doesn't spread, and what it's clipped to, fully open: in place on its desktop, or
+            // in place within its desktop's card.
+            var rest = from;
+            var clipTo = viewport;
+            if (card is { } within)
+            {
+                rest = Round(within.Layout.Map(ToLayout(sprite.Home)));
+                rest.Offset(toShift, 0);
+                clipTo = Round(within.Layout.Card);
+                clipTo.Offset(toShift, 0);
+            }
+            var part = new Part(surface, sprite, from, rest, item.IsMinimized ? (byte)0 : (byte)255, spreads ? (byte)255 : (byte)0)
             {
                 Pans = true,
                 Slot = "spread",
                 Backing = backing,
                 ClipFrom = viewport,
-                ClipTo = viewport,
+                ClipTo = clipTo,
             };
             plan.Parts.Add(part);
             if (spreads) spread.Add(part);
@@ -1023,23 +1096,23 @@ internal sealed partial class MissionControl : IDisposable
         var layout = ExposeLayout.Arrange(
             spread.Select(part => new LayoutRect(part.Sprite.Home.X, part.Sprite.Home.Y, part.Sprite.Home.Width, part.Sprite.Home.Height)).ToArray(),
             new LayoutRect(area.X, area.Y, area.Width, area.Height),
-            gap: 36 * surface.Scale);
+            gap: gap);
         var compactArea = area;
-        if (surface.IsPrimary)
+        if (surface.IsPrimary && card is null) // cards keep their previews in view: there's no compact bar to lay out for
         {
             var compactTop = LayoutArea(surface).Top - surface.Monitor.Y + (int)(80 * surface.Scale);
             compactArea = Rectangle.FromLTRB(area.Left, compactTop, area.Right, area.Bottom);
         }
         var compactLayout = compactArea == area ? layout : ExposeLayout.Arrange(
             spread.Select(part => new LayoutRect(part.Sprite.Home.X, part.Sprite.Home.Y, part.Sprite.Home.Width, part.Sprite.Home.Height)).ToArray(),
-            new LayoutRect(compactArea.X, compactArea.Y, compactArea.Width, compactArea.Height), gap: 36 * surface.Scale);
+            new LayoutRect(compactArea.X, compactArea.Y, compactArea.Width, compactArea.Height), gap: gap);
         for (var i = 0; i < spread.Count; i++)
         {
             var to = Round(layout[i]);
-            to.Offset(shift, 0);
+            to.Offset(toShift, 0);
             spread[i].To = to;
             var compact = Round(compactLayout[i]);
-            compact.Offset(shift, 0);
+            compact.Offset(toShift, 0);
             spread[i].CompactTo = compact != to ? compact : null;
             if (spread[i].Sprite.Item.IsMinimized) spread[i].From = Rectangle.Inflate(to, -to.Width / 12, -to.Height / 12);
             if (isCurrent) plan.Windows.Add(spread[i]);
@@ -1208,6 +1281,7 @@ internal sealed partial class MissionControl : IDisposable
 
         foreach (var plan in _plans.Where(plan => plan != zoomPlan)) CrossFadeTo(plan, desktop, motion, begin);
 
+        if (ShowsCards) AnnounceToDocks(open: false);
         _state = State.Closing;
         // The zoom runs in the compositor, so the switch (which blocks this thread for a few frames) can happen
         // underneath while it finishes: the new desktop is live sooner, and the zoom doesn't stutter.
@@ -1227,6 +1301,14 @@ internal sealed partial class MissionControl : IDisposable
         foreach (var part in plan.Parts.ToList())
         {
             if (part.Slot == "taskbar") continue;
+            if (part.Slot == "card:0" || part.Slot.StartsWith("corner:0:", StringComparison.Ordinal))
+            {
+                // The card layout has no wallpaper behind everything to fade back to: this monitor's card grows
+                // back into the whole screen, its corners squaring off, as it does when the overview closes.
+                var growing = motion.Samples.Select(sample => FrameFor(plan, part, 1 - sample.Value, 0, sample.Time)).ToArray();
+                part.Sprite.Animate(growing, begin);
+                continue;
+            }
             var at = FrameFor(plan, part, _openness, _pan, 0);
             var target = part.Slot == "wallpaper" ? 1f : 0f;
             var frames = motion.Samples.Select(sample => at with
@@ -1284,13 +1366,14 @@ internal sealed partial class MissionControl : IDisposable
         openness = OverviewPresentation.Layout(openness);
         var expansion = barExpansion ?? BarExpansion;
         if (part.TileId is not null || part.Slot == "ring") openness *= barExpansion ?? BarExpansion;
-        var panBy = (float)(pan * plan.Surface.Monitor.Width);
+        // A pan moves the desktops one place along: a screen's width, or from one card to the next.
+        var panBy = (float)(pan * (plan.Cards is { } cards ? cards.PitchAt(openness) : plan.Surface.Monitor.Width));
         var target = part.CompactTo is { } compact ? LayoutRect.Lerp(ToLayout(compact), ToLayout(part.To), expansion) : ToLayout(part.To);
         var rect = ToRectangleF(LayoutRect.Lerp(ToLayout(part.From), target, openness));
         if (part.Pans) rect.Offset(-panBy, 0);
         if ((pan > 0 ? part.PanNext : pan < 0 ? part.PanPrevious : null) is { } panTarget)
             rect = ToRectangleF(LayoutRect.Lerp(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), ToLayout(panTarget), Math.Min(1, Math.Abs(pan))));
-        if (part.Pans) rect = ToRectangleF(OverviewPresentation.WindowBounds(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), elasticOpenness));
+        if (part.Pans && !part.Rigid) rect = ToRectangleF(OverviewPresentation.WindowBounds(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), elasticOpenness));
         RectangleF? clip = null;
         if (part.ClipFrom is { } from && part.ClipTo is { } to)
         {
@@ -1334,6 +1417,7 @@ internal sealed partial class MissionControl : IDisposable
             case HitKind.Desktop: SwitchTo(hit.Desktop); break;
             case HitKind.CloseDesktop: RemoveDesktop(hit.Desktop); break;
             case HitKind.AddDesktop: AddDesktop(); break;
+            case HitKind.Card when _scene is { } scene: PanTo(hit.Desktop - scene.Current); break;
             case HitKind.DisabledControl: break;
             default: Close(); break;
         }
@@ -1361,6 +1445,12 @@ internal sealed partial class MissionControl : IDisposable
         }
         for (var i = plan.Windows.Count - 1; i >= 0; i--)
             if (OverviewWindowBounds(plan, plan.Windows[i]).Contains(point)) return new Hit(HitKind.Window, plan.Windows[i]);
+        // A neighbouring desktop's card, showing at the side.
+        if (plan.Cards is { } cards && _pan == 0 && cards.LayerAt(point.X, point.Y) is -1 or 1 && _scene is { } scene)
+        {
+            var layer = cards.LayerAt(point.X, point.Y)!.Value;
+            if (CanPan(layer)) return new Hit(HitKind.Card, Desktop: scene.Current + layer);
+        }
         return default;
     }
 
@@ -1503,6 +1593,8 @@ internal sealed partial class MissionControl : IDisposable
         public List<Part> Windows { get; } = new();
         public List<Tile> Tiles { get; } = new();
         public Rectangle? AddTile { get; set; }
+        /// <summary>The desktops as cards (the GNOME-style overview), or null for Mission Control's spread.</summary>
+        public OverviewCards? Cards { get; set; }
     }
 
     /// <summary>A sprite's journey from openness 0 to 1.</summary>
@@ -1517,6 +1609,8 @@ internal sealed partial class MissionControl : IDisposable
         public byte ToOpacity { get; } = toOpacity;
         /// <summary>Part of a desktop's window spread, which moves when panning between desktops.</summary>
         public bool Pans { get; init; }
+        /// <summary>Part of a desktop's card itself (its wallpaper, its corners): it doesn't give when the overview is pulled past open, as windows do.</summary>
+        public bool Rigid { get; init; }
         /// <summary>The window's role (wallpaper, spread, a desktop tile...), so a rebuild can reuse its thumbnail.</summary>
         public string Slot { get; init; } = "";
         /// <summary>Solid Mica-coloured thumbnail kept underneath, for apps that leave their background to the system backdrop.</summary>

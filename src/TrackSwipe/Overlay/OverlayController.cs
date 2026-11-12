@@ -94,6 +94,17 @@ internal sealed partial class OverlayController : IDisposable
         set => _mission.HideTopTaskbar = value;
     }
 
+    /// <summary>The overview's look: Mission Control's, or GNOME's cards.</summary>
+    public OverviewStyle OverviewStyle
+    {
+        get => _mission.Style;
+        set => _mission.Style = value;
+    }
+
+    /// <summary>For diagnostics: the overview's cards, and a click on a neighbouring one.</summary>
+    public string DescribeOverviewCards() => _mission.DescribeCards();
+    public bool ClickOverviewCard(int step) => _mission.ClickCard(step);
+
     /// <summary>
     /// Connects to Explorer's desktop switching if that failed earlier for a reason that can pass (Explorer still
     /// starting). Without it, desktop swipes fall back to the shortcut (Windows animates again after our slide) and

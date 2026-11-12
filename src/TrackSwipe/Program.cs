@@ -158,6 +158,9 @@ internal static class Program
                 case "--diagnose-taskbar-options":
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TASKBAR_OPTIONS", "1");
                     break;
+                case "--diagnose-cards":
+                    Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_CARDS", "1");
+                    break;
                 case "--diagnose-tap":
                     var tapFingers = next is "3" or "4" ? next : "3";
                     Environment.SetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_TAP", tapFingers);

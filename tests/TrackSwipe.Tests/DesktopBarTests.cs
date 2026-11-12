@@ -63,4 +63,26 @@ public class DesktopBarTests
         Assert.Null(bar.AddButton);
         Assert.Single(bar.Tiles);
     }
+
+    [Theory]
+    [InlineData(2496, 1664, 2f, 3)]
+    [InlineData(1920, 1080, 1f, 8)]
+    public void The_card_layouts_previews_are_smaller_and_leave_the_desktops_more_room(int width, int height, float scale, int count)
+    {
+        var work = new Rectangle(0, 0, width, height - (int)(48 * scale));
+        var named = DesktopBarLayout.Arrange(new Size(width, height), work, scale, count, true);
+        var small = DesktopBarLayout.Arrange(new Size(width, height), work, scale, count, true, small: true);
+        Assert.Equal(count, small.Tiles.Length);
+        Assert.True(small.Tiles[0].Width < named.Tiles[0].Width);
+        Assert.True(small.SpreadTop < named.SpreadTop);
+        Assert.True(small.SpreadTop > small.Tiles[0].Bottom, "the desktops start below the previews");
+        foreach (var tile in small.Tiles)
+        {
+            Assert.True(work.Contains(tile));
+            Assert.InRange(Math.Abs(tile.Height - tile.Width * height / (double)width), 0, 1);
+        }
+        // A window dragged within a card isn't over a preview's drop zone: the zones stop above where the cards start.
+        var (zones, _) = DesktopBarLayout.DropZones(small.Tiles, small.AddButton, width, scale, small: true);
+        Assert.All(zones, zone => Assert.True(zone.Bottom <= small.SpreadTop));
+    }
 }

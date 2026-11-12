@@ -21,8 +21,9 @@ Windows switches desktops with a canned animation that plays *after* you swipe. 
 - **Mission Control.** Swipe up to spread out every window on the desktop, minimized ones included, with live previews of all your desktops along the top.
   - Click a window to bring it forward, or swipe down with the pointer over one.
   - **Drag a window onto a desktop** in the bar to move it there. Drop it on empty space in the bar to give it a new desktop beside the current one (on whichever side you dropped it), or on **+** to add one at the end.
-  - Click a desktop to switch to it, drag desktops to reorder them, add one with **+**, close one with its **ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â**.
+  - Click a desktop to switch to it, drag desktops to reorder them, add one with **+**, close one with its **×**.
   - Swipe sideways to look at the neighbouring desktops' windows.
+- **Or GNOME's overview.** Choose **Overview style > GNOME** and the same swipe up shrinks each desktop to a card, wallpaper and all, with its windows spread inside it and the desktops either side showing at the edges of the screen. Small previews of every desktop sit along the top from the start. Swipe sideways, or click a neighbouring desktop, to slide along to it; everything Mission Control does (dragging windows between desktops, reordering, adding and closing them) works the same. With the dock on, it becomes the overview's dash: away entirely until the overview opens.
 - **Works with Windows, not around it.** The switch itself is Windows' own (instantly, with its animation suppressed), so window focus, taskbar and virtual desktop state stay exactly as Windows expects.
 - **Light.** A single native executable of about 6.5 MB. About 10 MB of memory after start-up and 20 to 30 MB in use (Windows Task Manager's Memory column), and no CPU use while idle: ordinary pointer movement is filtered out the moment it arrives.
 
@@ -55,9 +56,10 @@ Windows keeps touchpad input away from normal apps while an app running as admin
 | Gesture | What happens |
 |---|---|
 | Three or four fingers left / right | Switch to the next or previous desktop, tracking your fingers |
-| Three or four fingers up | Open Mission Control |
+| Three or four fingers up | Open Mission Control (or the GNOME-style overview) |
 | Swipe down in Mission Control | Close it (onto the window under the pointer, if any) |
 | Swipe sideways in Mission Control | Pan to the neighbouring desktop's windows |
+| Click a neighbouring desktop's card (GNOME style) | Slide along to that desktop |
 | Three or four fingers down | Show the desktop |
 | Three or four fingers, tap (if turned on) | Open Start, or close it |
 
@@ -65,6 +67,7 @@ Right-click the tray icon for:
 - **Gestures enabled:** pause and resume.
 - **Gesture fingers:** three or four. Windows' own swipes follow along.
 - **Tap to open Start** (off unless you turn it on): choose three or four fingers, then tap with that many to open Start, and again to close it. Windows' own tap with that many fingers is set to Nothing meanwhile, and put back when you choose the other count or turn this off.
+- **Overview style:** macOS (Mission Control) or GNOME (desktops side by side, as cards). The GNOME style also keeps the dock out of sight until the overview opens.
 - **Spring:** Snappy or Smooth.
 - **Preview animation** and an **Input monitor** that shows your touches live.
 - **Start at sign-in** and **Run as administrator**.

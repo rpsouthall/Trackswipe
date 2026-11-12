@@ -100,6 +100,76 @@ internal sealed partial class OverlayController
     }
 
     /// <summary>
+    /// For --diagnose-cards: opens the overview in GNOME's look, reads a few pixels off the screen to check the cards
+    /// are where they should be (black between them and at their rounded corners), clicks a neighbouring desktop's
+    /// card to slide to it and back, then closes. Ends on the starting desktop, so nothing really switches.
+    /// </summary>
+    public void RunCardDiagnostics(Action done)
+    {
+        BeginMission(CaptureScene());
+        var direction = 0;
+        var step = 0;
+        var start = Clock.Now;
+        var timer = new UiTimer { Interval = 8 };
+        timer.Tick += (_, _) =>
+        {
+            var t = Clock.Now - start;
+            switch (step)
+            {
+                case 0 when t < 0.5: _mission.Render(t / 0.5); return;
+                case 0:
+                    _mission.SetOpen();
+                    direction = _mission.CanPan(+1) ? 1 : _mission.CanPan(-1) ? -1 : 0;
+                    Log.Write($"Diagnose cards: open on desktop {_mission.ViewedDesktop + 1}; {_mission.DescribeCards()}; {_mission.Describe()}");
+                    step++;
+                    return;
+                case 1 when t < 1.3: return;
+                case 1:
+                    Log.Write($"Diagnose cards: on screen, {_mission.SampleCards(ScreenPixel)}");
+                    if (direction != 0) Log.Write($"Diagnose cards: clicked the {(direction > 0 ? "next" : "previous")} desktop's card: {_mission.ClickCard(direction)}");
+                    step++;
+                    return;
+                case 2 when t < 2.4: return;
+                case 2:
+                    Log.Write($"Diagnose cards: now viewing desktop {_mission.ViewedDesktop + 1}; {_mission.SampleCards(ScreenPixel)}");
+                    if (direction != 0) Log.Write($"Diagnose cards: clicked back: {_mission.ClickCard(-direction)}");
+                    step++;
+                    return;
+                case 3 when t < 3.4: return;
+                case 3:
+                    Log.Write($"Diagnose cards: back on desktop {_mission.ViewedDesktop + 1}; closing.");
+                    _mission.Dismiss();
+                    step++;
+                    return;
+                case 4 when _mission.IsVisible && t < 7: return;
+                default:
+                    timer.Dispose();
+                    _mission.Hide();
+                    Log.Write("Diagnose cards: done");
+                    done();
+                    return;
+            }
+        };
+        timer.Start();
+    }
+
+    /// <summary>One pixel of what is on screen right now. Nothing is kept.</summary>
+    private static Color ScreenPixel(Point point)
+    {
+        var screen = GetDC(IntPtr.Zero);
+        try
+        {
+            var bgr = GetPixel(screen, point.X, point.Y);
+            return Color.FromArgb((int)(bgr & 0xFF), (int)((bgr >> 8) & 0xFF), (int)((bgr >> 16) & 0xFF));
+        }
+        finally { ReleaseDC(IntPtr.Zero, screen); }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr window);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] private static extern uint GetPixel(IntPtr dc, int x, int y);
+
+    /// <summary>
     /// For --diagnose-focus: opens Mission Control, then clicks <paramref name="window"/> and waits for the hand-off.
     /// With <paramref name="bySwipe"/>, points at it instead and swipes down: once abandoned halfway, then for real.
     /// </summary>

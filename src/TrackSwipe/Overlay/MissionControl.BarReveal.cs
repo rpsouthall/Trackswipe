@@ -20,26 +20,32 @@ internal sealed partial class MissionControl
         var row = new Rectangle(0, plan.Tiles[0].Bounds.Y, plan.Surface.WindowBounds.Width, (int)Math.Ceiling(32 * s));
         var measured = plan.Tiles.Select(tile => Composition.Gpu.Drawing.Measure(tile.Label, 13 * s, false)).ToArray();
         var labels = DesktopBarSelection.Arrange(row.Width, row.Y, (int)Math.Ceiling(28 * s), measured.Select(size => size.Width).ToArray(), s);
+        // The card layout shows the previews themselves from the start: no row of names to draw.
+        var named = _scene is not { } scene || !Cards(scene);
         for (var i = 0; i < plan.Tiles.Count; i++)
         {
             var tile = plan.Tiles[i];
             var bounds = labels[i];
             plan.CompactBounds[tile.Desktop] = bounds;
+            if (!named) continue;
             var pill = new GpuDecorationLayer(plan.Surface, bounds);
             pill.Paint(g => g.FillRounded(Color.FromArgb(48, Color.White), bounds, bounds.Height / 2f));
             plan.CompactPills[tile.Desktop] = pill;
         }
-        plan.CompactLabels = new GpuDecorationLayer(plan.Surface, row);
-        plan.CompactLabels.Paint(g =>
+        if (named)
         {
-            foreach (var tile in plan.Tiles)
+            plan.CompactLabels = new GpuDecorationLayer(plan.Surface, row);
+            plan.CompactLabels.Paint(g =>
             {
-                var label = CompactLabelBounds(plan, tile);
-                var size = g.MeasureText(tile.Label, 13 * s, false);
-                var text = new RectangleF(label.X + 8 * s, label.Y + (label.Height - size.Height) / 2, label.Width - 16 * s, size.Height);
-                g.DrawText(tile.Label, 13 * s, false, Color.White, text);
-            }
-        });
+                foreach (var tile in plan.Tiles)
+                {
+                    var label = CompactLabelBounds(plan, tile);
+                    var size = g.MeasureText(tile.Label, 13 * s, false);
+                    var text = new RectangleF(label.X + 8 * s, label.Y + (label.Height - size.Height) / 2, label.Width - 16 * s, size.Height);
+                    g.DrawText(tile.Label, 13 * s, false, Color.White, text);
+                }
+            });
+        }
         if (plan.AddTile is { } add)
         {
             plan.AddControl = new GpuDecorationLayer(plan.Surface, Rectangle.Inflate(add, (int)Math.Ceiling(2 * s), (int)Math.Ceiling(2 * s)));
@@ -47,7 +53,7 @@ internal sealed partial class MissionControl
         }
         if (IsVisible)
         {
-            plan.CompactLabels.Show(); plan.AddControl?.Show();
+            plan.CompactLabels?.Show(); plan.AddControl?.Show();
             foreach (var pill in plan.CompactPills.Values) pill.Show();
         }
     }

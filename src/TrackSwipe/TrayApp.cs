@@ -32,6 +32,8 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayMenuItem _dockItem, _dockSettingsItem, _smoothWindowsItem;
     private WindowAnimationBoost? _windowAnimations; // while "Smooth window animations" is on
     private readonly TrayMenuItem[] _topLeftItems;
+    private readonly TrayMenuItem _macStyleItem, _gnomeStyleItem;
+    private OverviewStyle _overviewStyle;
     private TopLeft _topLeft;
     // How see-through the taskbar is, in percent. Not offered in the menu yet: on Windows 11 26H2 the taskbar's
     // content stays opaque (black) behind its fill whatever the window's composition is set to, so a see-through
@@ -167,6 +169,9 @@ internal sealed partial class TrayApp : IDisposable
             new TrayMenuItem("App icons", () => SetTopLeft(TopLeft.AppIcons)),
             new TrayMenuItem("Desktops", () => SetTopLeft(TopLeft.Desktops)),
         };
+        _overviewStyle = (OverviewStyle)GesturePreferences.LoadNumber(GesturePreferences.OverviewLook, (int)OverviewStyle.Mac, 0, 1);
+        _macStyleItem = new TrayMenuItem("macOS: Mission Control", () => SetOverviewStyle(OverviewStyle.Mac)) { Checked = _overviewStyle == OverviewStyle.Mac };
+        _gnomeStyleItem = new TrayMenuItem("GNOME: desktops side by side", () => SetOverviewStyle(OverviewStyle.Gnome)) { Checked = _overviewStyle == OverviewStyle.Gnome };
         _taskbarTransparency = GesturePreferences.LoadNumber(GesturePreferences.TaskbarTransparency, 0, 0, 100);
         CheckTaskbarChoices();
 
@@ -177,6 +182,7 @@ internal sealed partial class TrayApp : IDisposable
             _enabledItem,
             new TrayMenuItem("Gesture fingers", null, _threeFingerItem, _fourFingerItem),
             new TrayMenuItem("Tap to open Start", null, _tapOffItem, _tapThreeItem, _tapFourItem),
+            new TrayMenuItem("Overview style", null, _macStyleItem, _gnomeStyleItem),
             new TrayMenuItem("Spring", null, _snappyItem, _smoothItem),
             _smoothWindowsItem,
             new TrayMenuItem("Preview animation", RunPreview),
@@ -207,11 +213,18 @@ internal sealed partial class TrayApp : IDisposable
         _tray.ChooseRequested += window => _enabled && _compositionThread.Invoke(() => _overlay.ChooseInMissionControl(window));
         var hideTopTaskbar = _hideTopTaskbarItem.Checked;
         _compositionThread.Invoke(() => _overlay.HideTopTaskbarInMissionControl = hideTopTaskbar);
+        var overviewStyle = _overviewStyle;
+        _compositionThread.Invoke(() => _overlay.OverviewStyle = overviewStyle);
+        AnnounceDockMode();
         ScheduleTaskbarOptions(0);
         // The dock: its own process, started (as the signed-in user) and watched from here.
         _dockHost = new Setup.DockHost((title, text) => Notify(title, text), action => _shellPump.Post(action));
         _dockHost.Changed += SetDockChecked;
-        if (_dockItem.Checked) _dockHost.TurnOn(askFirst: false);
+        // Not for a self-test run from a build folder: there's no dock beside it to start, and failing to get one
+        // would turn the saved setting off.
+        var selfTest = diagnose || missionDiagnostics is not null ||
+            Environment.GetEnvironmentVariables().Keys.Cast<string>().Any(name => name.StartsWith("TRACKSWIPE_DIAGNOSE_", StringComparison.Ordinal));
+        if (_dockItem.Checked && !(selfTest && !Setup.DockHost.Installed)) _dockHost.TurnOn(askFirst: false);
 
         Log.Write($"Started {AppVersion}{(_elevated ? " as administrator" : "")} on Windows {WindowsBuild.Describe()}: {options.Fingers} fingers, full swipe {options.FullSwipeMm} mm, spring {options.Spring}. Instant desktop switching {_overlay.SwitcherStatus}.");
         if (Setup.NativeGestures.Active(options.Fingers)) Setup.NativeGestures.Claim(options.Fingers);
@@ -278,6 +291,7 @@ internal sealed partial class TrayApp : IDisposable
             _overlay = new OverlayController(_engine);
             _overlay.FramesNeeded += _clock.Start;
             _overlay.HideTopTaskbarInMissionControl = _hideTopTaskbarItem.Checked;
+            _overlay.OverviewStyle = _overviewStyle;
             _overlay.WarmTaskbarButtons();
             Log.Write("Graphics rebuilt.");
         }
@@ -331,6 +345,32 @@ internal sealed partial class TrayApp : IDisposable
         _windowAnimations?.Dispose();
         _windowAnimations = on ? new WindowAnimationBoost() : null;
         Log.Write($"Smooth window animations {(on ? "on" : "off")}.");
+    }
+
+    /// <summary>
+    /// The overview's look. GNOME's also keeps the dock away until the overview opens, as GNOME's dash is.
+    /// </summary>
+    private void SetOverviewStyle(OverviewStyle style)
+    {
+        if (style == _overviewStyle) return;
+        _overviewStyle = style;
+        _macStyleItem.Checked = style == OverviewStyle.Mac;
+        _gnomeStyleItem.Checked = style == OverviewStyle.Gnome;
+        GesturePreferences.SaveNumber(GesturePreferences.OverviewLook, (int)style);
+        _compositionThread.Invoke(() => { if (!_overlay.MissionControlOpen) _overlay.OverviewStyle = style; else { _overlay.DismissMissionControl(); _overlay.OverviewStyle = style; } });
+        AnnounceDockMode();
+        Log.Write($"Overview style: {style}.");
+    }
+
+    /// <summary>
+    /// Tells the dock whether it shows only in the overview (GNOME's look) or as its own settings say (the Mac's). A
+    /// dock that starts later reads the same from a property on the tray window.
+    /// </summary>
+    private void AnnounceDockMode()
+    {
+        var only = _overviewStyle == OverviewStyle.Gnome;
+        _tray.SetProperty("TrackSwipe.DockOverviewOnly", only ? 1 : 0);
+        MissionControl.AnnounceDockMode(only);
     }
 
     private void SetTopLeft(TopLeft choice)

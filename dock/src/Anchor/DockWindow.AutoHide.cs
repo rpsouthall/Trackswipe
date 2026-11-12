@@ -19,7 +19,8 @@ public sealed partial class DockWindow
     private DispatcherQueueTimer? _pollTimer;
     private DispatcherQueueTimer? _slideTimer;
     private bool _autoHideStarted;
-    private bool _revealed = true;
+    // The overview's dash starts away: it is placed behind its edge from its first layout, never shown and then hidden.
+    private bool _revealed = !TrackSwipeBridge.OverviewOnly;
     private double _currentCoord;
     private int _targetCoord;
     private DateTime _lastInside = DateTime.MinValue;
@@ -43,8 +44,16 @@ public sealed partial class DockWindow
     private const double NotchLengthVertical = 40; // long side when snapped to the left/right edge
     private const double NotchThickness = 10;      // the tab's short side (into the screen)
 
+    // TrackSwipe's overview is GNOME's: this dock is its dash. It stays away entirely — nothing left at the
+    // screen's edge, no coming out for the pointer or when nothing covers it — until the overview opens, whatever
+    // its own auto-hide settings say.
+    private static bool OverviewOnly => TrackSwipeBridge.OverviewOnly;
+
     // Whether snapped edges actually hide (vs. staying pinned flush and visible).
-    private bool AutoHideEnabled => _profile.Snapped && _profile.AutoHide;
+    private bool AutoHideEnabled => _profile.Snapped && (_profile.AutoHide || OverviewOnly);
+
+    // How much of a hidden dock stays on screen: the notch band, or nothing at all for the overview's dash.
+    private static int HiddenPeek => OverviewOnly ? 0 : Peek;
 
     // True when another monitor sits immediately beyond the snapped edge (an interior / shared
     // edge). Recomputed on each relayout so it costs nothing per poll tick.
@@ -92,17 +101,17 @@ public sealed partial class DockWindow
     // over it. (For edges with no taskbar the outer and work edges coincide.)
     private int HiddenCoord => _profile.Edge switch
     {
-        DockEdge.Bottom => _outer.Y + _outer.Height - Peek,
-        DockEdge.Top => _outer.Y - _shownRect.Height + Peek,
-        DockEdge.Left => _outer.X - _shownRect.Width + Peek,
-        DockEdge.Right => _outer.X + _outer.Width - Peek,
+        DockEdge.Bottom => _outer.Y + _outer.Height - HiddenPeek,
+        DockEdge.Top => _outer.Y - _shownRect.Height + HiddenPeek,
+        DockEdge.Left => _outer.X - _shownRect.Width + HiddenPeek,
+        DockEdge.Right => _outer.X + _outer.Width - HiddenPeek,
         _ => _shownRect.Y,
     };
 
     /// <summary>Where a dock that would show at <paramref name="shown"/> actually sits now: there, or tucked behind its edge.</summary>
     private RectInt32 PlacementFor(RectInt32 shown)
     {
-        if (!_autoHideStarted || !CanHide)
+        if (!CanHide || (!_autoHideStarted && !OverviewOnly))
             return shown;
         int coord;
         if (_slideTimer is { IsRunning: true })
@@ -153,7 +162,11 @@ public sealed partial class DockWindow
             // from the drag that placed it: the very next poll tick sees the hot zone and
             // re-reveals, giving a hide/show/hide flicker. Arming the grace period instead lets
             // the dock land, then tuck away once — smoothly — after the cursor leaves.
-            ArmSettleDelay();
+            // (The overview's dash has no business in view outside the overview: it goes, or stays gone.)
+            if (!OverviewOnly)
+                ArmSettleDelay();
+            else if (_revealed && !_heldInView)
+                SetRevealed(false);
         }
         else
         {
@@ -211,8 +224,8 @@ public sealed partial class DockWindow
     // the dock shut immediately: keep it revealed for the usual grace period, then it hides.
     partial void ResumeAutoHideAfterDrag()
     {
-        _autoHidePaused = false;
-        if (!CanHide)
+        _autoHidePaused = _heldInView; // TrackSwipe's overview still holds it out
+        if (!CanHide || _heldInView)
             return;
         EnsureStarted();
         ArmSettleDelay();
@@ -244,6 +257,7 @@ public sealed partial class DockWindow
 
     private bool _autoHideHooked;
     private bool _autoHidePaused; // a drag or menu holds the dock out
+    private bool _heldInView;     // TrackSwipe's overview holds it out (see HoldInView)
     private bool _covered, _coveredStale = true;
     private DispatcherQueueTimer? _dodgeTimer;
 
@@ -283,7 +297,7 @@ public sealed partial class DockWindow
     private void DodgeSoon()
     {
         _coveredStale = true;
-        if (_closed || !CanHide || !_profile.DodgeWindows)
+        if (_closed || !CanHide || !_profile.DodgeWindows || OverviewOnly)
             return;
         if (_dodgeTimer is null)
         {
@@ -299,7 +313,7 @@ public sealed partial class DockWindow
     private void Root_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         // Hidden, the only part of the dock on screen is the strip at the edge: touching it reveals.
-        if (!CanHide || _revealed)
+        if (!CanHide || _revealed || OverviewOnly)
             return;
         _lastInside = DateTime.UtcNow;
         SetRevealed(true);
@@ -325,6 +339,7 @@ public sealed partial class DockWindow
     internal void HoldInView(bool hold)
     {
         Diag.Log($"HoldInView({hold}): auto-hide {(CanHide ? "on" : "off")}, {(_revealed ? "shown" : "tucked away")}");
+        _heldInView = hold;
         if (hold)
         {
             _autoHidePaused = true;
@@ -338,18 +353,71 @@ public sealed partial class DockWindow
         _autoHidePaused = false;
         if (!CanHide)
             return;
+        if (OverviewOnly)
+        {
+            // The overview's dash leaves with the overview, not a moment after it.
+            EnsureStarted();
+            if (_revealed)
+                SetRevealed(false);
+            UpdatePolling();
+            return;
+        }
         _lastInside = DateTime.UtcNow; // linger the usual moment before tucking away again
         EnsureStarted();
+    }
+
+    /// <summary>
+    /// TrackSwipe's overview changed its look (see <see cref="TrackSwipeBridge.OverviewOnly"/>): become the
+    /// overview's dash, away until it opens, or go back to this dock's own auto-hide settings.
+    /// </summary>
+    internal void ApplyOverviewOnly()
+    {
+        Diag.Log($"ApplyOverviewOnly({OverviewOnly}): {(CanHide ? "can hide" : "stays put")}, {(_revealed ? "shown" : "tucked away")}");
+        _edgeHasNeighbor = _profile.Snapped && ComputeEdgeHasNeighbor();
+        _coveredStale = true;
+        if (!CanHide)
+        {
+            if (_autoHideStarted)
+                Stop(); // auto-hide is off in its own settings: back in view, flush with its edge
+            else if (!_revealed)
+            {
+                _revealed = true;
+                _currentCoord = ShownCoord;
+                MoveWindowCoord(ShownCoord);
+                UpdateNotch();
+            }
+            return;
+        }
+        EnsureStarted();
+        if (OverviewOnly)
+        {
+            if (!_heldInView && _revealed) // not while the overview is holding it out
+                SetRevealed(false);
+        }
+        else if (_revealed)
+        {
+            ArmSettleDelay();
+        }
+        else
+        {
+            // Tucked away with nothing showing: back to the strip and notch at the edge. The poll takes it from
+            // there (out again at once if nothing covers it).
+            _currentCoord = HiddenCoord;
+            MoveWindowCoord(HiddenCoord);
+            UpdateNotch();
+            _pollTimer?.Start();
+        }
+        UpdatePolling();
     }
 
     /// <summary>Polls the cursor only while the dock is shown and has reason to hide once it leaves.</summary>
     private void UpdatePolling()
     {
         // Window moves in the app in front only matter to a dock that dodges.
-        _manager.Events.WatchFrontMoves(this, !_closed && _autoHideHooked && CanHide && _profile.DodgeWindows);
+        _manager.Events.WatchFrontMoves(this, !_closed && _autoHideHooked && CanHide && _profile.DodgeWindows && !OverviewOnly);
         if (_pollTimer is null)
             return;
-        bool needed = CanHide && _revealed && (!_profile.DodgeWindows || IsCovered());
+        bool needed = CanHide && _revealed && !_autoHidePaused && (OverviewOnly || !_profile.DodgeWindows || IsCovered());
         if (needed && !_pollTimer.IsRunning)
             _pollTimer.Start();
         else if (!needed && _pollTimer.IsRunning)
@@ -402,6 +470,14 @@ public sealed partial class DockWindow
         // Dodging, the dock only gives way to a window in front that would otherwise cover it;
         // with nothing over it, it stays (or comes back) in view without needing the cursor.
         bool covered = !_profile.DodgeWindows || IsCovered();
+
+        // The overview's dash: the screen's edge doesn't bring it out and an uncovered edge doesn't either.
+        // Summoned some other way (the shortcut, TrackSwipe's menu), it stays while the pointer is on it.
+        if (OverviewOnly)
+        {
+            atHotZone = false;
+            covered = true;
+        }
 
         var now = DateTime.UtcNow;
         if (atHotZone || (overDock && _revealed))
@@ -515,7 +591,7 @@ public sealed partial class DockWindow
         if (Notch is null)
             return;
 
-        bool show = CanHide && !_revealed;
+        bool show = CanHide && !_revealed && !OverviewOnly;
         Notch.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show)
             return;

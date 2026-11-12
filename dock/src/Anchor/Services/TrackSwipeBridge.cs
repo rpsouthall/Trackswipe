@@ -36,6 +36,25 @@ public static class TrackSwipeBridge
     /// <summary>Broadcast by TrackSwipe as Mission Control opens (wParam 1) and once it has closed (0).</summary>
     public static readonly uint MissionControlMessage = NativeMethods.RegisterWindowMessage("TrackSwipe.MissionControl");
 
+    /// <summary>Broadcast by TrackSwipe when its overview's look changes: wParam 1 for GNOME's, where the dock shows only in the overview.</summary>
+    public static readonly uint OverviewOnlyMessage = NativeMethods.RegisterWindowMessage("TrackSwipe.DockOverviewOnly");
+
+    /// <summary>The property on TrackSwipe's window saying the same, for a dock that starts after the broadcast.</summary>
+    private const string OverviewOnlyProperty = "TrackSwipe.DockOverviewOnly";
+
+    /// <summary>
+    /// TrackSwipe's overview is GNOME's: the dock is the overview's dash, away entirely (no strip at the screen's
+    /// edge, no coming out for the pointer or when nothing covers it) until the overview opens. Read from TrackSwipe
+    /// as the dock starts, and kept up to date by its broadcast.
+    /// </summary>
+    public static bool OverviewOnly { get; set; } = ReadOverviewOnly();
+
+    private static bool ReadOverviewOnly() =>
+        TrackSwipeWindow is var trackSwipe && trackSwipe != nint.Zero && GetPropW(trackSwipe, OverviewOnlyProperty) != nint.Zero;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint GetPropW(nint hwnd, string name);
+
     /// <summary>The property on a dock window holding where it sits when shown, for Mission Control to keep clear.</summary>
     private const string DockRectProperty = "TrackSwipe.DockRect";
 

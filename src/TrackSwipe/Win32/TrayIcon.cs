@@ -61,6 +61,16 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
     public event Action? BalloonClicked;
     public event Action? QuitRequested;
     /// <summary>A jump to a window on another desktop is about to happen; returns whether a slide was put up for it.</summary>
+    /// <summary>Publishes a small value on this window for other processes to read (the dock, as it starts).</summary>
+    public void SetProperty(string name, int value)
+    {
+        if (value == 0) RemovePropW(Handle, name);
+        else SetPropW(Handle, name, new IntPtr(value));
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool SetPropW(IntPtr hwnd, string name, IntPtr value);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr RemovePropW(IntPtr hwnd, string name);
+
     public event Func<IntPtr, bool>? JumpRequested;
     /// <summary>The taskbar's desktop indicator was clicked (GNOME's Activities): Mission Control, open or closed.</summary>
     public event Action? OverviewRequested;

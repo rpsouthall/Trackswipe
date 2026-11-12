@@ -28,6 +28,11 @@ internal sealed partial class TrayApp
                 RunSlideCatchDiagnostics();
             if (int.TryParse(Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_SLIDE"), out var slideDirection) && slideDirection is 1 or -1)
                 RunSlideDiagnostics(slideDirection);
+            if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_CARDS") == "1")
+            {
+                _overlay.OverviewStyle = OverviewStyle.Gnome; // for this run only: the saved choice is untouched
+                _overlay.RunCardDiagnostics(ExitOnShell);
+            }
             if (diagnose) _overlay.RunDiagnostics(ExitOnShell);
             if (Environment.GetEnvironmentVariable("TRACKSWIPE_DIAGNOSE_DESKTOPS") == "1")
                 _overlay.RunDesktopBarDiagnostics(ExitOnShell);

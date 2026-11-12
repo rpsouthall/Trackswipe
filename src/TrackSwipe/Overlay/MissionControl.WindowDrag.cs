@@ -96,7 +96,7 @@ internal sealed partial class MissionControl
             if (plan.Tiles.Count == 0) continue;
             var point = new Point(screen.X - plan.Surface.Monitor.X, screen.Y - plan.Surface.Monitor.Y);
             var (zones, addZone) = DesktopBarLayout.DropZones(plan.Tiles.Select(tile => tile.Bounds).ToArray(), plan.AddTile,
-                plan.Surface.Monitor.Width, plan.Surface.Scale);
+                plan.Surface.Monitor.Width, plan.Surface.Scale, small: plan.Cards is not null);
             for (var i = 0; i < zones.Length; i++)
                 if (zones[i].Contains(point))
                     return plan.Tiles[i].Desktop == _scene?.Current ? (null, default) : (plan, new Hit(HitKind.DropDesktop, Desktop: plan.Tiles[i].Desktop));
@@ -280,7 +280,7 @@ internal sealed partial class MissionControl
             var bounds = OverviewWindowBounds(plan, part);
             var press = new Point((int)(bounds.X + bounds.Width / 2), (int)(bounds.Y + bounds.Height / 2));
             var tiles = plan.Tiles.Select(tile => tile.Bounds).ToArray();
-            var (zones, addZone) = DesktopBarLayout.DropZones(tiles, plan.AddTile, plan.Surface.Monitor.Width, plan.Surface.Scale);
+            var (zones, addZone) = DesktopBarLayout.DropZones(tiles, plan.AddTile, plan.Surface.Monitor.Width, plan.Surface.Scale, small: plan.Cards is not null);
             Rectangle? EmptySpace(int left, int right) => right - left > 4 && tiles.Length > 0
                 ? new Rectangle(left, tiles[0].Y, right - left, tiles[0].Height) : null;
             Rectangle? target = desktopIndex switch

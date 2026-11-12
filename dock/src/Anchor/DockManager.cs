@@ -337,6 +337,12 @@ public sealed class DockManager
                     foreach (var dock in _docks)
                         dock.HoldInView(wParam != 0);
                 }
+                else if (msg == TrackSwipeBridge.OverviewOnlyMessage)
+                {
+                    TrackSwipeBridge.OverviewOnly = wParam != 0;
+                    foreach (var dock in _docks)
+                        dock.ApplyOverviewOnly();
+                }
                 else if (msg == Hosting.AppMenuMessage)
                 {
                     ShowAppMenu(wParam, (short)(lParam & 0xFFFF), (short)((lParam >> 16) & 0xFFFF));

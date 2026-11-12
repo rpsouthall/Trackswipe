@@ -47,6 +47,9 @@ public sealed partial class DockWindow
             return;
         item.SetNeedsAttention(true);
         Diag.Log($"Attention: '{item.DisplayName}' asks for the user");
+        // The overview's dash doesn't come out for it: the dot is on the icon when the overview next opens.
+        if (TrackSwipeBridge.OverviewOnly && !_heldInView)
+            return;
         RevealNow();
         Bounce(item);
     }

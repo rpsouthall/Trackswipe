@@ -13,7 +13,7 @@ internal sealed partial class MissionControl
     private double? _barTransitionUntil;
     private bool _refreshingBar;
     private readonly Dictionary<(ThumbnailSurface Surface, Guid Desktop, Size Size), GpuDecorationLayer> _spareTileDecorations = new();
-    private bool DesktopBarBusy => _windowDrag is not null || _desktopDrag is not null || _desktopChange is not null || _barTransitionUntil is not null || _refreshingBar || _focusing is not null;
+    private bool DesktopBarBusy => _windowDrag is not null || _desktopDrag is not null || _desktopChange is not null || _barTransitionUntil is not null || _refreshingBar || _focusing is not null || _autoPan is not null;
 
     private static Rectangle TileLabelBounds(Tile tile, float scale) => Rectangle.FromLTRB(
         tile.Bounds.Left - (int)(12 * scale), tile.Bounds.Top - (int)(4 * scale),
@@ -71,8 +71,11 @@ internal sealed partial class MissionControl
                 var x = hover.Desktop <= tile.Desktop ? bounds.Left - 8 * s : bounds.Right + 8 * s;
                 g.FillRounded(_accent, new RectangleF(x - 1.5f * s, bounds.Top - 2 * s, 3 * s, bounds.Height + 4 * s), 1.5f * s);
             }
-            var label = new RectangleF(bounds.Left - 10 * s, bounds.Bottom + 8 * s, bounds.Width + 20 * s, 20 * s);
-            g.DrawText(tile.Label, 13 * s, tile.Desktop == _scene?.Current, Color.White, label);
+            if (plan.Cards is null) // the card layout's previews are small and unnamed, as GNOME's are
+            {
+                var label = new RectangleF(bounds.Left - 10 * s, bounds.Bottom + 8 * s, bounds.Width + 20 * s, 20 * s);
+                g.DrawText(tile.Label, 13 * s, tile.Desktop == _scene?.Current, Color.White, label);
+            }
             var showClose = hover.Desktop == tile.Desktop &&
                 hover.Kind is HitKind.Desktop or HitKind.CloseDesktop or HitKind.DisabledControl;
             if (showClose)

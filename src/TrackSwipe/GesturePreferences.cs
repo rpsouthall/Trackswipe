@@ -95,6 +95,9 @@ internal static class GesturePreferences
     /// <summary>What the taskbar shows where its app buttons were while the dock is on (see <see cref="TopLeft"/>).</summary>
     public const string TaskbarTopLeft = "TaskbarTopLeft";
 
+    /// <summary>The overview's look: 0 Mission Control's (the default), 1 GNOME's (see <see cref="Core.OverviewStyle"/>).</summary>
+    public const string OverviewLook = "OverviewStyle";
+
     /// <summary>How see-through the taskbar is, in percent: 0 (Windows' own, the default) to 100 (clear).</summary>
     public const string TaskbarTransparency = "TaskbarTransparency";
 

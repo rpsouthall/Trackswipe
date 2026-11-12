@@ -5,25 +5,26 @@ namespace TrackSwipe.Overlay;
 /// <summary>Centred desktop previews with a compact add control anchored to the right edge.</summary>
 internal sealed record DesktopBarLayout(Rectangle[] Tiles, Rectangle? AddButton, int SpreadTop)
 {
-    public static DesktopBarLayout Arrange(Size screen, Rectangle work, float scale, int count, bool canAdd)
+    /// <param name="small">GNOME-style: smaller previews without names under them, so the desktops below get the room.</param>
+    public static DesktopBarLayout Arrange(Size screen, Rectangle work, float scale, int count, bool canAdd, bool small = false)
     {
         count = Math.Max(1, count);
         var inset = Math.Max(1, (int)(24 * scale));
         var button = Math.Max(1, (int)(36 * scale));
         var gap = Math.Max(1, (int)(22 * scale));
-        var y = work.Top + (int)(20 * scale);
+        var y = work.Top + (int)((small ? 14 : 20) * scale);
         var right = work.Right - inset;
         var addX = right - button;
         var availableRight = canAdd ? addX - gap : right;
         var available = Math.Max(count, availableRight - (work.Left + inset));
         gap = Math.Min(gap, Math.Max(0, (available - count) / Math.Max(1, count - 1)));
-        var width = Math.Max(1, Math.Min((int)(screen.Width * 0.105), (available - (count - 1) * gap) / count));
+        var width = Math.Max(1, Math.Min((int)(screen.Width * (small ? 0.075 : 0.105)), (available - (count - 1) * gap) / count));
         var height = Math.Max(1, (int)Math.Round(width * screen.Height / (double)screen.Width));
         var total = count * width + (count - 1) * gap;
         var x = Math.Clamp((screen.Width - total) / 2, work.Left + inset, Math.Max(work.Left + inset, availableRight - total));
         var tiles = Enumerable.Range(0, count).Select(i => new Rectangle(x + i * (width + gap), y, width, height)).ToArray();
         Rectangle? add = canAdd ? new Rectangle(addX, y + Math.Max(0, (height - button) / 2), button, button) : null;
-        return new(tiles, add, y + Math.Max(height, button) + (int)(70 * scale));
+        return new(tiles, add, y + Math.Max(height, button) + (int)((small ? 22 : 70) * scale));
     }
 
     /// <summary>
@@ -31,11 +32,12 @@ internal sealed record DesktopBarLayout(Rectangle[] Tiles, Rectangle? AddButton,
     /// a miniature. Each tile's zone runs halfway to its neighbours and from the top of the screen to well below its
     /// label; + takes the whole corner from a few buttons' width to its left out to the edge of the screen.
     /// </summary>
-    public static (Rectangle[] Tiles, Rectangle? Add) DropZones(Rectangle[] tiles, Rectangle? add, int screenWidth, float scale)
+    /// <param name="small">The card layout: the desktops' cards start just under the previews, so the zones stop short of them.</param>
+    public static (Rectangle[] Tiles, Rectangle? Add) DropZones(Rectangle[] tiles, Rectangle? add, int screenWidth, float scale, bool small = false)
     {
         if (tiles.Length == 0) return (tiles, add);
         var pad = (int)(40 * scale);
-        var bottom = Math.Max(tiles[0].Bottom, add?.Bottom ?? 0) + (int)(60 * scale);
+        var bottom = Math.Max(tiles[0].Bottom, add?.Bottom ?? 0) + (int)((small ? 14 : 60) * scale);
         var zones = new Rectangle[tiles.Length];
         for (var i = 0; i < tiles.Length; i++)
         {

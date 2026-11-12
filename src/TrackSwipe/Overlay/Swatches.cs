@@ -40,9 +40,35 @@ internal sealed class Swatches : IDisposable
         return (ring.Item, overhang);
     }
 
+    private readonly Dictionary<(int Radius, int Corner), GpuSwatch> _corners = new();
+
+    /// <summary>
+    /// A square of the surface's black base with a quarter circle cut out of it: laid over a corner of a desktop's card,
+    /// it rounds that corner, whatever is drawn in the card. <paramref name="corner"/> is 0 top-left, 1 top-right,
+    /// 2 bottom-left, 3 bottom-right.
+    /// </summary>
+    public SceneItem CornerMask(int radius, int corner)
+    {
+        radius = Math.Max(1, radius);
+        if (!_corners.TryGetValue((radius, corner), out var mask))
+        {
+            // The circle's centre is the square's corner furthest into the card.
+            float cx = corner is 0 or 2 ? radius : 0, cy = corner is 0 or 1 ? radius : 0;
+            mask = new GpuSwatch(new Size(radius, radius), context =>
+            {
+                using var canvas = new GpuCanvas(context);
+                // A ring from the circle outwards, wide enough to cover the rest of the square.
+                canvas.DrawRounded(Color.Black, radius, new RectangleF(cx - 1.5f * radius, cy - 1.5f * radius, 3f * radius, 3f * radius), 1.5f * radius);
+            });
+            _corners[(radius, corner)] = mask;
+            _sources[mask.Item.Window] = mask;
+        }
+        return mask.Item;
+    }
+
     public void Dispose()
     {
         foreach (var source in _sources.Values) source.Dispose();
-        _sources.Clear(); _rings.Clear();
+        _sources.Clear(); _rings.Clear(); _corners.Clear();
     }
 }
