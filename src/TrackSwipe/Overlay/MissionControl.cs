@@ -936,10 +936,14 @@ internal sealed partial class MissionControl : IDisposable
             // current one is on screen from the first frame; its neighbours come in from the sides over the next few.
             var layout = OverviewCards.Arrange(screen.Width, screen.Height, ToLayout(area), s);
             plan.Cards = layout;
+            // A plain grey behind the cards, as GNOME's overview has.
+            if (Acquire(surface, _swatches.OverviewBackdrop, "backdrop") is { } backdrop)
+                plan.Parts.Add(new Part(surface, backdrop, screen, screen, 255, 255) { Slot = "backdrop" });
             BuildCard(plan, scene, layout, 0);
-            // Two either side: the nearer shows beside the current desktop, the further slides into view during a pan.
-            foreach (var layer in new[] { -1, 1, -2, 2 })
-                if (scene.Current + layer >= 0 && scene.Current + layer < scene.DesktopCount) Step(() => BuildCard(plan, scene, layout, layer));
+            // The desktops either side show beside the current one: next, before the previews.
+            foreach (var layer in new[] { -1, 1 })
+                if (scene.Current + layer >= 0 && scene.Current + layer < scene.DesktopCount)
+                    Step(() => { BuildCard(plan, scene, layout, layer); RaiseTaskbar(plan); });
         }
         else
         {
@@ -998,9 +1002,15 @@ internal sealed partial class MissionControl : IDisposable
 
         // Highlight ring around the viewed desktop's tile. While panning it glides towards the tile being swiped to.
         if (plan.Tiles.Count > 0 && plan.Tiles.FirstOrDefault(tile => tile.Desktop == scene.Current) is { } viewed) Step(() => AddRing(viewed));
+        // The cards two along are out of view until a pan brings them in: last.
+        if (cards && plan.Cards is { } row)
+            foreach (var layer in new[] { -2, 2 })
+                if (scene.Current + layer >= 0 && scene.Current + layer < scene.DesktopCount)
+                    Step(() => { BuildCard(plan, scene, row, layer); RaiseTaskbar(plan); });
         void AddRing(Tile viewed)
         {
-            var (ring, overhang) = _swatches.Ring(viewed.Bounds.Size, s, _accent);
+            // Around the preview, or (the card layout) drawn on the preview itself, over its edge.
+            var (ring, overhang) = _swatches.Ring(viewed.Bounds.Size, s, _accent, onTop: cards);
             if (Acquire(surface, ring, "ring") is { } sprite)
             {
                 Rectangle RingAround(Tile tile) => Rectangle.Inflate(tile.Bounds, overhang, overhang);
@@ -1013,6 +1023,7 @@ internal sealed partial class MissionControl : IDisposable
                     PanPrevious = plan.Tiles.FirstOrDefault(tile => tile.Desktop == scene.Current - 1) is { } previous ? RingAround(previous) : null,
                     PanNext = plan.Tiles.FirstOrDefault(tile => tile.Desktop == scene.Current + 1) is { } next ? RingAround(next) : null,
                 });
+                RaiseRing(plan);
             }
         }
 
@@ -1030,9 +1041,9 @@ internal sealed partial class MissionControl : IDisposable
             }
             else plan.Parts.Add(new Part(surface, sprite, sprite.Home, sprite.Home, 255, 255) { Slot = "taskbar" });
         }
-        // A card starts as the whole screen, taskbar's place included, and each is put in order as it's built:
-        // the taskbar goes back on top of them all.
-        if (cards) Step(() => surface.Restack(plan.Parts.Where(part => part.Slot == "taskbar").Select(part => part.Sprite).ToList()));
+        // A card starts as the whole screen, the taskbar's place included: the taskbar stays on top of them all, from
+        // the first frame (and again after each card that is built later).
+        if (cards) RaiseTaskbar(plan);
 
         void Step(Action build)
         {
@@ -1150,6 +1161,7 @@ internal sealed partial class MissionControl : IDisposable
         plan.BarGroup.SetVisible(true);
         foreach (var part in plan.Parts.Where(part => part.TileId is not null)) PlaceInBarGroup(plan, part);
         plan.Surface.RaiseGroup(plan.BarGroup);
+        RaiseRing(plan);
     }
 
     private static void PlaceInBarGroup(Plan plan, Part part)
@@ -1165,6 +1177,7 @@ internal sealed partial class MissionControl : IDisposable
         plan.Surface.Ungroup(plan.BarGroup);
         plan.BarGroup.SetVisible(false);
         plan.BarEnabled = false;
+        RaiseRing(plan);
     }
 
     private void RenderPart(Plan plan, Part part, double openness)
@@ -1310,7 +1323,7 @@ internal sealed partial class MissionControl : IDisposable
                 continue;
             }
             var at = FrameFor(plan, part, _openness, _pan, 0);
-            var target = part.Slot == "wallpaper" ? 1f : 0f;
+            var target = part.Slot is "wallpaper" or "backdrop" ? 1f : 0f;
             var frames = motion.Samples.Select(sample => at with
             {
                 Time = sample.Time,

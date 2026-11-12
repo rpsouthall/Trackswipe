@@ -146,6 +146,23 @@ internal sealed class ThumbnailSurface : NativeWindow, IDisposable
         return group;
     }
 
+    /// <summary>Whether these sprites are already stacked in this order, bottom to top (others may lie between them).</summary>
+    public bool IsStacked(IReadOnlyList<Sprite> bottomToTop)
+    {
+        var last = -1;
+        foreach (var sprite in bottomToTop)
+        {
+            if (_parents.ContainsKey(sprite)) return false;
+            var index = _sprites.IndexOf(sprite);
+            if (index < last) return false;
+            last = index;
+        }
+        return true;
+    }
+
+    /// <summary>Where a sprite is in the stack: higher draws over lower. -1 if it isn't on this surface.</summary>
+    public int StackIndex(Sprite sprite) => _sprites.IndexOf(sprite);
+
     public void RaiseGroup(CompositionVisual group)
     {
         _root.Remove(group); _root.Add(group); RaiseOverlays();

@@ -43,7 +43,7 @@ internal sealed partial class MissionControl
 
         BuildSpread(plan, scene, scene.Current + layer, fromShift, toShift, Round(layout.SpreadArea()), (layout, layer), isCurrent: layer == 0);
 
-        // Rounded corners: a mask of the black behind the cards over each, growing from nothing as the card shrinks.
+        // Rounded corners: a mask of the grey behind the cards over each, growing from nothing as the card shrinks.
         var radius = (int)Math.Round(layout.Radius);
         for (var corner = 0; corner < 4; corner++)
         {
@@ -56,13 +56,45 @@ internal sealed partial class MissionControl
 
         // Thumbnails reused from the last build keep their old place in the stack, and a card only reads right
         // bottom to top: wallpaper, windows, corners. Cards never overlap each other, so that's all that matters.
+        // Left alone when they're in order already (always, the first time): nothing is taken out of the tree.
         var stack = new List<Sprite>();
         for (var i = first; i < plan.Parts.Count; i++)
         {
             if (plan.Parts[i].Backing is { } backing) stack.Add(backing);
             stack.Add(plan.Parts[i].Sprite);
         }
-        surface.Restack(stack);
+        if (!surface.IsStacked(stack)) surface.Restack(stack);
+    }
+
+    /// <summary>
+    /// The card layout: keeps the taskbar above every card. A card starts as the whole screen, the taskbar's place
+    /// included, and one built or reordered after the taskbar's thumbnail would otherwise cover it until it had shrunk.
+    /// </summary>
+    private static void RaiseTaskbar(Plan plan)
+    {
+        if (plan.Cards is null) return;
+        var taskbars = plan.Parts.Where(part => part.Slot == "taskbar").Select(part => part.Sprite).ToList();
+        if (taskbars.Count == 0) return;
+        var surface = plan.Surface;
+        var highestCard = -1;
+        foreach (var part in plan.Parts)
+        {
+            if (!part.Pans) continue;
+            highestCard = Math.Max(highestCard, surface.StackIndex(part.Sprite));
+            if (part.Backing is { } backing) highestCard = Math.Max(highestCard, surface.StackIndex(backing));
+        }
+        if (taskbars.Any(taskbar => surface.StackIndex(taskbar) < highestCard)) surface.Restack(taskbars);
+    }
+
+    /// <summary>
+    /// The card layout draws the ring on the current desktop's preview, over its edge, so it goes above the previews
+    /// whenever they are restacked (they move in and out of a group of their own).
+    /// </summary>
+    private static void RaiseRing(Plan plan)
+    {
+        if (plan.Cards is null) return;
+        var ring = plan.Parts.Where(part => part.Slot == "ring").Select(part => part.Sprite).ToList();
+        if (ring.Count > 0) plan.Surface.Restack(ring);
     }
 
     /// <summary>
@@ -123,10 +155,10 @@ internal sealed partial class MissionControl
         return string.Join("; ",
             At("card centre", cards.Card.CenterX, cards.Card.CenterY),
             At("card top edge, mid", cards.Card.CenterX, card.Top + 3),
-            At("corner tip (black)", card.Left + 1, card.Top + 1),
+            At("corner tip (backdrop)", card.Left + 1, card.Top + 1),
             At("just inside the corner's arc", card.Left + cards.Radius * 0.45, card.Top + cards.Radius * 0.45),
-            At("gap right of the card (black)", card.Right + gap / 2, cards.Card.CenterY),
-            At("above the card (black)", cards.Card.CenterX, card.Top - 5),
+            At("gap right of the card (backdrop)", card.Right + gap / 2, cards.Card.CenterY),
+            At("above the card (backdrop)", cards.Card.CenterX, card.Top - 5),
             At("next card's edge", card.Right + gap + 6, cards.Card.CenterY),
             At("previous card's edge", card.Left - gap - 6, cards.Card.CenterY));
     }

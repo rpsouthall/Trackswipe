@@ -45,7 +45,9 @@ internal sealed partial class MissionControl
         }
         if (!_sharpRevealPending)
         {
-            foreach (var part in _plans.SelectMany(plan => plan.Parts)) part.Sprite.PrepareSharp();
+            // Windows and previews, where small text shimmers when scaled. Not a desktop card's wallpaper: swapping a
+            // picture that fills most of the screen for a differently filtered copy shows as a pop, and gains nothing.
+            foreach (var part in _plans.SelectMany(plan => plan.Parts)) if (!part.Rigid) part.Sprite.PrepareSharp();
             Interop.Composition.Flush();
             _sharpRevealPending = true;
             _sharpen!.Interval = SharpenReveal;

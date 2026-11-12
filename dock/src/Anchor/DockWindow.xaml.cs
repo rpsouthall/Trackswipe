@@ -1358,11 +1358,26 @@ public sealed partial class DockWindow : Window
     /// The dock's background: the Windows 11 taskbar "glass" (acrylic), or — with the clear-dock option — nothing at
     /// all, the icons floating over the desktop. Called when the dock is made and when the option changes.
     /// </summary>
+    /// <summary>
+    /// No glass: the clear-dock option, or TrackSwipe's GNOME-style overview, where the dock is the overview's dash.
+    /// </summary>
+    private bool ClearLook => _manager.Config.ClearGlass || TrackSwipeBridge.OverviewOnly;
+
+    /// <summary>The plain dark grey TrackSwipe's GNOME-style overview puts behind its desktops (its Swatches.OverviewGrey).</summary>
+    private static readonly Windows.UI.Color OverviewGrey = Windows.UI.Color.FromArgb(255, 46, 46, 50);
+    private Brush? _dashFill;
+    private static readonly Brush NoFill = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
     internal void ApplyBackdrop()
     {
         if (IsHighContrast())
             return; // an opaque system colour, set when the window is made
-        if (_manager.Config.ClearGlass)
+        // The overview's dash: the same grey as the overview behind it, painted by the dock itself, so the icons read
+        // as sitting straight on the overview. Opaque, as in High Contrast: nothing has to be blurred or seen through
+        // behind a dock that slides in over a moving overview, and it can't come out white or flicker while it does.
+        bool dash = TrackSwipeBridge.OverviewOnly;
+        RootGrid.Background = dash ? _dashFill ??= new SolidColorBrush(OverviewGrey) : NoFill;
+        if (ClearLook)
         {
             if (_backdrop is not null)
             {
@@ -1370,7 +1385,7 @@ public sealed partial class DockWindow : Window
                 _backdrop.Dispose();
                 _backdrop = null;
             }
-            SystemBackdrop = _clear ??= new ClearBackdrop();
+            SystemBackdrop = dash ? null : _clear ??= new ClearBackdrop();
         }
         else
         {
@@ -1389,7 +1404,7 @@ public sealed partial class DockWindow : Window
 
     private void ApplyWindowBorder()
     {
-        if (_backdrop is null && _manager.Config.ClearGlass && !IsHighContrast())
+        if (_backdrop is null && ClearLook && !IsHighContrast())
         {
             // Clear: no rim either, or it would outline a rectangle of nothing.
             int none = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE

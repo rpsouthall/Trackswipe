@@ -101,7 +101,7 @@ internal sealed partial class OverlayController
 
     /// <summary>
     /// For --diagnose-cards: opens the overview in GNOME's look, reads a few pixels off the screen to check the cards
-    /// are where they should be (black between them and at their rounded corners), clicks a neighbouring desktop's
+    /// are where they should be (the backdrop between them and at their rounded corners), clicks a neighbouring desktop's
     /// card to slide to it and back, then closes. Ends on the starting desktop, so nothing really switches.
     /// </summary>
     public void RunCardDiagnostics(Action done)
