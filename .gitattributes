@@ -1,0 +1,10 @@
+# Text is stored with LF and checked out in the platform's line endings, whatever each machine's git settings are.
+* text=auto
+
+# Scripts Windows runs need CRLF; binary assets are never converted.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.ico binary
+*.gif binary
+*.zip binary

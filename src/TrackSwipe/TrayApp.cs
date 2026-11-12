@@ -392,8 +392,8 @@ internal sealed partial class TrayApp : IDisposable
     }
 
     /// <summary>
-    /// Opens Mission Control as the gesture does â€” a quick upward swipe of the gesture's fingers, fed to the engine as
-    /// if from the touchpad, so it opens with the same motion and settles the same way â€” or closes it if it's open.
+    /// Opens Mission Control as the gesture does — a quick upward swipe of the gesture's fingers, fed to the engine as
+    /// if from the touchpad, so it opens with the same motion and settles the same way — or closes it if it's open.
     /// On the composition thread.
     /// </summary>
     private void ToggleMissionControl()

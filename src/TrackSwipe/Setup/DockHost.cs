@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -68,10 +67,10 @@ internal sealed class DockHost : IDisposable
             return;
         }
         _notify("Getting the dock", Installed ? "Updating the dock to match this version of TrackSwipe…" : "Downloading the dock. It appears when it's ready.");
-        _ = Task.Run(async () =>
+        new Thread(() =>
         {
             string? failure = null;
-            try { await InstallAsync(); }
+            try { Install(); }
             catch (Exception ex) { failure = ex.Message; Log.Write($"Dock: install failed: {ex}"); }
             _post(() =>
             {
@@ -82,7 +81,7 @@ internal sealed class DockHost : IDisposable
                 }
                 if (_wanted) Start();
             });
-        });
+        }) { IsBackground = true, Name = "TrackSwipe dock install" }.Start();
     }
 
     /// <summary>Raised when the dock turns itself off (the download was declined or failed), so the menu can follow.</summary>
@@ -114,7 +113,11 @@ internal sealed class DockHost : IDisposable
     /// Fetches the dock and unpacks it into <see cref="Folder"/>. A development build (no expected hash) uses a
     /// TrackSwipe-Dock-&lt;arch&gt;.zip beside TrackSwipe.exe, or in dist\ beside it, instead of downloading.
     /// </summary>
-    private static async Task InstallAsync()
+    /// <remarks>
+    /// The download and the unpacking are Windows' own (urlmon, as a browser's download, and tar.exe, which reads zip
+    /// archives): a managed HTTP, TLS and zip stack for this one fetch was a quarter of the executable.
+    /// </remarks>
+    private static void Install()
     {
         var zip = Path.Combine(Path.GetTempPath(), $"TrackSwipe-Dock-{Arch}-{Guid.NewGuid():N}.zip");
         try
@@ -132,23 +135,19 @@ internal sealed class DockHost : IDisposable
                 if (ExpectedHash is null) throw new InvalidOperationException("This build of TrackSwipe has no dock to download.");
                 var version = typeof(DockHost).Assembly.GetName().Version?.ToString(3);
                 var url = $"https://github.com/rpsouthall/Trackswipe/releases/download/v{version}/TrackSwipe-Dock-{Arch}.zip";
-                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-                http.DefaultRequestHeaders.UserAgent.ParseAdd($"TrackSwipe/{version}");
-                await using (var source = await http.GetStreamAsync(url))
-                await using (var file = File.Create(zip))
-                    await source.CopyToAsync(file);
+                Download(url, zip);
             }
 
             string hash;
-            await using (var file = File.OpenRead(zip))
-                hash = Convert.ToHexString(await SHA256.HashDataAsync(file));
+            using (var file = File.OpenRead(zip))
+                hash = Convert.ToHexString(SHA256.HashData(file));
             if (ExpectedHash is not null && !string.Equals(hash, ExpectedHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("The downloaded dock didn't match this version of TrackSwipe, so it wasn't installed.");
 
             // Unpacked beside the old one, then swapped in, so a failure halfway leaves the old dock working.
             var staging = Folder + ".new";
             if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
-            ZipFile.ExtractToDirectory(zip, staging);
+            Unpack(zip, staging);
             File.WriteAllText(Path.Combine(staging, "trackswipe-dock.sha256"), hash);
             StopRunningCopies();
             if (Directory.Exists(Folder)) Directory.Delete(Folder, recursive: true);
@@ -160,6 +159,41 @@ internal sealed class DockHost : IDisposable
             try { File.Delete(zip); } catch { }
         }
     }
+
+    /// <summary>Fetches <paramref name="url"/> into <paramref name="file"/>, following redirects and using the system's proxy settings.</summary>
+    internal static void Download(string url, string file)
+    {
+        var hr = URLDownloadToFileW(IntPtr.Zero, url, file, 0, IntPtr.Zero);
+        if (hr != 0 || !File.Exists(file))
+            throw new IOException(hr == unchecked((int)0x800C0005) /* INET_E_RESOURCE_NOT_FOUND */ || hr == unchecked((int)0x800C0006) /* INET_E_OBJECT_NOT_FOUND */
+                ? "The dock for this version of TrackSwipe wasn't found on GitHub."
+                : $"The download failed (0x{hr:X8}). Check the internet connection and turn the dock on again.");
+    }
+
+    /// <summary>Unpacks a zip archive into a new folder with Windows' tar.exe.</summary>
+    internal static void Unpack(string zip, string folder)
+    {
+        var tar = Path.Combine(Environment.SystemDirectory, "tar.exe");
+        if (!File.Exists(tar)) throw new IOException("Windows' tar.exe is missing, so the dock couldn't be unpacked.");
+        Directory.CreateDirectory(folder);
+        using var process = Process.Start(new ProcessStartInfo(tar)
+        {
+            ArgumentList = { "-xf", zip, "-C", folder },
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+        }) ?? throw new IOException("The dock couldn't be unpacked: tar.exe didn't start.");
+        var errors = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(300_000))
+        {
+            try { process.Kill(); } catch { }
+            throw new IOException("Unpacking the dock took too long.");
+        }
+        if (process.ExitCode != 0) throw new IOException($"The dock couldn't be unpacked (tar: {errors.Trim()}).");
+    }
+
+    [DllImport("urlmon.dll", CharSet = CharSet.Unicode)]
+    private static extern int URLDownloadToFileW(IntPtr caller, string url, string file, uint reserved, IntPtr callback);
 
     /// <summary>Starts the dock if it isn't running, and watches it.</summary>
     private void Start()

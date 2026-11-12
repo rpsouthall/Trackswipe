@@ -25,7 +25,7 @@ Windows switches desktops with a canned animation that plays *after* you swipe. 
   - Swipe sideways to look at the neighbouring desktops' windows.
 - **Or GNOME's overview.** Choose **Overview style > GNOME** and the same swipe up shrinks each desktop to a card, wallpaper and all, with its windows spread inside it and the desktops either side showing at the edges of the screen. Small previews of every desktop sit along the top from the start. Swipe sideways, or click a neighbouring desktop, to slide along to it; everything Mission Control does (dragging windows between desktops, reordering, adding and closing them) works the same. The desktops sit on a plain dark grey, and the current one's preview is outlined in your accent colour. With the dock on, it becomes the overview's dash: away entirely until the overview opens, and without its glass, the icons straight on the grey.
 - **Works with Windows, not around it.** The switch itself is Windows' own (instantly, with its animation suppressed), so window focus, taskbar and virtual desktop state stay exactly as Windows expects.
-- **Light.** A single native executable of about 6.5 MB. About 10 MB of memory after start-up and 20 to 30 MB in use (Windows Task Manager's Memory column), and no CPU use while idle: ordinary pointer movement is filtered out the moment it arrives.
+- **Light.** A single native executable of about 8 MB. About 10 MB of memory after start-up and 20 to 30 MB in use (Windows Task Manager's Memory column), and no CPU use while idle: ordinary pointer movement is filtered out the moment it arrives.
 
 <p align="center">
   <img src="assets/slide-midway.png" width="832" alt="Halfway through a swipe: the current desktop slides out while the next slides in">
@@ -84,7 +84,7 @@ Right-click the tray icon for:
   - the taskbar shows the name of the app in front instead of the app buttons, as a Mac's menu bar does; a click on the name opens that app's menu;
   - a swipe between desktops, Mission Control and a click on an app on another desktop all keep the dock where it is.
 
-  **Dock settings** opens its own settings (density, labels, auto-hide, groups and more). The dock is a separate download of about 95 MB, fetched the first time it's turned on (TrackSwipe asks first, and checks it against the copy this version was built with); it runs as its own process, so it can never slow a swipe, and TrackSwipe starts, stops and updates it.
+  **Dock settings** opens its own settings (density, labels, auto-hide, groups and more). The dock is a separate download of about 26 MB, fetched the first time it's turned on (TrackSwipe asks first, and checks it against the copy this version was built with); it runs as its own process, so it can never slow a swipe, and TrackSwipe starts, stops and updates it.
 
 ## Uninstall
 

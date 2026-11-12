@@ -17,6 +17,38 @@ internal static class Program
             return;
         }
         if (Has(args, "--uninstall")) { Installer.Uninstall(); return; }
+#if DIAGNOSTICS
+        // --diagnose-dock-install <zip or url>: fetches and unpacks a dock archive the way turning the dock on does,
+        // into a temporary folder, and says what came out. Installs nothing.
+        if (Array.FindIndex(args, arg => arg.Equals("--diagnose-dock-install", StringComparison.OrdinalIgnoreCase)) is >= 0 and var at && at + 1 < args.Length)
+        {
+            var source = args[at + 1];
+            var work = Path.Combine(Path.GetTempPath(), $"TrackSwipe-dock-test-{Guid.NewGuid():N}");
+            try
+            {
+                Directory.CreateDirectory(work);
+                var zip = Path.Combine(work, "dock.zip");
+                var url = source.Contains("://", StringComparison.Ordinal) ? source : new Uri(Path.GetFullPath(source)).AbsoluteUri;
+                var started = System.Diagnostics.Stopwatch.StartNew();
+                DockHost.Download(url, zip);
+                var fetched = started.Elapsed.TotalSeconds;
+                string hash;
+                using (var file = File.OpenRead(zip)) hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
+                started.Restart();
+                DockHost.Unpack(zip, Path.Combine(work, "Dock"));
+                var files = Directory.GetFiles(Path.Combine(work, "Dock"), "*", SearchOption.AllDirectories);
+                Log.Write($"Diagnose dock install: fetched {new FileInfo(zip).Length:N0} bytes in {fetched:0.0} s (SHA-256 {hash}); unpacked {files.Length} files, " +
+                    $"{files.Sum(file => new FileInfo(file).Length):N0} bytes, in {started.Elapsed.TotalSeconds:0.0} s; Anchor.exe {(File.Exists(Path.Combine(work, "Dock", "Anchor.exe")) ? "present" : "MISSING")}.");
+            }
+            catch (Exception ex) { Log.Write($"Diagnose dock install: failed: {ex.Message}"); }
+            finally
+            {
+                try { Directory.Delete(work, recursive: true); } catch { }
+                Log.Flush();
+            }
+            return;
+        }
+#endif
 #if !DIAGNOSTICS
         // A downloaded copy offers to install (or update) itself, unless asked to just run.
         if (!Installer.RunningInstalled && !Has(args, "--portable") && !Has(args, "--restarted") &&
