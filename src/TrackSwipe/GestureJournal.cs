@@ -22,7 +22,7 @@ internal sealed class GestureJournal
     private bool _active;
     private GestureAxis _axis;
     private double _started, _runStarted, _lastFrame, _releasedAt = double.NaN;
-    private int _count = -1, _direction, _dropoutsBefore;
+    private int _count = -1, _direction;
     private double _extreme;
 
     public GestureJournal(GestureEngine engine)
@@ -47,7 +47,6 @@ internal sealed class GestureJournal
         _direction = 0;
         _extreme = 0;
         _releasedAt = double.NaN;
-        _dropoutsBefore = _engine.DropoutsAbsorbed;
     }
 
     /// <summary>A touchpad report reached the engine.</summary>
@@ -126,8 +125,6 @@ internal sealed class GestureJournal
             if (i > 0 && i < _path.Count - 1 && !double.IsNaN(_path[i - 1]) && !double.IsNaN(_path[i + 1])) turns++;
         }
         if (turns > 0) line.Append(CultureInfo.InvariantCulture, $" ({turns} turn{(turns == 1 ? "" : "s")})");
-        var absorbed = _engine.DropoutsAbsorbed - _dropoutsBefore;
-        if (absorbed > 0) line.Append(CultureInfo.InvariantCulture, $"; fingers lost and found mid-swipe {absorbed}x (ignored)");
         Log.Write(line.ToString());
     }
 }

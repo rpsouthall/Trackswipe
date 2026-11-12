@@ -346,6 +346,8 @@ internal sealed class FrameClock : IDisposable
     private volatile bool _disposed;
     private bool _compositorClock = true;
     private bool _boosted;
+    /// <summary>How long the display is kept at its top refresh rate after the last frame, for the next swipe of a run.</summary>
+    private const int BoostLingerMs = 2500;
 
     public FrameClock(UiPump pump)
     {
@@ -373,6 +375,11 @@ internal sealed class FrameClock : IDisposable
         {
             if (!_running.IsSet)
             {
+                // Swipes come in runs (desktop, desktop, desktop). Let go of the top refresh rate at once and each
+                // one starts on a display that has dropped back to 60 Hz: its first frames come 17 ms apart, which
+                // on a swipe that lasts six frames is most of it. So the rate is held a little after an animation
+                // ends; the thread only waits meanwhile.
+                if (_boosted && _running.Wait(BoostLingerMs)) continue;
                 Boost(false);
                 _running.Wait();
                 continue;

@@ -52,15 +52,11 @@ public sealed class GestureEngine
     /// <summary>How far fingers may come back from their furthest and still be heading on.</summary>
     private const double TurnAllowanceMm = 3;
     /// <summary>
-    /// How long a swipe carries on with all but one of its fingers (or fewer) missing before that counts as letting go
-    /// rather than the touchpad losing them for a moment. Every finger gone is letting go at once.
+    /// While fingers are leaving the pad (from the first lifting, for <see cref="LiftWindow"/>): which way the swipe
+    /// was going, and the furthest that way it has been drawn. NaN when no lift is under way.
     /// </summary>
-    private const double DropoutGrace = 0.05;
-    /// <summary>Since when most of a tracked gesture's fingers have been missing while some remain (NaN otherwise).</summary>
-    private double _fewSince = double.NaN;
-
-    /// <summary>How many times fingers that went missing mid-swipe came back before it was taken as a release (for diagnostics).</summary>
-    public int DropoutsAbsorbed { get; private set; }
+    private double _held = double.NaN;
+    private int _liftHeading;
 
     /// <summary>The last release, for diagnostics: the progress and speed it was judged on and where it was sent.</summary>
     public (double Progress, double Velocity, double Target) LastRelease { get; private set; }
@@ -162,28 +158,21 @@ public sealed class GestureEngine
                 break;
 
             case GesturePhase.Tracking:
-                if (count < fingers && double.IsNaN(_liftAt)) { _liftAt = frame.Time; _liftProgress = Progress; }
-                else if (count >= fingers) _liftAt = double.NaN;
+                if (count < fingers && double.IsNaN(_liftAt))
+                {
+                    // The first finger is leaving. From here until the rest have gone the others slow, stop and roll
+                    // back a little, and what is drawn must not follow them back: it holds (see Held).
+                    _liftAt = frame.Time;
+                    _liftProgress = Progress;
+                    _liftHeading = Math.Sign(Velocity != 0 ? Velocity : Progress - _caughtFrom);
+                    _held = _presentation.HasPresented ? Shape(_presentation.Value) : DisplayProgress;
+                }
+                else if (count >= fingers) { _liftAt = double.NaN; _held = double.NaN; }
                 _travelX += dx;
                 _travelY += dy;
                 UpdateProgress(frame.Time);
                 // Tolerate one finger lifting early; release once the rest follow.
-                if (count == 0) Release(frame.Time);
-                else if (count <= Math.Max(0, fingers - 2))
-                {
-                    // Most of the fingers gone but not all: usually the last of them on its way up, but a touchpad
-                    // also loses fingers for a report or two mid-swipe (pressed together, they read as one). Released
-                    // on the spot, that swipe set off for its desktop and was caught again a moment later: forwards,
-                    // then back to the fingers. So wait a moment to see which it is; a lift is still judged as of
-                    // when it began.
-                    if (double.IsNaN(_fewSince)) _fewSince = frame.Time;
-                    else if (frame.Time - _fewSince >= DropoutGrace) Release(frame.Time);
-                }
-                else if (!double.IsNaN(_fewSince))
-                {
-                    _fewSince = double.NaN;
-                    if (count >= fingers) DropoutsAbsorbed++; // they were there all along
-                }
+                if (count <= Math.Max(0, fingers - 2)) Release(frame.Time);
                 break;
 
             case GesturePhase.Rejected:
@@ -209,7 +198,7 @@ public sealed class GestureEngine
                 _caughtTarget = _target - _interruptedShift;
                 ResetTravel(frame.Time);
                 _liftAt = double.NaN;
-                _fewSince = double.NaN;
+                _held = double.NaN;
                 SetTravel(Progress);
                 _velocity.Clear();
                 _flick.Clear();
@@ -224,9 +213,6 @@ public sealed class GestureEngine
     public void Tick(double time)
     {
         if (Phase == GesturePhase.Tracking && time - _lastFrameTime > Options.ReleaseTimeout) Release(time);
-        // Most fingers gone and no word from the rest for the grace period: they lifted, and the last report was missed.
-        if (Phase == GesturePhase.Tracking && !double.IsNaN(_fewSince) && time - _fewSince >= DropoutGrace && time - _lastFrameTime >= DropoutGrace)
-            Release(time);
         if (Phase == GesturePhase.Tracking)
         {
             if (_interruptedMotion is { } interrupted)
@@ -243,7 +229,7 @@ public sealed class GestureEngine
                 _flick.Add(_lastFrameTime, Progress);
                 _interruptedMotion = null;
             }
-            DisplayProgress = Shape(_presentation.Sample(time));
+            DisplayProgress = Held(Shape(_presentation.Sample(time)), time);
             return;
         }
         if (Phase != GesturePhase.Settling || _settleMotion is null) return;
@@ -282,7 +268,7 @@ public sealed class GestureEngine
         _settleMotion = null;
         _interruptedMotion = null;
         _liftAt = double.NaN;
-        _fewSince = double.NaN;
+        _held = double.NaN;
         _caughtShift = _caughtFrom = _caughtTarget = 0;
         Progress = DisplayProgress = Velocity = 0;
         _presentation.Reset();
@@ -337,7 +323,7 @@ public sealed class GestureEngine
         Axis = axis;
         Phase = GesturePhase.Tracking;
         _liftAt = double.NaN;
-        _fewSince = double.NaN;
+        _held = double.NaN;
         _caughtShift = _caughtFrom = _caughtTarget = 0;
         ResetTravel(time);
         _velocity.Clear();
@@ -365,7 +351,23 @@ public sealed class GestureEngine
         }
         _presentation.Add(time, Progress);
         Velocity = _velocity.Estimate(time);
-        DisplayProgress = Shape(Progress);
+        DisplayProgress = Held(Shape(Progress), time);
+    }
+
+    /// <summary>
+    /// What to draw while fingers are leaving the pad. They don't go together: after the first, the rest slow, stop
+    /// and roll back a few millimetres over the next several reports, and the forecast that was running ahead of
+    /// them falls away. Drawn as it comes, the panel stepped back (by as much as 5% of the way) just before setting
+    /// off. So from the first finger lifting it only moves on the way it was going, never back, until the swipe is
+    /// released from there. A lift that takes longer than <see cref="LiftWindow"/> is fingers carrying on with
+    /// fewer, and is drawn as it is.
+    /// </summary>
+    private double Held(double shown, double time)
+    {
+        if (double.IsNaN(_held) || double.IsNaN(_liftAt)) return shown;
+        if (time - _liftAt > LiftWindow) { _held = double.NaN; return shown; }
+        _held = _liftHeading > 0 ? Math.Max(_held, shown) : _liftHeading < 0 ? Math.Min(_held, shown) : _held;
+        return _held;
     }
 
     private void Release(double time)
@@ -401,16 +403,18 @@ public sealed class GestureEngine
             _target = target;
         }
         LastRelease = (p, v, _target);
-        _fewSince = double.NaN;
 
         // Hand the release velocity to the spring, as seen through the rubber band.
         const double h = 1e-3;
         // Start from the last displayed position, even if lift reports arrived between display frames.
-        var displayed = _presentation.HasPresented ? Shape(_presentation.Value) : DisplayProgress;
+        // (Held while the fingers left the pad: from where it was held, at the speed it had when they began to go.)
+        var holding = lifting && !double.IsNaN(_held);
+        var displayed = holding ? _held : _presentation.HasPresented ? Shape(_presentation.Value) : DisplayProgress;
+        _held = double.NaN;
         // Decisions use the trailing velocity above; the visual spring inherits the much
         // more recent tracking velocity, including a reversal just before lifting.
-        var visualVelocity = _presentation.HasPresented ? _presentation.MotionVelocity(time) : v;
-        var visualProgress = _presentation.HasPresented ? _presentation.Value : p;
+        var visualVelocity = !holding && _presentation.HasPresented ? _presentation.MotionVelocity(time) : v;
+        var visualProgress = !holding && _presentation.HasPresented ? _presentation.Value : p;
         var springVelocity = (Shape(visualProgress + visualVelocity * h) - Shape(visualProgress)) / h;
         // Fingers often roll back a little as they leave the pad, so a flick can end with a moment of motion away
         // from where it's going. Carried into the spring, that makes the panel dip backwards before it heads off.

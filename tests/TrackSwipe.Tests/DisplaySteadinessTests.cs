@@ -59,6 +59,45 @@ public class DisplaySteadinessTests
             Assert.True(drawn[i] >= drawn[i - 1] - 1e-6, $"frame {i}: drawn at {drawn[i]:0.000} after {drawn[i - 1]:0.000}");
     }
 
+    /// <summary>
+    /// Fingers don't leave the pad together: one goes, the others follow over the next few reports, slowing and
+    /// rolling back a little as they do. What was drawn must not step back while they go, nor as the swipe sets off.
+    /// </summary>
+    [Theory]
+    [InlineData(2, 0.040, -30, true)]  // two fingers left for 40 ms, rolling back
+    [InlineData(2, 0.048, 0, false)]   // two left, still
+    [InlineData(2, 0.016, -60, false)]
+    [InlineData(2, 0.024, 40, true)]   // still moving on a little as they go
+    public void Fingers_leaving_the_pad_one_after_another_never_draw_the_swipe_stepping_back(int left, double lifting, double rollMmPerSecond, bool vertical)
+    {
+        var engine = new GestureEngine(new GestureOptions { Fingers = 3 });
+        var actions = new List<SwipeAction>();
+        engine.Committed += actions.Add;
+        var drawn = new List<double>();
+        const double reportInterval = 1.0 / 125, swipe = 0.064, speed = 220, lead = 0.016;
+        var nextReport = 0;
+        for (var frame = 0; frame < 120; frame++)
+        {
+            var now = 100 + frame / 120.0;
+            while (100 + nextReport * reportInterval <= now - 0.001)
+            {
+                var t = nextReport * reportInterval;
+                var fingers = t < swipe ? 3 : t < swipe + lifting ? left : 0;
+                var travel = t < swipe ? speed * t : speed * swipe + rollMmPerSecond * (t - swipe);
+                var contacts = Enumerable.Range(0, fingers)
+                    .Select(i => new Contact(i, 30 + 12 * i + (vertical ? 0 : -travel), 40 + (vertical ? -travel : 0), true, true)).ToArray();
+                if (t <= swipe + lifting + reportInterval) engine.Process(new TouchFrame(100 + t, contacts, 110, 70));
+                nextReport++;
+            }
+            engine.Tick(now + lead);
+            if (engine.Phase is GesturePhase.Tracking or GesturePhase.Settling) drawn.Add(engine.DisplayProgress);
+        }
+        Assert.Single(actions); // it went
+        Assert.True(drawn.Count > 10);
+        for (var i = 1; i < drawn.Count; i++)
+            Assert.True(drawn[i] >= drawn[i - 1] - 1e-6, $"frame {i}: drawn at {drawn[i]:0.000} after {drawn[i - 1]:0.000}");
+    }
+
     [Fact]
     public void When_reports_stop_the_forecast_eases_away_rather_than_dropping()
     {

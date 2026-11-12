@@ -8,49 +8,27 @@ public class GestureSteadinessTests
     private static GestureHarness ThreeFingers() => new(new GestureOptions { Fingers = 3 }) { Fingers = 3 };
 
     [Theory]
-    [InlineData(1, 0.016)] // two of three fingers lost for a couple of reports
-    [InlineData(1, 0.040)]
-    [InlineData(2, 0.040)] // one lost: always tolerated
-    public void Fingers_the_touchpad_loses_for_a_moment_do_not_release_the_swipe(int remaining, double seconds)
+    [InlineData(1)] // two of three fingers gone: released there and then, the last one still down
+    [InlineData(0)]
+    public void A_swipe_is_released_the_moment_most_of_its_fingers_have_gone(int remaining)
+    {
+        var swipe = ThreeFingers();
+        swipe.Move(-25, 0, 0.2);
+        swipe.Fingers = remaining;
+        swipe.Hold(0.008);
+        Assert.Equal(GesturePhase.Settling, swipe.Engine.Phase); // no waiting: nothing held up the swipe setting off
+    }
+
+    [Fact]
+    public void One_finger_lifting_early_does_not_release_the_swipe()
     {
         var swipe = ThreeFingers();
         swipe.Move(-20, 0, 0.15);
-        swipe.Fingers = remaining;
-        swipe.Move(-2, 0, seconds);
-        Assert.Equal(GesturePhase.Tracking, swipe.Engine.Phase); // not sent on its way, to be caught again
-        swipe.Fingers = 3;
-        swipe.Move(-10, 0, 0.08);
+        swipe.Fingers = 2;
+        swipe.Move(-2, 0, 0.04);
         Assert.Equal(GesturePhase.Tracking, swipe.Engine.Phase);
-        Assert.Equal(remaining == 1 ? 1 : 0, swipe.Engine.DropoutsAbsorbed);
-        // The panel only ever moved forwards.
-        for (var i = 1; i < swipe.ProgressHistory.Count; i++)
-            Assert.True(swipe.ProgressHistory[i] >= swipe.ProgressHistory[i - 1] - 1e-9, $"progress went back at sample {i}");
         swipe.Lift();
         Assert.Equal(new[] { SwipeAction.NextDesktop }, swipe.Actions);
-    }
-
-    [Fact]
-    public void Lifting_all_but_one_finger_and_resting_it_releases_after_a_moment()
-    {
-        var swipe = ThreeFingers();
-        swipe.Move(-25, 0, 0.2);
-        swipe.Fingers = 1;
-        swipe.Hold(0.03);
-        Assert.Equal(GesturePhase.Tracking, swipe.Engine.Phase); // could still be the touchpad
-        swipe.Hold(0.05);
-        Assert.Equal(GesturePhase.Settling, swipe.Engine.Phase); // no: they let go
-        swipe.Lift();
-        Assert.Equal(new[] { SwipeAction.NextDesktop }, swipe.Actions);
-    }
-
-    [Fact]
-    public void Every_finger_lifting_at_once_releases_at_once()
-    {
-        var swipe = ThreeFingers();
-        swipe.Move(-25, 0, 0.2);
-        swipe.Fingers = 0;
-        swipe.Hold(0.008);
-        Assert.Equal(GesturePhase.Settling, swipe.Engine.Phase);
     }
 
     [Theory]
