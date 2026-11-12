@@ -65,9 +65,17 @@ internal sealed class TrackingPresentation
     public double Sample(double time)
     {
         if (double.IsNaN(_time)) return Value;
-        var fresh = time - _time <= Math.Min(0.025, _interval * 2.5);
-        var horizon = fresh ? Math.Clamp(time - _time + CorrectionTime, 0, Math.Min(0.020, _interval * 2)) : 0;
-        var target = _value + Math.Clamp(_velocity * horizon * _predictionWeight, -0.050, 0.050);
+        // A frame is drawn for a moment a frame or two ahead, from a report that is already a few milliseconds old, so
+        // the newest report is routinely 15 to 25 ms behind the time asked for, and how far varies from frame to
+        // frame. The forecast must not depend on which side of some line that falls: dropped whenever the report
+        // looked "stale", it came and went between frames, and a steady swipe was drawn stepping back and forth by
+        // the whole forecast. It is kept in full while reports are arriving at all, and eased away (never dropped)
+        // once they have really stopped.
+        var age = time - _time;
+        var arriving = Math.Max(0.035, _interval * 3.5);
+        var fade = age <= arriving ? 1 : Math.Clamp(1 - (age - arriving) / 0.050, 0, 1);
+        var horizon = Math.Clamp(age + CorrectionTime, 0, Math.Min(0.020, _interval * 2));
+        var target = _value + Math.Clamp(_velocity * horizon * _predictionWeight, -0.050, 0.050) * fade;
         if (!HasPresented)
         {
             Value = target;
