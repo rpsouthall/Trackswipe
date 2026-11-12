@@ -121,7 +121,7 @@ assets/               icon and screenshots
 
 ## Privacy
 
-Touch data stays in memory and is never stored. The log in `%LOCALAPPDATA%\TrackSwipe` records start-up settings, the touchpad model and errors. No telemetry. The only network access is downloading the dock from this project's GitHub release, once, when you turn it on.
+Touch data stays in memory and is never stored. The log in `%LOCALAPPDATA%\TrackSwipe` records start-up settings, the touchpad model and errors. Only with verbose logging turned on (`--verbose`, off by default) does it also keep a line of numbers per gesture (how many fingers for how long, how far the swipe went and where it was sent; never where the fingers were), for tracking down a swipe that misbehaved. No telemetry. The only network access is downloading the dock from this project's GitHub release, once, when you turn it on.
 
 ## Limits
 

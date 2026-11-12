@@ -92,6 +92,12 @@ internal static class GesturePreferences
         }
     }
 
+    /// <summary>
+    /// Verbose logging, as --verbose gives, for a copy started some other way (at sign-in): frame statistics and a
+    /// line of numbers per gesture. Off unless set to 1 in the registry; there's no menu item for it.
+    /// </summary>
+    public const string VerboseLog = "VerboseLog";
+
     /// <summary>What the taskbar shows where its app buttons were while the dock is on (see <see cref="TopLeft"/>).</summary>
     public const string TaskbarTopLeft = "TaskbarTopLeft";
 

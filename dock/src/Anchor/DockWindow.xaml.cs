@@ -690,10 +690,12 @@ public sealed partial class DockWindow : Window
         // Placed where it is now rather than where it would show: tucked away, it is resized
         // there, instead of flashing into view for a moment on every relayout (which the open-apps
         // animation does each frame).
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         _appWindow.MoveAndResize(PlacementFor(_shownRect));
         ApplyTopmost();
         ApplyWindowChrome();
         OnRelayoutApplied();
+        Diag.Slow("moving and resizing the dock", started);
     }
 
     /// <summary>How far a snapped dock stands off its edge, in DIPs.</summary>

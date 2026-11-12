@@ -29,6 +29,12 @@ public sealed class GestureOptions
     /// <summary>Least sideways travel (progress) that heads for a desktop: less is a twitch. 0.05 is about 2.75 mm.</summary>
     public double MinSwipeProgress { get; set; } = 0.05;
 
+    /// <summary>
+    /// Least up or down travel (progress) that heads for the overview or the desktop: more than sideways, so a drift
+    /// of the fingers doesn't open Mission Control. 0.2 is about 8 mm. A flick counts from <see cref="MinFlickProgress"/>.
+    /// </summary>
+    public double MinVerticalSwipeProgress { get; set; } = 0.2;
+
     /// <summary>Minimum progress for a flick to commit, so a twitch doesn't switch desktops.</summary>
     public double MinFlickProgress { get; set; } = 0.05;
 

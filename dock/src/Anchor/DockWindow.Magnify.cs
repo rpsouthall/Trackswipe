@@ -74,8 +74,10 @@ public sealed partial class DockWindow
             return;
         }
 
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var p = e.GetCurrentPoint(ItemsHost).Position;
         TrackStripPointer(IsVertical ? p.Y : p.X);
+        Diag.Slow("pointer over the icons", started);
     }
 
     private void Strip_PointerExited(object sender, PointerRoutedEventArgs e) => ResetStripPointer();

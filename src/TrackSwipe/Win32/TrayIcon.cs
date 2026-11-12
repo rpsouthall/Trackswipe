@@ -128,7 +128,9 @@ internal sealed unsafe class TrayIcon : NativeWindow, IDisposable
             if ((long)copy.dwData == Overlay.DockTargets.Tag)
             {
                 Overlay.DockTargets.Receive(copy.lpData, copy.cbData);
-                Interop.TaskbarTap.ForwardDockIcons(m.LParam); // minimize targets, in Explorer
+                // Minimize targets, in Explorer: passed on from a worker, so the dock (waiting on this message)
+                // gets its answer now rather than once Explorer has taken them too.
+                Interop.TaskbarTap.ForwardDockIconsSoon(Overlay.DockTargets.Raw);
             }
             m.Result = 1;
             return;

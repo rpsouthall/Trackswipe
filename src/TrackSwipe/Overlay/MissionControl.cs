@@ -1397,7 +1397,10 @@ internal sealed partial class MissionControl : IDisposable
         if (part.Pans) rect.Offset(-panBy, 0);
         if ((pan > 0 ? part.PanNext : pan < 0 ? part.PanPrevious : null) is { } panTarget)
             rect = ToRectangleF(LayoutRect.Lerp(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), ToLayout(panTarget), Math.Min(1, Math.Abs(pan))));
-        if (part.Pans && !part.Rigid) rect = ToRectangleF(OverviewPresentation.WindowBounds(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), elasticOpenness));
+        // Pulled past open, Mission Control's windows give a little and spring back. Not in the card layout: the cards
+        // themselves hold still, and windows pulsing inside a still card read as the picture being unsteady.
+        if (part.Pans && !part.Rigid && plan.Cards is null)
+            rect = ToRectangleF(OverviewPresentation.WindowBounds(new LayoutRect(rect.X, rect.Y, rect.Width, rect.Height), elasticOpenness));
         RectangleF? clip = null;
         if (part.ClipFrom is { } from && part.ClipTo is { } to)
         {

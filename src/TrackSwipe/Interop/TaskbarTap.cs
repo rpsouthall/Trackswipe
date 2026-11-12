@@ -97,6 +97,41 @@ internal static unsafe class TaskbarTap
         var window = Window;
         if (window != IntPtr.Zero) SendMessageTimeoutW(window, 0x004A /* WM_COPYDATA */, 0, copyData, 0x0002, 500, out _);
     }
+
+    private static byte[]? _pendingDockIcons;
+    private static int _forwardingDockIcons;
+
+    /// <summary>
+    /// As <see cref="ForwardDockIcons(byte[])"/>, from a worker thread: the dock is waiting on TrackSwipe while this
+    /// thread handles its message, and must not be kept waiting on Explorer as well (a busy Explorer froze the dock
+    /// under the pointer). If another map arrives meanwhile, only the latest goes next.
+    /// </summary>
+    public static void ForwardDockIconsSoon(byte[]? map)
+    {
+        if (map is null) return;
+        Interlocked.Exchange(ref _pendingDockIcons, map);
+        if (Interlocked.CompareExchange(ref _forwardingDockIcons, 1, 0) == 0)
+            ThreadPool.UnsafeQueueUserWorkItem(static _ => ForwardPendingDockIcons(), null);
+    }
+
+    private static void ForwardPendingDockIcons()
+    {
+        try
+        {
+            while (Interlocked.Exchange(ref _pendingDockIcons, null) is { } map) ForwardDockIcons(map);
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"Dock icons couldn't be passed to the taskbar: {ex.Message}");
+        }
+        finally
+        {
+            Volatile.Write(ref _forwardingDockIcons, 0);
+            // One that arrived between the last look and letting go.
+            if (Volatile.Read(ref _pendingDockIcons) is not null && Interlocked.CompareExchange(ref _forwardingDockIcons, 1, 0) == 0)
+                ThreadPool.UnsafeQueueUserWorkItem(static _ => ForwardPendingDockIcons(), null);
+        }
+    }
     /// <summary>Puts the taskbar back as Explorer draws it, if the DLL (this version or an earlier one) is there to ask.</summary>
     public static void Restore()
     {

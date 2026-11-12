@@ -117,11 +117,42 @@ public static class TrackSwipeBridge
             data[i * 3 + 1] = (uint)icon.X | ((long)icon.Y << 32);
             data[i * 3 + 2] = (uint)(icon.X + icon.Width) | ((long)(icon.Y + icon.Height) << 32);
         }
-        fixed (long* pointer = data)
+        // WM_COPYDATA has to be sent, not posted (the data lives only for the call), and a send waits for TrackSwipe to
+        // take it. Not on this thread, the dock's own: while it waited the dock stopped answering the pointer, and a
+        // busy moment in TrackSwipe became a dock that hung under the cursor. A worker sends it; if the icons move
+        // again meanwhile, only the latest map goes next.
+        if (Interlocked.Exchange(ref _pendingIconMap, data) is null && Interlocked.CompareExchange(ref _sendingIconMap, 1, 0) == 0)
+            ThreadPool.UnsafeQueueUserWorkItem(static _ => SendPendingIconMaps(), null);
+    }
+
+    private static long[]? _pendingIconMap;
+    private static int _sendingIconMap;
+
+    private static unsafe void SendPendingIconMaps()
+    {
+        try
         {
-            var copy = new COPYDATASTRUCT { dwData = IconMapTag, cbData = data.Length * sizeof(long), lpData = (nint)pointer };
-            // WM_COPYDATA has to be sent, not posted: the data lives only for the call.
-            SendMessageTimeout(trackSwipe, 0x004A /* WM_COPYDATA */, nint.Zero, (nint)(&copy), 0x0002 /* SMTO_ABORTIFHUNG */, 200, out _);
+            while (Interlocked.Exchange(ref _pendingIconMap, null) is { } data)
+            {
+                if (TrackSwipeWindow is var trackSwipe && trackSwipe == nint.Zero)
+                    continue;
+                fixed (long* pointer = data)
+                {
+                    var copy = new COPYDATASTRUCT { dwData = IconMapTag, cbData = data.Length * sizeof(long), lpData = (nint)pointer };
+                    SendMessageTimeout(trackSwipe, 0x004A /* WM_COPYDATA */, nint.Zero, (nint)(&copy), 0x0002 /* SMTO_ABORTIFHUNG */, 1000, out _);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Diag.Log($"Icon map: {ex.Message}");
+        }
+        finally
+        {
+            Volatile.Write(ref _sendingIconMap, 0);
+            // One that arrived between the last look and letting go.
+            if (Volatile.Read(ref _pendingIconMap) is not null && Interlocked.CompareExchange(ref _sendingIconMap, 1, 0) == 0)
+                ThreadPool.UnsafeQueueUserWorkItem(static _ => SendPendingIconMaps(), null);
         }
     }
 

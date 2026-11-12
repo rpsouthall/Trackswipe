@@ -49,8 +49,21 @@ public sealed class GestureEngine
     /// still within <see cref="TurnAllowanceMm"/> of each: how a swipe that was caught (turned back) is told apart.
     /// </summary>
     private double _furthestAhead, _furthestBehind, _nearAheadAt, _nearBehindAt;
-    /// <summary>How far fingers may come back from their furthest and still be heading on (a sideways swipe).</summary>
+    /// <summary>How far fingers may come back from their furthest and still be heading on.</summary>
     private const double TurnAllowanceMm = 3;
+    /// <summary>
+    /// How long a swipe carries on with all but one of its fingers (or fewer) missing before that counts as letting go
+    /// rather than the touchpad losing them for a moment. Every finger gone is letting go at once.
+    /// </summary>
+    private const double DropoutGrace = 0.05;
+    /// <summary>Since when most of a tracked gesture's fingers have been missing while some remain (NaN otherwise).</summary>
+    private double _fewSince = double.NaN;
+
+    /// <summary>How many times fingers that went missing mid-swipe came back before it was taken as a release (for diagnostics).</summary>
+    public int DropoutsAbsorbed { get; private set; }
+
+    /// <summary>The last release, for diagnostics: the progress and speed it was judged on and where it was sent.</summary>
+    public (double Progress, double Velocity, double Target) LastRelease { get; private set; }
 
     public GestureEngine(GestureOptions? options = null) => Options = options ?? new GestureOptions();
 
@@ -155,7 +168,22 @@ public sealed class GestureEngine
                 _travelY += dy;
                 UpdateProgress(frame.Time);
                 // Tolerate one finger lifting early; release once the rest follow.
-                if (count <= Math.Max(0, fingers - 2)) Release(frame.Time);
+                if (count == 0) Release(frame.Time);
+                else if (count <= Math.Max(0, fingers - 2))
+                {
+                    // Most of the fingers gone but not all: usually the last of them on its way up, but a touchpad
+                    // also loses fingers for a report or two mid-swipe (pressed together, they read as one). Released
+                    // on the spot, that swipe set off for its desktop and was caught again a moment later: forwards,
+                    // then back to the fingers. So wait a moment to see which it is; a lift is still judged as of
+                    // when it began.
+                    if (double.IsNaN(_fewSince)) _fewSince = frame.Time;
+                    else if (frame.Time - _fewSince >= DropoutGrace) Release(frame.Time);
+                }
+                else if (!double.IsNaN(_fewSince))
+                {
+                    _fewSince = double.NaN;
+                    if (count >= fingers) DropoutsAbsorbed++; // they were there all along
+                }
                 break;
 
             case GesturePhase.Rejected:
@@ -181,6 +209,7 @@ public sealed class GestureEngine
                 _caughtTarget = _target - _interruptedShift;
                 ResetTravel(frame.Time);
                 _liftAt = double.NaN;
+                _fewSince = double.NaN;
                 SetTravel(Progress);
                 _velocity.Clear();
                 _flick.Clear();
@@ -195,6 +224,9 @@ public sealed class GestureEngine
     public void Tick(double time)
     {
         if (Phase == GesturePhase.Tracking && time - _lastFrameTime > Options.ReleaseTimeout) Release(time);
+        // Most fingers gone and no word from the rest for the grace period: they lifted, and the last report was missed.
+        if (Phase == GesturePhase.Tracking && !double.IsNaN(_fewSince) && time - _fewSince >= DropoutGrace && time - _lastFrameTime >= DropoutGrace)
+            Release(time);
         if (Phase == GesturePhase.Tracking)
         {
             if (_interruptedMotion is { } interrupted)
@@ -250,6 +282,7 @@ public sealed class GestureEngine
         _settleMotion = null;
         _interruptedMotion = null;
         _liftAt = double.NaN;
+        _fewSince = double.NaN;
         _caughtShift = _caughtFrom = _caughtTarget = 0;
         Progress = DisplayProgress = Velocity = 0;
         _presentation.Reset();
@@ -304,6 +337,7 @@ public sealed class GestureEngine
         Axis = axis;
         Phase = GesturePhase.Tracking;
         _liftAt = double.NaN;
+        _fewSince = double.NaN;
         _caughtShift = _caughtFrom = _caughtTarget = 0;
         ResetTravel(time);
         _velocity.Clear();
@@ -347,15 +381,17 @@ public sealed class GestureEngine
         var average = _velocity.Estimate(decidedAt);
         var v = _flick.Peak(decidedAt, FlickRollBackMm / fullSwipe) is { } peak && Math.Abs(peak) > Math.Abs(average) ? peak : average;
         var flick = Axis == GestureAxis.Horizontal ? Options.FlickVelocity : Options.VerticalFlickVelocity;
-        var threshold = Axis == GestureAxis.Horizontal ? Options.CommitProgress : Options.VerticalCommitProgress;
 
-        if (Axis == GestureAxis.Horizontal)
         {
-            // As macOS does: a sideways swipe that heads somewhere goes there, however slow or short (past a twitch).
-            // Only catching it, turning back before lifting, stops it; nothing is worked out from speeds and distances.
+            // As macOS does: a swipe that heads somewhere goes there, however slow or short (past a twitch; up and
+            // down, past a little more, so a drift doesn't open the overview). Only catching it, turning back before
+            // lifting, stops it; nothing is worked out from speeds and distances, so it never sets off and comes back.
             var travel = p - _caughtFrom;
-            var heading = Math.Abs(travel) >= Options.MinSwipeProgress ? Math.Sign(travel) : 0;
-            if (heading != 0 && TurnedBack(heading, travel, decidedAt)) heading = 0;
+            var least = Axis == GestureAxis.Horizontal ? Options.MinSwipeProgress : Options.MinVerticalSwipeProgress;
+            // A flick counts however short: fast fingers have somewhere to go.
+            if (Math.Abs(v) >= flick && Math.Sign(v) == Math.Sign(travel)) least = Math.Min(least, Options.MinFlickProgress);
+            var heading = Math.Abs(travel) >= least ? Math.Sign(travel) : 0;
+            if (heading != 0 && TurnedBack(heading, travel, decidedAt, fullSwipe)) heading = 0;
             double target;
             if (heading == 0) target = _caughtTarget; // caught (or barely moved): wherever it was already going
             else if (_caughtShift != 0) target = heading; // a quick series: one more desktop, or back to the last
@@ -364,12 +400,8 @@ public sealed class GestureEngine
             if ((target > 0 && !CanGoPositive) || (target < 0 && !CanGoNegative)) target = 0;
             _target = target;
         }
-        else
-        {
-            var positive = CanGoPositive && ((p >= threshold && v > -flick) || (v >= flick && p >= Options.MinFlickProgress));
-            var negative = CanGoNegative && ((p <= -threshold && v < flick) || (v <= -flick && p <= -Options.MinFlickProgress));
-            _target = positive ? 1 : negative ? -1 : 0;
-        }
+        LastRelease = (p, v, _target);
+        _fewSince = double.NaN;
 
         // Hand the release velocity to the spring, as seen through the rubber band.
         const double h = 1e-3;
@@ -409,11 +441,11 @@ public sealed class GestureEngine
     /// Whether the fingers turned back from where they were heading before the decision: came back from their furthest
     /// by more than <see cref="TurnAllowanceMm"/> and a fifth of the way, for longer than fingers rolling off the pad take.
     /// </summary>
-    private bool TurnedBack(int heading, double travel, double at)
+    private bool TurnedBack(int heading, double travel, double at, double fullSwipeMm)
     {
         var furthest = heading > 0 ? _furthestAhead : -_furthestBehind;
         var back = furthest - travel * heading;
-        var allowance = TurnAllowanceMm / Options.FullSwipeMm;
+        var allowance = TurnAllowanceMm / fullSwipeMm;
         var stillNearAt = heading > 0 ? _nearAheadAt : _nearBehindAt;
         return back > Math.Max(allowance, furthest * 0.2) && at - stillNearAt > FlickHistory.RollOffTime;
     }

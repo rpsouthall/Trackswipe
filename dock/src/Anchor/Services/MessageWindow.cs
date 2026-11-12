@@ -60,9 +60,11 @@ public sealed class MessageWindow : IDisposable
 
     private nint OnMessage(nint hwnd, uint msg, nint wParam, nint lParam)
     {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             MessageReceived?.Invoke(msg, wParam, lParam);
+            Diag.Slow($"message 0x{msg:X}", started);
         }
         catch (Exception ex)
         {

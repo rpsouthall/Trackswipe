@@ -9,7 +9,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         AppDomain.CurrentDomain.UnhandledException += (_, e) => { Log.Write($"Fatal: {e.ExceptionObject}"); Log.Flush(); };
-        Log.VerboseEnabled = Environment.GetEnvironmentVariable("TRACKSWIPE_VERBOSE") == "1" || Has(args, "--verbose");
+        Log.VerboseEnabled = Environment.GetEnvironmentVariable("TRACKSWIPE_VERBOSE") == "1" || Has(args, "--verbose") ||
+            GesturePreferences.LoadOption(GesturePreferences.VerboseLog);
 
         if (WindowsBuild.Build < WindowsBuild.Minimum)
         {

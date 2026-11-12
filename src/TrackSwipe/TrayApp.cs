@@ -17,6 +17,7 @@ internal sealed partial class TrayApp : IDisposable
 {
     private readonly GestureEngine _engine;
     private readonly TapDetector _tap = new(); // composition thread
+    private readonly GestureJournal? _journal; // a line per gesture in the log, with verbose logging on
     private volatile int _tapFingers; // the fingers whose tap opens Start, or 0 for off
     private readonly TouchpadThread _touchpad;
     private readonly UiPump _pump;
@@ -104,6 +105,7 @@ internal sealed partial class TrayApp : IDisposable
 
         _pump = _compositionThread.Pump;
         _overlay.FramesNeeded += _clock.Start;
+        if (Log.VerboseEnabled) _journal = new GestureJournal(_engine);
 
         _engine.CandidateStarted += () =>
         {
@@ -487,6 +489,7 @@ internal sealed partial class TrayApp : IDisposable
         {
             var phase = _engine.Phase;
             _engine.Process(frame);
+            _journal?.Frame(frame);
             if (_tapFingers > 0) _tap.Process(frame);
             if (phase != GesturePhase.Tracking && _engine.Phase == GesturePhase.Tracking) _firstTrackingFrame = true;
             if (_engine.NeedsFrames) _clock.Start();
@@ -534,6 +537,7 @@ internal sealed partial class TrayApp : IDisposable
             DrainInput(); // the freshest touches, right before they're drawn
             _firstTrackingFrame = false;
             _engine.Tick(presentTime);
+            _journal?.Display();
             UpdateInputFilter(); // a settle finishing returns the engine to idle
             _overlay.RenderFrame(presentTime);
             Composition.Flush(); // the whole frame reaches DWM as one batch

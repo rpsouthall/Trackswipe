@@ -64,6 +64,10 @@ internal sealed class GpuDecorationLayer : IDisposable
             Composition.Changed();
             return;
         }
+        // Trimming lets go of whole tiles only: a tile the new region shares with the old one keeps the old one's
+        // pixels outside the new region (the bottom of the last window's highlight, left behind as the highlight
+        // moved to its neighbour). Wipe the old region first.
+        if (!RetainedRegion.IsEmpty && RetainedRegion != changed) Paint(static _ => { }, RetainedRegion);
         var local = changed; local.Offset(-Bounds.X, -Bounds.Y);
         _retained[0] = new RawRect(local.Left, local.Top, local.Right, local.Bottom);
         _sparse.Trim(_retained, 1).CheckError();
